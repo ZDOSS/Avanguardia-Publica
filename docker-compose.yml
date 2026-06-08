@@ -1,0 +1,85 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: avanguardia
+      POSTGRES_PASSWORD: avanguardia
+      POSTGRES_DB: avanguardia
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U avanguardia -d avanguardia"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql://avanguardia:avanguardia@db:5432/avanguardia
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: "https://zdoss.github.io,http://localhost:5173"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+
+  worker:
+    build: ./backend
+    command: celery -A app.core.celery_app worker -Q avanguardia -l info
+    environment:
+      DATABASE_URL: postgresql://avanguardia:avanguardia@db:5432/avanguardia
+      REDIS_URL: redis://redis:6379/0
+      API_KEY_DATA_GOV: ${API_KEY_DATA_GOV}
+      SENATE_LDA_API_KEY: ${SENATE_LDA_API_KEY}
+      OPENSECRETS_BULK_PATH: ${OPENSECRETS_BULK_PATH}
+      QUIVER_QUANT_API_KEY: ${QUIVER_QUANT_API_KEY}
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+
+  beat:
+    build: ./backend
+    command: celery -A app.core.celery_app beat -l info
+    environment:
+      DATABASE_URL: postgresql://avanguardia:avanguardia@db:5432/avanguardia
+      REDIS_URL: redis://redis:6379/0
+      API_KEY_DATA_GOV: ${API_KEY_DATA_GOV}
+      SENATE_LDA_API_KEY: ${SENATE_LDA_API_KEY}
+      OPENSECRETS_BULK_PATH: ${OPENSECRETS_BULK_PATH}
+      QUIVER_QUANT_API_KEY: ${QUIVER_QUANT_API_KEY}
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+
+volumes:
+  pgdata:
