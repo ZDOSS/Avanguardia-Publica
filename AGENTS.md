@@ -49,6 +49,11 @@ SQLAlchemy translates `filter(Model.col == None)` to `WHERE col IS NULL`, which 
 ### 15. Celery tasks calling async code MUST use `asyncio.run()`
 Synchronous Celery tasks cannot directly call `async def` functions — the call returns an unawaited coroutine that silently does nothing. Wrap async calls with `asyncio.run()` or declare the task as an async `celery_app.task`.
 
+## Workflow Rules
+
+### 20. Every fix round MUST be committed and pushed to the PR branch immediately
+Never accumulate uncommitted changes across multiple rounds. Greptile reviews the PR branch, not the local working tree — un-pushed fixes cause Greptile to re-flag already-resolved issues. After every fix round: `git add -A`, `git commit -m "<message>"`, `git push`. Apply Greptile suggestions verbatim unless there is a clear conflict with existing codebase conventions.
+
 ## Frontend Implementation Rules
 
 ### 16. Vite `base` MUST match the GitHub Pages repo sub-path
