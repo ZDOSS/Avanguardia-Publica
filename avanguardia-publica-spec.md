@@ -84,7 +84,7 @@ Contribution  — campaign donor / contribution
 ├── fec_filing_id, amendment_indicator
 ├── employer, occupation, location (for individual donors)
 ├── source_name  (provenance: "fec_api", "opensecrets_bulk")
-├── UNIQUE(fec_filing_id, contributor_name, amount, date) — dedup
+├── UNIQUE(fec_filing_id, donor_name, amount, date) — dedup
 
 VotingRecord  — from congress.gov + VoteView
 ├── id, politician_id, roll_call_number, congress, session
@@ -101,6 +101,11 @@ LobbyingRecord  — from Senate LDA
 ├── government_entities_lobbied, source_xml_url
 ├── UNIQUE(lda_id)
 
+PoliticianLobbyingRecord  — junction: politician ↔ lobbying (entity-resolved)
+├── id, politician_id (FK → Politician), lobbying_record_id (FK → LobbyingRecord)
+├── match_confidence (0.0–1.0), match_method (text[])
+├── UNIQUE(politician_id, lobbying_record_id)
+
 FinancialDisclosure  — stock trades + outside income
 ├── id, politician_id, filing_year, filing_type
 ├── asset_name, asset_type (stock/bond/real_estate/fund/crypto)
@@ -115,6 +120,11 @@ GovernmentContract  — from USAspending.gov
 ├── naics_code, place_of_performance
 ├── UNIQUE(award_id)
 
+PoliticianGovernmentContract  — junction: politician ↔ contract (entity-resolved)
+├── id, politician_id (FK → Politician), contract_id (FK → GovernmentContract)
+├── match_confidence (0.0–1.0), match_method (text[])
+├── UNIQUE(politician_id, contract_id)
+
 Tag
 ├── id, name, slug, description
 ├── is_admin_only (t)
@@ -125,6 +135,7 @@ Tag
 - `jsonb` for `external_ids`, `metadata`, `party_history` — allows per-country identifiers and extensible fields without schema changes
 - `source_name` on every record for data provenance
 - Composite UNIQUE constraints for idempotent upserts during syncs
+- `PoliticianLobbyingRecord` and `PoliticianGovernmentContract` are junction tables populated by entity matching (e.g., matching `government_entities_lobbied` text or recipient names against politician names/committees). These are resolved asynchronously after raw data ingestion.
 - PostgreSQL full-text search over politician names, donor names, organization names, bill titles
 
 ---
@@ -489,7 +500,7 @@ SENATE_LDA_API_KEY=...        # Senate LDA API key
 OPENSECRETS_BULK_PATH=...     # Local path to downloaded bulk data
 QUIVER_QUANT_API_KEY=...      # Quiver Quant API key
 ADMIN_API_KEY=...             # For protected admin endpoints
-CORS_ORIGINS=https://zdoss.github.io
+CORS_ORIGINS=https://zdoss.github.io,http://localhost:5173
 
 # Frontend (.env)
 VITE_API_URL=https://api.avanguardapublica.com
