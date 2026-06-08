@@ -84,7 +84,13 @@ Contribution  — campaign donor / contribution
 ├── fec_filing_id, amendment_indicator
 ├── employer, occupation, location (for individual donors)
 ├── source_name  (provenance: "fec_api", "opensecrets_bulk")
-├── UNIQUE(fec_filing_id, donor_name, amount, date) — dedup
+├── source_record_id  (non-null per-source unique id: fec_filing_id or source-assigned id)
+├── UNIQUE(source_name, source_record_id) — dedup per source
+
+PoliticianContribution  — junction: politician ↔ contribution (entity-resolved)
+├── id, politician_id (FK → Politician), contribution_id (FK → Contribution)
+├── match_confidence (0.0–1.0), match_method (text[])
+├── UNIQUE(politician_id, contribution_id)
 
 VotingRecord  — from congress.gov + VoteView
 ├── id, politician_id, roll_call_number, congress, session
@@ -136,6 +142,7 @@ Tag
 - `source_name` on every record for data provenance
 - Composite UNIQUE constraints for idempotent upserts during syncs
 - `PoliticianLobbyingRecord` and `PoliticianGovernmentContract` are junction tables populated by entity matching (e.g., matching `government_entities_lobbied` text or recipient names against politician names/committees). These are resolved asynchronously after raw data ingestion.
+- `PoliticianContribution` is populated by entity matching recipient/committee against politicians. The `source_record_id` + `source_name` composite UNIQUE ensures idempotent upserts across all sources (null-safe, unlike `fec_filing_id` which is absent for non-FEC records).
 - PostgreSQL full-text search over politician names, donor names, organization names, bill titles
 
 ---
