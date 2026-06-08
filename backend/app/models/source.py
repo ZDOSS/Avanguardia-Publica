@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer, Float, Date
+from sqlalchemy import String, Integer, JSON, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -12,6 +12,6 @@ class Source(Base):
     last_synced_at: Mapped[str | None] = mapped_column(nullable=True)
     sync_interval: Mapped[str | None] = mapped_column(String(50), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="idle")
-    config: Mapped[dict | None] = mapped_column(nullable=True)
+    config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     total_records: Mapped[int] = mapped_column(Integer, default=0)
-    errors: Mapped[list | None] = mapped_column(nullable=True)
+    errors: Mapped[list | None] = mapped_column(ARRAY(String), nullable=True)

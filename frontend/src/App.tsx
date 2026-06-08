@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Link } from "react-router-dom";
 import HomePage from "./pages/HomePage";
 import PoliticianPage from "./pages/PoliticianPage";
 
@@ -8,7 +8,7 @@ export default function App() {
       <header className="bg-blue-900 text-white p-4">
         <div className="max-w-6xl mx-auto">
           <h1 className="text-xl font-bold">
-            <a href="/">Avanguardia Publica</a>
+            <Link to="/">Avanguardia Publica</Link>
           </h1>
           <p className="text-sm text-blue-200">Political Data Transparency</p>
         </div>

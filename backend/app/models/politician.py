@@ -14,7 +14,7 @@ class Politician(Base):
     last_name: Mapped[str] = mapped_column(String(100))
     suffix: Mapped[str | None] = mapped_column(String(20), nullable=True)
     full_name: Mapped[str] = mapped_column(String(300))
-    party_history: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    party_history: Mapped[list | None] = mapped_column(JSON, nullable=True)
     state: Mapped[str] = mapped_column(String(2))
     district: Mapped[str | None] = mapped_column(String(10), nullable=True)
     chamber: Mapped[str] = mapped_column(String(20))

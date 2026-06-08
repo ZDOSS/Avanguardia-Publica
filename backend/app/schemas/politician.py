@@ -1,5 +1,6 @@
 from datetime import datetime
 from pydantic import BaseModel
+from typing import Any
 
 
 class PoliticianBase(BaseModel):
@@ -28,7 +29,7 @@ class PoliticianOut(PoliticianBase):
     voteview_id: str | None = None
     govtrack_id: str | None = None
     opensecrets_id: str | None = None
-    party_history: dict | None = None
+    party_history: list[dict[str, Any]] | None = None
     term_start: datetime | None = None
     term_end: list[datetime] | None = None
     created_at: datetime

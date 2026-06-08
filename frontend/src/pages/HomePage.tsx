@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchPoliticians, Politician } from "../lib/api";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 
 export default function HomePage() {
   const [search, setSearch] = useState("");
@@ -54,9 +55,9 @@ export default function HomePage() {
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {data.items.map((p: Politician) => (
-              <a
+              <Link
                 key={p.id}
-                href={`/politician/${p.id}`}
+                to={`/politician/${p.id}`}
                 className="block border rounded-lg p-4 hover:shadow-md transition bg-white"
               >
                 <h3 className="font-semibold text-lg">{p.full_name}</h3>
@@ -69,7 +70,7 @@ export default function HomePage() {
                     {Array.isArray(p.party_history) && p.party_history[0]?.party}
                   </span>
                 )}
-              </a>
+              </Link>
             ))}
           </div>
           <div className="flex justify-center gap-4 mt-6">
