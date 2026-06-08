@@ -12,6 +12,7 @@ import {
   type ContributionSummary,
 } from "../lib/api";
 import { useState } from "react";
+import DonorChart from "../components/DonorChart";
 
 function VoteBadge({ vote }: { vote: string }) {
   const colors: Record<string, string> = {
@@ -179,6 +180,19 @@ export default function PoliticianPage() {
           )}
         </section>
       </div>
+
+      {/* Campaign Finance Dashboard */}
+      <section className="mt-8 border rounded-lg p-4 bg-white">
+        <h3 className="text-lg font-semibold mb-4">Campaign Finance Dashboard</h3>
+        {contribSummary ? (
+          <DonorChart
+            byDonorType={contribSummary.by_donor_type}
+            byCycle={contribSummary.by_cycle}
+          />
+        ) : (
+          <p className="text-sm text-gray-500">No contribution data available.</p>
+        )}
+      </section>
 
       {/* Voting Records */}
       <section className="mt-8 border rounded-lg p-4 bg-white">
