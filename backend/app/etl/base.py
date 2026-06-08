@@ -40,12 +40,13 @@ class BaseSourceAdapter(ABC):
             raw_records = await self.fetch_records()
             batch_size = 500
             for i, raw in enumerate(raw_records):
+                savepoint = db.begin_nested()
                 try:
                     normalized = self.normalize(raw)
                     await self._upsert(normalized, db=db)
                     result.records_upserted += 1
                 except Exception as e:
-                    db.rollback()
+                    savepoint.rollback()
                     result.errors.append(str(e))
                 if (i + 1) % batch_size == 0:
                     db.commit()
