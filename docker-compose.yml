@@ -38,6 +38,10 @@ services:
       DATABASE_URL: postgresql://avanguardia:avanguardia@db:5432/avanguardia
       REDIS_URL: redis://redis:6379/0
       API_KEY_DATA_GOV: ${API_KEY_DATA_GOV}
+      SENATE_LDA_API_KEY: ${SENATE_LDA_API_KEY}
+      OPENSECRETS_BULK_PATH: ${OPENSECRETS_BULK_PATH}
+      QUIVER_QUANT_API_KEY: ${QUIVER_QUANT_API_KEY}
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
     depends_on:
       - db
       - redis
@@ -51,6 +55,10 @@ services:
       DATABASE_URL: postgresql://avanguardia:avanguardia@db:5432/avanguardia
       REDIS_URL: redis://redis:6379/0
       API_KEY_DATA_GOV: ${API_KEY_DATA_GOV}
+      SENATE_LDA_API_KEY: ${SENATE_LDA_API_KEY}
+      OPENSECRETS_BULK_PATH: ${OPENSECRETS_BULK_PATH}
+      QUIVER_QUANT_API_KEY: ${QUIVER_QUANT_API_KEY}
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
     depends_on:
       - db
       - redis

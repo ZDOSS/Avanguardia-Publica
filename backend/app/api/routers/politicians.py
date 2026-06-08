@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import cast
 from sqlalchemy.dialects.postgresql import JSONB
 import json
 
@@ -32,7 +32,7 @@ def list_politicians(
     if party:
         party_json = json.dumps([{"party": party.upper()}])
         query = query.filter(
-            func.cast(Politician.party_history, JSONB).op("@>")(func.cast(party_json, JSONB))
+            cast(Politician.party_history, JSONB).op("@>")(cast(party_json, JSONB))
         )
 
     total = query.count()

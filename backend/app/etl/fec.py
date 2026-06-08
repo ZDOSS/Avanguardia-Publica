@@ -1,4 +1,5 @@
 import httpx
+import uuid
 from app.core.config import settings
 from app.etl.base import BaseSourceAdapter
 
@@ -50,7 +51,7 @@ class FECAdapter(BaseSourceAdapter):
             "occupation": raw.get("contributor_occupation"),
             "location": f"{raw.get('contributor_city', '')}, {raw.get('contributor_state', '')}",
             "source_name": self.source_name,
-            "source_record_id": str(val) if (val := raw.get("sub_id") or raw.get("fec_filing_id") or "") else "",
+            "source_record_id": str(val) if (val := raw.get("sub_id") or raw.get("fec_filing_id")) else str(uuid.uuid4()),
         }
 
     async def _upsert(self, record: dict, db=None) -> None:

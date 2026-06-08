@@ -11,10 +11,10 @@ class CongressGovAdapter(BaseSourceAdapter):
     async def fetch_records(self) -> list[dict]:
         """Fetch current members from Congress.gov with pagination."""
         records = []
-        pages_fetched = 0
         async with httpx.AsyncClient() as client:
             for chamber in ("house", "senate"):
                 offset = 0
+                pages_fetched = 0
                 while pages_fetched < self.max_pages_default:
                     resp = await client.get(
                         f"{self.base_url}/member/congress/current/{chamber}",
