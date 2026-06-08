@@ -5,9 +5,10 @@ from sqlalchemy.dialects.postgresql import JSONB
 import json
 
 from app.core.database import get_db
-from app.models import Politician, VotingRecord
+from app.models import Politician, VotingRecord, Contribution
 from app.schemas.politician import PoliticianOut, PoliticianListOut
 from app.schemas.voting import VotingRecordOut
+from app.schemas.contribution import ContributionOut
 
 router = APIRouter(prefix="/api/politicians", tags=["politicians"])
 
@@ -72,3 +73,19 @@ def get_politician_voting(
         query = query.filter(VotingRecord.congress == congress)
     records = query.order_by(VotingRecord.vote_date.desc()).limit(limit).all()
     return [VotingRecordOut.model_validate(r) for r in records]
+
+
+@router.get("/{politician_id}/contributions", response_model=list[ContributionOut])
+def get_politician_contributions(
+    politician_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    politician = db.query(Politician).filter(Politician.id == politician_id).first()
+    if not politician:
+        raise HTTPException(status_code=404, detail="Politician not found")
+
+    records = db.query(Contribution).filter(
+        Contribution.politician_id == politician_id
+    ).order_by(Contribution.date.desc()).limit(limit).all()
+    return [ContributionOut.model_validate(r) for r in records]

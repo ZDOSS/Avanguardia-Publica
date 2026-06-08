@@ -10,6 +10,7 @@ def sync_source(self, source_name: str):
     from app.etl.fec import FECAdapter
     from app.etl.congress_gov import CongressGovAdapter
     from app.etl.voteview import VoteViewAdapter
+    from app.etl.opensecrets import OpenSecretsAdapter
     from app.models import Source
     from app.core.database import SessionLocal
 
@@ -17,6 +18,7 @@ def sync_source(self, source_name: str):
         "fec_api": FECAdapter(),
         "congress_gov_api": CongressGovAdapter(),
         "voteview": VoteViewAdapter(),
+        "opensecrets_bulk": OpenSecretsAdapter(),
     }
     adapter = adapters.get(source_name)
     if not adapter:
@@ -54,7 +56,7 @@ def sync_all_sources():
 
     db = SessionLocal()
     try:
-        registered = ["fec_api", "congress_gov_api", "voteview"]
+        registered = ["fec_api", "congress_gov_api", "voteview", "opensecrets_bulk"]
         existing = {s.name for s in db.query(Source).all()}
         for name in registered:
             if name not in existing:
