@@ -45,6 +45,7 @@ class BaseSourceAdapter(ABC):
                     await self._upsert(normalized, db=db)
                     result.records_upserted += 1
                 except Exception as e:
+                    db.rollback()
                     result.errors.append(str(e))
                 if (i + 1) % batch_size == 0:
                     db.commit()

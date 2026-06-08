@@ -6,13 +6,15 @@ from app.etl.base import BaseSourceAdapter
 class FECAdapter(BaseSourceAdapter):
     source_name = "fec_api"
     base_url = "https://api.open.fec.gov/v1"
+    max_pages_default = 50  # safety cap per sync run
 
-    async def fetch_records(self) -> list[dict]:
-        """Fetch contributions from FEC API with pagination."""
+    async def fetch_records(self, max_pages: int | None = None) -> list[dict]:
+        """Fetch contributions from FEC API with pagination and safety cap."""
+        max_pages = max_pages or self.max_pages_default
         records = []
         async with httpx.AsyncClient() as client:
             page = 1
-            while True:
+            while page <= max_pages:
                 resp = await client.get(
                     f"{self.base_url}/schedules/schedule_a/",
                     params={
@@ -27,7 +29,8 @@ class FECAdapter(BaseSourceAdapter):
                 data = resp.json()
                 results = data.get("results", [])
                 records.extend(results)
-                if page >= data.get("pagination", {}).get("pages", 1):
+                total_pages = data.get("pagination", {}).get("pages", 1)
+                if page >= total_pages or not results:
                     break
                 page += 1
         return records

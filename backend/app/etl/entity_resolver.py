@@ -31,10 +31,12 @@ class EntityResolver:
         """Build crosswalks from VoteView data (bioguide ↔ icpsr ↔ voteview)."""
         crosswalks: list[EntityMatch] = []
         for row in voteview_data:
+            raw_icpsr = row.get("icpsr_id")
+            raw_voteview = row.get("id")
             crosswalks.append(EntityMatch(
                 bioguide_id=row.get("bioguide_id", ""),
-                icpsr_id=str(row.get("icpsr_id", "")),
-                voteview_id=str(row.get("id", "")),
+                icpsr_id=str(raw_icpsr) if raw_icpsr is not None else None,
+                voteview_id=str(raw_voteview) if raw_voteview is not None else None,
                 fec_ids=[],
                 confidence=1.0,
             ))

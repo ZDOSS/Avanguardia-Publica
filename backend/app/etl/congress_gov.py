@@ -66,7 +66,12 @@ class CongressGovAdapter(BaseSourceAdapter):
     async def _upsert(self, record: dict, db=None) -> None:
         from app.models import Politician
 
-        existing = db.query(Politician).filter(Politician.bioguide_id == record["bioguide_id"]).first()
+        bioguide = record.get("bioguide_id")
+        if not bioguide:
+            db.add(Politician(**record))
+            return
+
+        existing = db.query(Politician).filter(Politician.bioguide_id == bioguide).first()
         if existing:
             for k, v in record.items():
                 if v is not None:
