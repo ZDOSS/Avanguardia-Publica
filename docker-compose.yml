@@ -31,5 +31,29 @@ services:
     volumes:
       - ./backend:/app
 
+  worker:
+    build: ./backend
+    command: celery -A app.core.celery_app worker -Q avanguardia -l info
+    environment:
+      DATABASE_URL: postgresql://avanguardia:avanguardia@db:5432/avanguardia
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - ./backend:/app
+
+  beat:
+    build: ./backend
+    command: celery -A app.core.celery_app beat -l info
+    environment:
+      DATABASE_URL: postgresql://avanguardia:avanguardia@db:5432/avanguardia
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - ./backend:/app
+
 volumes:
   pgdata:
