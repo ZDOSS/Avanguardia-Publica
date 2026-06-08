@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer, UniqueConstraint
+from sqlalchemy import String, Integer, UniqueConstraint, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -8,7 +8,7 @@ class PoliticianIdeologyScore(Base):
     __tablename__ = "politician_ideology_score"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    politician_id: Mapped[int] = mapped_column(Integer)
+    politician_id: Mapped[int] = mapped_column(Integer, ForeignKey("politician.id", ondelete="CASCADE"))
     congress: Mapped[int] = mapped_column(Integer)
     chamber: Mapped[str] = mapped_column(String(20))
     dw_nominate_dim1: Mapped[float | None] = mapped_column(nullable=True)

@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer, UniqueConstraint
+from sqlalchemy import String, Integer, UniqueConstraint, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import date
 
@@ -9,7 +9,7 @@ class VotingRecord(Base):
     __tablename__ = "voting_record"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    politician_id: Mapped[int] = mapped_column(Integer)
+    politician_id: Mapped[int] = mapped_column(Integer, ForeignKey("politician.id", ondelete="CASCADE"))
     roll_call_number: Mapped[int] = mapped_column(Integer)
     congress: Mapped[int] = mapped_column(Integer)
     session: Mapped[int] = mapped_column(Integer)

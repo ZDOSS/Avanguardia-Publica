@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -31,27 +31,36 @@ class BaseSourceAdapter(ABC):
         ...
 
     async def run_sync(self) -> SyncResult:
-        """Full ETL pipeline for this source."""
-        result = SyncResult(source_name=self.source_name, started_at=datetime.utcnow())
+        """Full ETL pipeline for this source. Opens one DB session for the batch."""
+        from app.core.database import SessionLocal
+
+        result = SyncResult(source_name=self.source_name, started_at=datetime.now(timezone.utc))
+        db = SessionLocal()
         try:
             raw_records = await self.fetch_records()
-            for raw in raw_records:
+            batch_size = 500
+            for i, raw in enumerate(raw_records):
                 try:
                     normalized = self.normalize(raw)
-                    await self._upsert(normalized)
+                    await self._upsert(normalized, db=db)
                     result.records_upserted += 1
                 except Exception as e:
                     result.errors.append(str(e))
+                if (i + 1) % batch_size == 0:
+                    db.commit()
+            db.commit()
             result.records_ingested = len(raw_records)
             result.status = "completed"
         except Exception as e:
+            db.rollback()
             result.status = "failed"
             result.errors.append(f"Fatal: {e}")
         finally:
-            result.completed_at = datetime.utcnow()
+            result.completed_at = datetime.now(timezone.utc)
+            db.close()
         return result
 
     @abstractmethod
-    async def _upsert(self, record: dict[str, Any]) -> None:
-        """Insert or update a normalized record in the database."""
+    async def _upsert(self, record: dict[str, Any], db=None) -> None:
+        """Insert or update a normalized record. Receives an open DB session."""
         ...

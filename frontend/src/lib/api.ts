@@ -12,7 +12,7 @@ export interface Politician {
   bioguide_id: string | null;
   in_office: boolean;
   photo_url: string | null;
-  party_history: Record<string, unknown> | null;
+  party_history: Array<{ party: string; start_date: string | null; end_date: string | null }> | null;
 }
 
 export interface PoliticianList {

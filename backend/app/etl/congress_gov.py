@@ -63,20 +63,13 @@ class CongressGovAdapter(BaseSourceAdapter):
             "photo_url": raw.get("depiction", {}).get("imageUrl") if isinstance(raw.get("depiction"), dict) else None,
         }
 
-    async def _upsert(self, record: dict) -> None:
-        from app.core.database import SessionLocal
+    async def _upsert(self, record: dict, db=None) -> None:
+        from app.models import Politician
 
-        db = SessionLocal()
-        try:
-            from app.models import Politician
-
-            existing = db.query(Politician).filter(Politician.bioguide_id == record["bioguide_id"]).first()
-            if existing:
-                for k, v in record.items():
-                    if v is not None:
-                        setattr(existing, k, v)
-            else:
-                db.add(Politician(**record))
-            db.commit()
-        finally:
-            db.close()
+        existing = db.query(Politician).filter(Politician.bioguide_id == record["bioguide_id"]).first()
+        if existing:
+            for k, v in record.items():
+                if v is not None:
+                    setattr(existing, k, v)
+        else:
+            db.add(Politician(**record))

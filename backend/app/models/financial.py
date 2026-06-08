@@ -1,4 +1,4 @@
-from sqlalchemy import String, Float, Integer, UniqueConstraint, Date, Text
+from sqlalchemy import String, Float, Integer, UniqueConstraint, Date, Text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import date
 
@@ -9,7 +9,7 @@ class FinancialDisclosure(Base):
     __tablename__ = "financial_disclosure"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    politician_id: Mapped[int] = mapped_column(Integer)
+    politician_id: Mapped[int] = mapped_column(Integer, ForeignKey("politician.id", ondelete="CASCADE"))
     filing_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     filing_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     asset_name: Mapped[str | None] = mapped_column(String(500), nullable=True)

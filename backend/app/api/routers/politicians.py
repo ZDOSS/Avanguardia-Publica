@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import String, cast
 
 from app.core.database import get_db
 from app.models import Politician
@@ -27,7 +28,7 @@ def list_politicians(
     if search:
         query = query.filter(Politician.full_name.ilike(f"%{search}%"))
     if party:
-        query = query.filter(Politician.party_history != None)
+        query = query.filter(Politician.party_history.cast(String).ilike(f"%{party}%"))
 
     total = query.count()
     offset = (page - 1) * per_page
@@ -45,6 +46,5 @@ def list_politicians(
 def get_politician(politician_id: int, db: Session = Depends(get_db)):
     politician = db.query(Politician).filter(Politician.id == politician_id).first()
     if not politician:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Politician not found")
     return PoliticianOut.model_validate(politician)

@@ -50,21 +50,15 @@ class FECAdapter(BaseSourceAdapter):
             "source_record_id": str(raw.get("sub_id", raw.get("fec_filing_id", ""))),
         }
 
-    async def _upsert(self, record: dict) -> None:
-        from app.core.database import SessionLocal
+    async def _upsert(self, record: dict, db=None) -> None:
         from sqlalchemy.dialects.postgresql import insert
 
-        db = SessionLocal()
-        try:
-            stmt = insert(self._model).values(**record)
-            stmt = stmt.on_conflict_do_update(
-                constraint="uq_contribution_dedup",
-                set_={k: stmt.excluded[k] for k in record if k not in ("source_name", "source_record_id")},
-            )
-            db.execute(stmt)
-            db.commit()
-        finally:
-            db.close()
+        stmt = insert(self._model).values(**record)
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_contribution_dedup",
+            set_={k: stmt.excluded[k] for k in record if k not in ("source_name", "source_record_id")},
+        )
+        db.execute(stmt)
 
     _model = None  # set lazily to avoid import cycle
 
