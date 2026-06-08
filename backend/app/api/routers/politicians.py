@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import String, cast
+from sqlalchemy import func
+from sqlalchemy.dialects.postgresql import JSONB
+import json
 
 from app.core.database import get_db
 from app.models import Politician
@@ -28,7 +30,10 @@ def list_politicians(
     if search:
         query = query.filter(Politician.full_name.ilike(f"%{search}%"))
     if party:
-        query = query.filter(Politician.party_history.cast(String).ilike(f"%{party}%"))
+        party_json = json.dumps([{"party": party.upper()}])
+        query = query.filter(
+            func.cast(Politician.party_history, JSONB).op("@>")(func.cast(party_json, JSONB))
+        )
 
     total = query.count()
     offset = (page - 1) * per_page

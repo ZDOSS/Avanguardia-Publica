@@ -19,7 +19,9 @@ class LobbyingRecord(Base):
     filing_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
     government_entities_lobbied: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_xml_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    source_name: Mapped[str] = mapped_column(String(50))
+    source_record_id: Mapped[str] = mapped_column(String(100))
 
     __table_args__ = (
-        UniqueConstraint("lda_id", name="uq_lobbying_lda_id"),
+        UniqueConstraint("source_name", "source_record_id", name="uq_lobbying_dedup"),
     )

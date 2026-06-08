@@ -17,7 +17,9 @@ class GovernmentContract(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     naics_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
     place_of_performance: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    source_name: Mapped[str] = mapped_column(String(50))
+    source_record_id: Mapped[str] = mapped_column(String(100))
 
     __table_args__ = (
-        UniqueConstraint("award_id", name="uq_contract_award_id"),
+        UniqueConstraint("source_name", "source_record_id", name="uq_contract_dedup"),
     )

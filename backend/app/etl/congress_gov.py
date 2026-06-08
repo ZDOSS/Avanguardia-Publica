@@ -6,14 +6,16 @@ from app.etl.base import BaseSourceAdapter
 class CongressGovAdapter(BaseSourceAdapter):
     source_name = "congress_gov_api"
     base_url = "https://api.congress.gov/v3"
+    max_pages_default = 10  # safety cap: 10 pages × 250 = 2500, far above 535 members
 
     async def fetch_records(self) -> list[dict]:
         """Fetch current members from Congress.gov with pagination."""
         records = []
+        pages_fetched = 0
         async with httpx.AsyncClient() as client:
             for chamber in ("house", "senate"):
                 offset = 0
-                while True:
+                while pages_fetched < self.max_pages_default:
                     resp = await client.get(
                         f"{self.base_url}/member/congress/current/{chamber}",
                         params={
@@ -30,6 +32,7 @@ class CongressGovAdapter(BaseSourceAdapter):
                         break
                     records.extend(members)
                     offset += len(members)
+                    pages_fetched += 1
         return records
 
     def normalize(self, raw: dict) -> dict:
