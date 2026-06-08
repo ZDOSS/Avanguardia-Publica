@@ -52,7 +52,10 @@ Synchronous Celery tasks cannot directly call `async def` functions — the call
 ## Workflow Rules
 
 ### 20. Every fix round MUST be committed and pushed to the PR branch immediately
-Never accumulate uncommitted changes across multiple rounds. Greptile reviews the PR branch, not the local working tree — un-pushed fixes cause Greptile to re-flag already-resolved issues. After every fix round: `git add -A`, `git commit -m "<message>"`, `git push`. Apply Greptile suggestions verbatim unless there is a clear conflict with existing codebase conventions.
+Never accumulate uncommitted changes across multiple rounds. Greptile reviews the PR branch, not the local working tree — un-pushed fixes cause Greptile to re-flag already-resolved issues. After every fix round: `git add -A`, `git commit -m "<message>"`, `git push`.
+
+### 21. Apply Greptile fixes verbatim
+Use the exact code Greptile suggests in its review comments and summary, character for character. Do not refactor, restyle, or add extra type annotations unless the suggestion directly conflicts with an existing codebase convention. The only allowed deviation is an explicit column type prefix (e.g., `Integer, ForeignKey(...)` → `ForeignKey(...)`) to match the suggestion exactly.
 
 ## Frontend Implementation Rules
 
