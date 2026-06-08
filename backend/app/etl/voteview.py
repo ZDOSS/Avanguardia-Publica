@@ -45,11 +45,13 @@ class VoteViewAdapter(BaseSourceAdapter):
                     resp.raise_for_status()
                     members_df = pd.read_csv(io.StringIO(resp.text))
                     for _, row in members_df.iterrows():
+                        raw_icpsr = row.get("icpsr")
+                        raw_chamber = row.get("chamber")
                         records.append({
                             "_type": "ideology_score",
                             "congress": c,
-                            "icpsr": str(row.get("icpsr", "")).strip(),
-                            "chamber": str(row.get("chamber", "")).strip().lower(),
+                            "icpsr": str(raw_icpsr).strip() if raw_icpsr is not None and not pd.isna(raw_icpsr) else "",
+                            "chamber": str(raw_chamber).strip().lower() if raw_chamber is not None and not pd.isna(raw_chamber) else "",
                             "dim1": row.get("dim1") if pd.notna(row.get("dim1")) else None,
                             "dim2": row.get("dim2") if pd.notna(row.get("dim2")) else None,
                         })
@@ -65,14 +67,16 @@ class VoteViewAdapter(BaseSourceAdapter):
                     resp.raise_for_status()
                     votes_df = pd.read_csv(io.StringIO(resp.text))
                     for _, row in votes_df.iterrows():
+                        raw_icpsr = row.get("icpsr")
+                        raw_chamber = row.get("chamber")
                         records.append({
                             "_type": "voting_record",
                             "congress": c,
-                            "icpsr": str(row.get("icpsr", "")).strip(),
-                            "chamber": str(row.get("chamber", "")).strip().lower(),
-                            "rollnumber": int(row.get("rollnumber", 0)),
+                            "icpsr": str(raw_icpsr).strip() if raw_icpsr is not None and not pd.isna(raw_icpsr) else "",
+                            "chamber": str(raw_chamber).strip().lower() if raw_chamber is not None and not pd.isna(raw_chamber) else "",
+                            "rollnumber": int(row.get("rollnumber", 0)) if pd.notna(row.get("rollnumber")) else 0,
                             "session": int(row.get("session", 0)) if pd.notna(row.get("session")) else 1,
-                            "cast_code": int(row.get("cast_code", 0)),
+                            "cast_code": int(row.get("cast_code", 0)) if pd.notna(row.get("cast_code")) else 0,
                             "bill_number": str(row.get("bill_number", "")).strip() if pd.notna(row.get("bill_number")) else None,
                             "bill_type": str(row.get("bill_type", "")).strip() if pd.notna(row.get("bill_type")) else None,
                             "vote_date": str(row.get("date", "")).strip() if pd.notna(row.get("date")) else None,
@@ -94,6 +98,8 @@ class VoteViewAdapter(BaseSourceAdapter):
         return {}
 
     def _normalize_ideology(self, raw: dict) -> dict[str, Any]:
+        # Construct source_record_id: voteview-{congress}-{icpsr}
+        source_record_id = f"voteview-{raw['congress']}-{raw['icpsr']}"
         return {
             "_model": "PoliticianIdeologyScore",
             "congress": raw["congress"],
@@ -101,6 +107,7 @@ class VoteViewAdapter(BaseSourceAdapter):
             "dw_nominate_dim1": raw.get("dim1"),
             "dw_nominate_dim2": raw.get("dim2"),
             "source_name": self.source_name,
+            "source_record_id": source_record_id,
             "_icpsr": raw["icpsr"],
         }
 
@@ -159,11 +166,10 @@ class VoteViewAdapter(BaseSourceAdapter):
                 db.add(VotingRecord(**record))
 
         elif model_name == "PoliticianIdeologyScore":
-            # Upsert by politician_id + congress + chamber
+            # Upsert by source_name + source_record_id
             existing = db.query(PoliticianIdeologyScore).filter(
-                PoliticianIdeologyScore.politician_id == politician.id,
-                PoliticianIdeologyScore.congress == record["congress"],
-                PoliticianIdeologyScore.chamber == record["chamber"],
+                PoliticianIdeologyScore.source_name == record["source_name"],
+                PoliticianIdeologyScore.source_record_id == record["source_record_id"],
             ).first()
             if existing:
                 for k, v in record.items():

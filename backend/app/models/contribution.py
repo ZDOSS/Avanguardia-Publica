@@ -1,4 +1,4 @@
-from sqlalchemy import String, Numeric, Date, Integer, UniqueConstraint
+from sqlalchemy import String, Numeric, Date, Integer, UniqueConstraint, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import date
 
@@ -13,6 +13,7 @@ class Contribution(Base):
     donor_type: Mapped[str] = mapped_column(String(50))
     recipient_name: Mapped[str] = mapped_column(String(300))
     committee_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    politician_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("politician.id", ondelete="CASCADE"), nullable=True)
     amount: Mapped[float] = mapped_column(Numeric(12, 2))
     date: Mapped[date | None] = mapped_column(Date, nullable=True)
     election_cycle: Mapped[int | None] = mapped_column(Integer, nullable=True)

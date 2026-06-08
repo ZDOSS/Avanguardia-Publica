@@ -23,6 +23,7 @@ def upgrade() -> None:
     sa.Column('donor_type', sa.String(length=50), nullable=False),
     sa.Column('recipient_name', sa.String(length=300), nullable=False),
     sa.Column('committee_id', sa.String(length=20), nullable=True),
+    sa.Column('politician_id', sa.Integer(), nullable=True),
     sa.Column('amount', sa.Numeric(precision=12, scale=2), nullable=False),
     sa.Column('date', sa.Date(), nullable=True),
     sa.Column('election_cycle', sa.Integer(), nullable=True),
@@ -33,6 +34,7 @@ def upgrade() -> None:
     sa.Column('location', sa.String(length=200), nullable=True),
     sa.Column('source_name', sa.String(length=50), nullable=False),
     sa.Column('source_record_id', sa.String(length=100), nullable=False),
+    sa.ForeignKeyConstraint(['politician_id'], ['politician.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('source_name', 'source_record_id', name='uq_contribution_dedup')
     )
@@ -75,8 +77,11 @@ def upgrade() -> None:
     sa.Column('type', sa.String(length=50), nullable=False),
     sa.Column('fec_id', sa.String(length=20), nullable=True),
     sa.Column('opensecrets_id', sa.String(length=20), nullable=True),
+    sa.Column('source_name', sa.String(length=50), nullable=False),
+    sa.Column('source_record_id', sa.String(length=100), nullable=False),
     sa.Column('metadata', sa.JSON(), nullable=True),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('source_name', 'source_record_id', name='uq_organization_dedup')
     )
     op.create_table('politician',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
@@ -180,9 +185,10 @@ def upgrade() -> None:
     sa.Column('dw_nominate_dim1', sa.Float(), nullable=True),
     sa.Column('dw_nominate_dim2', sa.Float(), nullable=True),
     sa.Column('source_name', sa.String(length=50), nullable=False),
+    sa.Column('source_record_id', sa.String(length=100), nullable=False),
     sa.ForeignKeyConstraint(['politician_id'], ['politician.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('politician_id', 'congress', 'chamber', name='uq_ideology_score')
+    sa.UniqueConstraint('source_name', 'source_record_id', name='uq_ideology_score_dedup')
     )
     op.create_table('politician_lobbying_record',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),

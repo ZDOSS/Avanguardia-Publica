@@ -25,6 +25,22 @@ from app.core.config import settings
 from app.etl.base import BaseSourceAdapter
 
 
+def _safe_strip(value, default: str = ""):
+    """Safely strip a value that may be None, returning default if None/empty."""
+    if value is None:
+        return default
+    stripped = str(value).strip()
+    return stripped if stripped else default
+
+
+def _safe_strip_or_none(value):
+    """Safely strip a value that may be None, returning None if empty/None."""
+    if value is None:
+        return None
+    stripped = str(value).strip()
+    return stripped if stripped else None
+
+
 class OpenSecretsAdapter(BaseSourceAdapter):
     """Bulk importer for OpenSecrets campaign finance data."""
 
@@ -67,20 +83,20 @@ class OpenSecretsAdapter(BaseSourceAdapter):
                         records.append({
                             "_type": "contribution",
                             "cycle": row.get("cycle"),
-                            "donor_name": row.get("contrib", "").strip(),
-                            "recipient_id": row.get("recip_id", "").strip(),
-                            "committee_id": row.get("cmte_id", "").strip(),
-                            "organization_name": row.get("org_name", "").strip() or None,
-                            "ultimate_org": row.get("ult_org", "").strip() or None,
-                            "industry_code": row.get("real_code", "").strip() or None,
-                            "amount": row.get("amount", "0").strip(),
-                            "date": row.get("date", "").strip() or None,
-                            "city": row.get("city", "").strip() or None,
-                            "state": row.get("state", "").strip() or None,
-                            "zip": row.get("zip", "").strip() or None,
-                            "occupation": row.get("occupation", "").strip() or None,
-                            "employer": row.get("employer", "").strip() or None,
-                            "gender": row.get("gender", "").strip() or None,
+                            "donor_name": _safe_strip(row.get("contrib")),
+                            "recipient_id": _safe_strip(row.get("recip_id")),
+                            "committee_id": _safe_strip_or_none(row.get("cmte_id")),
+                            "organization_name": _safe_strip_or_none(row.get("org_name")),
+                            "ultimate_org": _safe_strip_or_none(row.get("ult_org")),
+                            "industry_code": _safe_strip_or_none(row.get("real_code")),
+                            "amount": _safe_strip(row.get("amount"), default="0"),
+                            "date": _safe_strip_or_none(row.get("date")),
+                            "city": _safe_strip_or_none(row.get("city")),
+                            "state": _safe_strip_or_none(row.get("state")),
+                            "zip": _safe_strip_or_none(row.get("zip")),
+                            "occupation": _safe_strip_or_none(row.get("occupation")),
+                            "employer": _safe_strip_or_none(row.get("employer")),
+                            "gender": _safe_strip_or_none(row.get("gender")),
                         })
 
             # PAC contributions
@@ -95,13 +111,13 @@ class OpenSecretsAdapter(BaseSourceAdapter):
                         records.append({
                             "_type": "contribution",
                             "cycle": row.get("cycle"),
-                            "donor_name": row.get("pac_id", "").strip(),
+                            "donor_name": _safe_strip(row.get("pac_id")),
                             "donor_type": "pac",
-                            "recipient_id": row.get("cid", "").strip(),
-                            "committee_id": row.get("pac_id", "").strip(),
-                            "industry_code": row.get("real_code", "").strip() or None,
-                            "amount": row.get("amount", "0").strip(),
-                            "date": row.get("date", "").strip() or None,
+                            "recipient_id": _safe_strip(row.get("cid")),
+                            "committee_id": _safe_strip_or_none(row.get("pac_id")),
+                            "industry_code": _safe_strip_or_none(row.get("real_code")),
+                            "amount": _safe_strip(row.get("amount"), default="0"),
+                            "date": _safe_strip_or_none(row.get("date")),
                         })
 
             # Committee master (for organization metadata)
@@ -117,11 +133,11 @@ class OpenSecretsAdapter(BaseSourceAdapter):
                     for row in reader:
                         records.append({
                             "_type": "organization",
-                            "opensecrets_id": row.get("cmte_id", "").strip(),
-                            "name": row.get("cmte_name", "").strip(),
-                            "type": self._map_cmte_type(row.get("cmte_type", "").strip()),
-                            "party_affiliation": row.get("cmte_pty_affiliation", "").strip() or None,
-                            "connected_org": row.get("connected_org_name", "").strip() or None,
+                            "opensecrets_id": _safe_strip(row.get("cmte_id")),
+                            "name": _safe_strip(row.get("cmte_name")),
+                            "type": self._map_cmte_type(_safe_strip(row.get("cmte_type"))),
+                            "party_affiliation": _safe_strip_or_none(row.get("cmte_pty_affiliation")),
+                            "connected_org": _safe_strip_or_none(row.get("connected_org_name")),
                         })
 
         return records
@@ -159,7 +175,8 @@ class OpenSecretsAdapter(BaseSourceAdapter):
         return {}
 
     def _normalize_contribution(self, raw: dict) -> dict[str, Any]:
-        amount_str = raw.get("amount", "0").strip()
+        amount_raw = raw.get("amount", "0")
+        amount_str = str(amount_raw).strip() if amount_raw is not None else "0"
         try:
             amount = float(amount_str)
         except ValueError:
@@ -192,11 +209,14 @@ class OpenSecretsAdapter(BaseSourceAdapter):
         }
 
     def _normalize_organization(self, raw: dict) -> dict[str, Any]:
+        opensecrets_id = raw.get("opensecrets_id", "")
         return {
             "_model": "Organization",
             "name": raw["name"],
             "type": raw["type"],
-            "opensecrets_id": raw.get("opensecrets_id"),
+            "opensecrets_id": opensecrets_id or None,
+            "source_name": self.source_name,
+            "source_record_id": opensecrets_id or f"opensecrets-org-{raw['name']}",
             "metadata": {
                 "party_affiliation": raw.get("party_affiliation"),
                 "connected_org": raw.get("connected_org"),
@@ -233,12 +253,13 @@ class OpenSecretsAdapter(BaseSourceAdapter):
                 db.add(Contribution(**record))
 
         elif model_name == "Organization":
-            opensecrets_id = record.get("opensecrets_id")
-            if not opensecrets_id:
+            # Upsert by source_name + source_record_id
+            if not record.get("source_name") or not record.get("source_record_id"):
                 return
 
             existing = db.query(Organization).filter(
-                Organization.opensecrets_id == opensecrets_id
+                Organization.source_name == record["source_name"],
+                Organization.source_record_id == record["source_record_id"],
             ).first()
             if existing:
                 for k, v in record.items():
