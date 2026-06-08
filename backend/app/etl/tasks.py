@@ -27,7 +27,7 @@ def sync_source(self, source_name: str):
         source = db.query(Source).filter(Source.name == source_name).first()
         if source is not None:
             source.last_synced_at = datetime.now(timezone.utc)
-            source.total_records = result.records_upserted
+            source.total_records = (source.total_records or 0) + result.records_upserted
             source.status = result.status
             db.commit()
     finally:
