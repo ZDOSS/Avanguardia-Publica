@@ -8,7 +8,7 @@ app = FastAPI(title="Avanguardia Publica API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins.split(","),
+    allow_origins=[origin.strip() for origin in settings.cors_origins.split(",")],
     allow_credentials=True,
     allow_methods=["GET"],
     allow_headers=["*"],
