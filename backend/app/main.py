@@ -2,9 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.api.routers import politicians
+from app.api.routers import politicians, voting
 
-app = FastAPI(title="Avanguardia Publica API", version="0.1.0")
+app = FastAPI(title="Avanguardia Publica API", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -15,6 +15,7 @@ app.add_middleware(
 )
 
 app.include_router(politicians.router)
+app.include_router(voting.router)
 
 
 @app.get("/api/health")
