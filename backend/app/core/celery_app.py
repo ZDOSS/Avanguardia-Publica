@@ -12,7 +12,6 @@ celery_app = Celery(
 celery_app.conf.timezone = "UTC"
 celery_app.conf.task_default_queue = "avanguardia"
 celery_app.conf.imports = ["app.etl.tasks"]
-celery_app.autodiscover_tasks(["app.etl"])
 
 celery_app.conf.beat_schedule = {
     "sync-all-daily": {

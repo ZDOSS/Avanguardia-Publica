@@ -37,6 +37,13 @@ def sync_all_sources():
 
     db = SessionLocal()
     try:
+        registered = ["fec_api", "congress_gov_api"]
+        existing = {s.name for s in db.query(Source).all()}
+        for name in registered:
+            if name not in existing:
+                db.add(Source(name=name, status="idle", sync_interval="daily"))
+        db.commit()
+
         sources = db.query(Source).all()
         for source in sources:
             sync_source.delay(source.name)
