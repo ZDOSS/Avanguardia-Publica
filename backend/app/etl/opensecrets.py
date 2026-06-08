@@ -17,6 +17,7 @@ Expected files (industry-standard OpenSecrets format):
 """
 
 import csv
+import hashlib
 import os
 from pathlib import Path
 from typing import Any
@@ -158,8 +159,6 @@ class OpenSecretsAdapter(BaseSourceAdapter):
             "L": "labor",
             "M": "membership",
             "T": "trade",
-            "V": "cooperative",
-            "W": "corporation",
             "Y": "corporation",
             "Z": "national_party",
         }
@@ -183,18 +182,19 @@ class OpenSecretsAdapter(BaseSourceAdapter):
             amount = 0.0
 
         # Use OpenSecrets transaction ID + cycle as source_record_id if available
-        # Fallback: hash of donor+recipient+date+amount
+        # Fallback: sha256 hash of donor+recipient+date+amount for stable dedup
         cycle = raw.get("cycle", "")
         donor = raw.get("donor_name", "")
         recipient = raw.get("recipient_id", "")
         date = raw.get("date", "")
-        source_record_id = f"opensecrets-{cycle}-{hash(donor + recipient + date + amount_str) & 0xFFFFFFFF}"
+        _key = f"{cycle}|{donor}|{recipient}|{date}|{amount_str}"
+        source_record_id = f"opensecrets-{cycle}-{hashlib.sha256(_key.encode()).hexdigest()[:16]}"
 
         return {
             "_model": "Contribution",
             "donor_name": raw.get("donor_name", ""),
             "donor_type": raw.get("donor_type", "individual"),
-            "recipient_name": raw.get("recipient_id", ""),
+            "recipient_name": "",  # resolved to politician.last_name in _upsert when politician_id is set
             "committee_id": raw.get("committee_id"),
             "amount": amount,
             "date": raw.get("date"),
@@ -240,6 +240,7 @@ class OpenSecretsAdapter(BaseSourceAdapter):
                 ).first()
                 if politician:
                     record["politician_id"] = politician.id
+                    record["recipient_name"] = politician.last_name
 
             # Upsert by source_name + source_record_id
             existing = db.query(Contribution).filter(

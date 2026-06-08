@@ -52,8 +52,8 @@ class VoteViewAdapter(BaseSourceAdapter):
                             "congress": c,
                             "icpsr": str(raw_icpsr).strip() if raw_icpsr is not None and not pd.isna(raw_icpsr) else "",
                             "chamber": str(raw_chamber).strip().lower() if raw_chamber is not None and not pd.isna(raw_chamber) else "",
-                            "dim1": row.get("dim1") if pd.notna(row.get("dim1")) else None,
-                            "dim2": row.get("dim2") if pd.notna(row.get("dim2")) else None,
+                            "dim1": row.get("nominate_dim1") if pd.notna(row.get("nominate_dim1")) else None,
+                            "dim2": row.get("nominate_dim2") if pd.notna(row.get("nominate_dim2")) else None,
                         })
                 except httpx.HTTPStatusError as e:
                     if e.response.status_code == 404:

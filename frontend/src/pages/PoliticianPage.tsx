@@ -23,7 +23,7 @@ function VoteBadge({ vote }: { vote: string }) {
   };
   return (
     <span className={`text-xs font-semibold px-2 py-0.5 rounded ${colors[vote] || "bg-gray-100 text-gray-800"}`}>
-      {vote.replace("_", " ")}
+      {vote.replaceAll("_", " ")}
     </span>
   );
 }
@@ -170,7 +170,7 @@ export default function PoliticianPage() {
               </div>
               {Object.entries(contribSummary.by_donor_type).map(([type, amount]) => (
                 <div key={type} className="flex justify-between">
-                  <span className="text-gray-500 capitalize">{type.replace("_", " ")}</span>
+                  <span className="text-gray-500 capitalize">{type.replaceAll("_", " ")}</span>
                   <span>${amount.toLocaleString()}</span>
                 </div>
               ))}
@@ -260,7 +260,7 @@ export default function PoliticianPage() {
                   <tr key={c.id} className="border-b last:border-b-0">
                     <td className="py-2 pr-4 text-gray-600">{c.date ?? "—"}</td>
                     <td className="py-2 pr-4 font-medium">{c.donor_name}</td>
-                    <td className="py-2 pr-4 capitalize">{c.donor_type.replace("_", " ")}</td>
+                    <td className="py-2 pr-4 capitalize">{c.donor_type.replaceAll("_", " ")}</td>
                     <td className="py-2 pr-4">${c.amount.toLocaleString()}</td>
                     <td className="py-2 pr-4 text-gray-600">{c.employer ?? "—"}</td>
                     <td className="py-2 text-gray-600">{c.location ?? "—"}</td>

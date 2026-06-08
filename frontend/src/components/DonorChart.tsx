@@ -9,7 +9,7 @@ const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"
 
 export function DonorTypeChart({ byDonorType }: { byDonorType: Record<string, number> }) {
   const data = Object.entries(byDonorType).map(([name, value]) => ({
-    name: name.replace("_", " ").replace(/\b\w/g, (l) => l.toUpperCase()),
+    name: name.replaceAll("_", " ").replace(/\b\w/g, (l) => l.toUpperCase()),
     value,
   }));
 
@@ -68,7 +68,7 @@ export function CycleTimelineChart({ byCycle }: { byCycle: Record<string, number
 
 export function ContributionBarChart({ byDonorType }: { byDonorType: Record<string, number> }) {
   const data = Object.entries(byDonorType).map(([name, value]) => ({
-    name: name.replace("_", " ").replace(/\b\w/g, (l) => l.toUpperCase()),
+    name: name.replaceAll("_", " ").replace(/\b\w/g, (l) => l.toUpperCase()),
     value,
   }));
 

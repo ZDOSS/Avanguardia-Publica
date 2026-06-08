@@ -51,7 +51,7 @@ def get_voting_record(record_id: int, db: Session = Depends(get_db)):
     return VotingRecordOut.model_validate(record)
 
 
-@router.get("/ideology-scores", response_model=IdeologyScoreOut)
+@router.get("/ideology-scores", response_model=list[IdeologyScoreOut])
 def list_ideology_scores(
     politician_id: int | None = Query(None),
     congress: int | None = Query(None),
