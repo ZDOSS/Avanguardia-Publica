@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer, UniqueConstraint, ForeignKey
+from sqlalchemy import String, Integer, Date, UniqueConstraint, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import date
 
@@ -19,7 +19,7 @@ class VotingRecord(Base):
     bill_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     bill_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
     vote: Mapped[str] = mapped_column(String(20))
-    vote_date: Mapped[date | None] = mapped_column(nullable=True)
+    vote_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     issue_area: Mapped[str | None] = mapped_column(String(200), nullable=True)
     source_name: Mapped[str] = mapped_column(String(50))
     source_record_id: Mapped[str] = mapped_column(String(100))

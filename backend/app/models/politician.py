@@ -1,4 +1,4 @@
-from sqlalchemy import String, Boolean, DateTime, JSON, ARRAY
+from sqlalchemy import String, Boolean, DateTime, JSON, ARRAY, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, timezone
 
@@ -18,7 +18,7 @@ class Politician(Base):
     state: Mapped[str] = mapped_column(String(2))
     district: Mapped[str | None] = mapped_column(String(10), nullable=True)
     chamber: Mapped[str] = mapped_column(String(20))
-    bioguide_id: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
+    bioguide_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
     fec_ids: Mapped[list | None] = mapped_column(ARRAY(String), nullable=True)
     lis_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
     icpsr_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -26,11 +26,17 @@ class Politician(Base):
     govtrack_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
     opensecrets_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
     photo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    bio_text: Mapped[str | None] = mapped_column(nullable=True)
+    bio_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     in_office: Mapped[bool] = mapped_column(Boolean, default=True)
     term_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     term_end: Mapped[list | None] = mapped_column(ARRAY(DateTime(timezone=True)), nullable=True)
+    source_name: Mapped[str] = mapped_column(String(50))
+    source_record_id: Mapped[str] = mapped_column(String(100))
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     last_data_refresh: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("source_name", "source_record_id", name="uq_politician_dedup"),
+    )

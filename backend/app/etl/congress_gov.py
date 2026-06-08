@@ -1,4 +1,5 @@
 import httpx
+import uuid
 from app.core.config import settings
 from app.etl.base import BaseSourceAdapter
 
@@ -64,27 +65,17 @@ class CongressGovAdapter(BaseSourceAdapter):
             "bioguide_id": raw.get("bioguideId"),
             "in_office": True,
             "photo_url": raw.get("depiction", {}).get("imageUrl") if isinstance(raw.get("depiction"), dict) else None,
+            "source_name": self.source_name,
+            "source_record_id": raw.get("bioguideId") or str(uuid.uuid4()),
         }
 
     async def _upsert(self, record: dict, db=None) -> None:
         from app.models import Politician
 
-        bioguide = record.get("bioguide_id")
-        if not bioguide:
-            existing = db.query(Politician).filter(
-                Politician.first_name == record.get("first_name"),
-                Politician.last_name == record.get("last_name"),
-                Politician.state == record.get("state"),
-                Politician.chamber == record.get("chamber"),
-            ).first()
-            if existing:
-                for k, v in record.items():
-                    setattr(existing, k, v)
-            else:
-                db.add(Politician(**record))
-            return
-
-        existing = db.query(Politician).filter(Politician.bioguide_id == bioguide).first()
+        existing = db.query(Politician).filter(
+            Politician.source_name == record.get("source_name"),
+            Politician.source_record_id == record.get("source_record_id"),
+        ).first()
         if existing:
             for k, v in record.items():
                 setattr(existing, k, v)

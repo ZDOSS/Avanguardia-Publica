@@ -101,12 +101,14 @@ def upgrade() -> None:
     sa.Column('in_office', sa.Boolean(), nullable=False),
     sa.Column('term_start', sa.DateTime(timezone=True), nullable=True),
     sa.Column('term_end', sa.ARRAY(sa.DateTime(timezone=True)), nullable=True),
+    sa.Column('source_name', sa.String(length=50), nullable=False),
+    sa.Column('source_record_id', sa.String(length=100), nullable=False),
     sa.Column('metadata', sa.JSON(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('last_data_refresh', sa.DateTime(timezone=True), nullable=True),
     sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('bioguide_id')
+    sa.UniqueConstraint('source_name', 'source_record_id', name='uq_politician_dedup')
     )
     op.create_table('source',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
