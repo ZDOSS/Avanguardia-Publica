@@ -93,15 +93,21 @@ PoliticianContribution  — junction: politician ↔ contribution (entity-resolv
 ├── UNIQUE(politician_id, contribution_id)
 
 VotingRecord  — from congress.gov + VoteView
-├── id, politician_id, roll_call_number, congress, session
+├── id, politician_id, roll_call_number, congress, session, chamber
 ├── bill_id, bill_title, bill_type, bill_number
 ├── vote (yea/nay/present/not_voting)
 ├── vote_date, issue_area
-├── DW_NOMINATE_score (1D and 2D)
+├── source_name, source_record_id
+├── UNIQUE(source_name, source_record_id) — dedup per source
+
+PoliticianIdeologyScore  — per legislator per congress (from VoteView)
+├── id, politician_id, congress, chamber
+├── dw_nominate_dim1, dw_nominate_dim2
 ├── source_name
+├── UNIQUE(politician_id, congress, chamber)
 
 LobbyingRecord  — from Senate LDA
-├── id, registrant_name, client_name, lobbyist_name
+├── id, lda_id, registrant_name, client_name, lobbyist_name
 ├── issue_area, issue_text, amount, report_quarter
 ├── filing_type (registration/quarterly/contribution)
 ├── government_entities_lobbied, source_xml_url
@@ -118,7 +124,8 @@ FinancialDisclosure  — stock trades + outside income
 ├── transaction_type (buy/sell/exchange)
 ├── amount_range_low, amount_range_high
 ├── notification_date, source_url, ticker
-├── source_name (house_clerk/quiver/edgar)
+├── source_name (house_clerk/quiver/edgar), source_record_id
+├── UNIQUE(source_name, source_record_id) — dedup per source
 
 GovernmentContract  — from USAspending.gov
 ├── id, award_id (USAspending unique), recipient_name
@@ -140,9 +147,9 @@ Tag
 ### Design Notes
 - `jsonb` for `external_ids`, `metadata`, `party_history` — allows per-country identifiers and extensible fields without schema changes
 - `source_name` on every record for data provenance
-- Composite UNIQUE constraints for idempotent upserts during syncs
-- `PoliticianLobbyingRecord` and `PoliticianGovernmentContract` are junction tables populated by entity matching (e.g., matching `government_entities_lobbied` text or recipient names against politician names/committees). These are resolved asynchronously after raw data ingestion.
-- `PoliticianContribution` is populated by entity matching recipient/committee against politicians. The `source_record_id` + `source_name` composite UNIQUE ensures idempotent upserts across all sources (null-safe, unlike `fec_filing_id` which is absent for non-FEC records).
+- `source_record_id` + `source_name` composite UNIQUE on every ingested table — ensures idempotent, NULL-safe dedup. Sources that provide a natural unique ID (e.g., `fec_filing_id`, `lda_id`, `award_id`) use it; sources without one get a source-assigned unique ID.
+- `PoliticianIdeologyScore` stores DW-NOMINATE at the correct granularity (per legislator per congress session, as VoteView publishes it), not duplicated on every vote row.
+- `PoliticianLobbyingRecord`, `PoliticianGovernmentContract`, and `PoliticianContribution` are junction tables populated by entity matching after raw data ingestion. Every cross-entity feature (lobbying per politician, contracts per politician, contributions per politician) must have a defined join path — FK or junction table.
 - PostgreSQL full-text search over politician names, donor names, organization names, bill titles
 
 ---
