@@ -71,7 +71,17 @@ class CongressGovAdapter(BaseSourceAdapter):
 
         bioguide = record.get("bioguide_id")
         if not bioguide:
-            db.add(Politician(**record))
+            existing = db.query(Politician).filter(
+                Politician.first_name == record.get("first_name"),
+                Politician.last_name == record.get("last_name"),
+                Politician.state == record.get("state"),
+                Politician.chamber == record.get("chamber"),
+            ).first()
+            if existing:
+                for k, v in record.items():
+                    setattr(existing, k, v)
+            else:
+                db.add(Politician(**record))
             return
 
         existing = db.query(Politician).filter(Politician.bioguide_id == bioguide).first()
