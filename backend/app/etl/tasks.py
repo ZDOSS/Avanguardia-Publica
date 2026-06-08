@@ -17,16 +17,7 @@ def sync_source(self, source_name: str):
     if not adapter:
         return {"status": "error", "message": f"Unknown source: {source_name}"}
 
-    result = asyncio.run(adapter.run_sync())
-    return {
-        "source_name": result.source_name,
-        "started_at": result.started_at.isoformat(),
-        "completed_at": result.completed_at.isoformat() if result.completed_at else None,
-        "records_ingested": result.records_ingested,
-        "records_upserted": result.records_upserted,
-        "errors": result.errors,
-        "status": result.status,
-    }
+    return asyncio.run(adapter.run_sync())
 
 
 @celery_app.task(name="etl.sync_all_sources")
