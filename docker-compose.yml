@@ -37,6 +37,7 @@ services:
     environment:
       DATABASE_URL: postgresql://avanguardia:avanguardia@db:5432/avanguardia
       REDIS_URL: redis://redis:6379/0
+      API_KEY_DATA_GOV: ${API_KEY_DATA_GOV}
     depends_on:
       - db
       - redis
@@ -49,6 +50,7 @@ services:
     environment:
       DATABASE_URL: postgresql://avanguardia:avanguardia@db:5432/avanguardia
       REDIS_URL: redis://redis:6379/0
+      API_KEY_DATA_GOV: ${API_KEY_DATA_GOV}
     depends_on:
       - db
       - redis

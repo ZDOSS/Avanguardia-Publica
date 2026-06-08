@@ -77,7 +77,6 @@ class CongressGovAdapter(BaseSourceAdapter):
         existing = db.query(Politician).filter(Politician.bioguide_id == bioguide).first()
         if existing:
             for k, v in record.items():
-                if v is not None:
-                    setattr(existing, k, v)
+                setattr(existing, k, v)
         else:
             db.add(Politician(**record))
