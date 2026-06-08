@@ -29,7 +29,7 @@ class Politician(Base):
     bio_text: Mapped[str | None] = mapped_column(nullable=True)
     in_office: Mapped[bool] = mapped_column(Boolean, default=True)
     term_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    term_end: Mapped[list | None] = mapped_column(ARRAY(DateTime), nullable=True)
+    term_end: Mapped[list | None] = mapped_column(ARRAY(DateTime(timezone=True)), nullable=True)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
