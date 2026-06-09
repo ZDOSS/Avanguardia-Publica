@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models import LobbyingRecord
-from app.schemas.lobbying import LobbyingRecordOut, LobbyingRecordListOut, LobbyingSummary
+from app.schemas.lobbying import LobbyingRecordListOut, LobbyingRecordOut, LobbyingSummary
 
 router = APIRouter(prefix="/api/lobbying-records", tags=["lobbying"])
 

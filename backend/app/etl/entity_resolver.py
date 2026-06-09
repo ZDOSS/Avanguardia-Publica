@@ -10,17 +10,16 @@ Seed flow:
 """
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
 class EntityMatch:
     bioguide_id: str
     fec_ids: list[str]
-    icpsr_id: Optional[str] = None
-    voteview_id: Optional[str] = None
-    opensecrets_id: Optional[str] = None
-    govtrack_id: Optional[str] = None
+    icpsr_id: str | None = None
+    voteview_id: str | None = None
+    opensecrets_id: str | None = None
+    govtrack_id: str | None = None
     confidence: float = 1.0
 
 
@@ -47,7 +46,7 @@ class EntityResolver:
         name: str,
         state: str,
         candidates: list[dict],
-    ) -> Optional[str]:
+    ) -> str | None:
         """Fuzzy match a politician name + state to a candidate with an FEC ID."""
         name_lower = name.lower().strip()
         for c in candidates:

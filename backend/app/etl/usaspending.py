@@ -16,7 +16,7 @@ Strategy:
   linked politicians are tracked separately (out of scope for this adapter).
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -85,7 +85,7 @@ class USASpendingAdapter(BaseSourceAdapter):
         # after the calendar year in which it ENDS:
         # - Jan..Sep 2026  → FY2026 (ends Sep 30 2026)
         # - Oct..Dec 2026  → FY2027 (ends Sep 30 2027)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         fy = now.year + 1 if now.month >= 10 else now.year
         return [fy - i for i in range(count)]
 

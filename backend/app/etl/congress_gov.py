@@ -1,5 +1,7 @@
-import httpx
 import uuid
+
+import httpx
+
 from app.core.config import settings
 from app.etl.base import BaseSourceAdapter
 

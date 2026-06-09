@@ -1,10 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models import FinancialDisclosure
-from app.schemas.financial import FinancialDisclosureOut, FinancialDisclosureListOut, FinancialDisclosureSummary
+from app.schemas.financial import (
+    FinancialDisclosureListOut,
+    FinancialDisclosureOut,
+    FinancialDisclosureSummary,
+)
 
 router = APIRouter(prefix="/api/financial-disclosures", tags=["financials"])
 

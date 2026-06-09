@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -34,7 +34,7 @@ class BaseSourceAdapter(ABC):
         """Full ETL pipeline for this source. Opens one DB session for the batch."""
         from app.core.database import SessionLocal
 
-        result = SyncResult(source_name=self.source_name, started_at=datetime.now(timezone.utc))
+        result = SyncResult(source_name=self.source_name, started_at=datetime.now(UTC))
         db = SessionLocal()
         try:
             raw_records = await self.fetch_records()
@@ -58,7 +58,7 @@ class BaseSourceAdapter(ABC):
             result.status = "failed"
             result.errors.append(f"Fatal: {e}")
         finally:
-            result.completed_at = datetime.now(timezone.utc)
+            result.completed_at = datetime.now(UTC)
             db.close()
         return result
 

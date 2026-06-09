@@ -1,8 +1,7 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.core.celery_app import celery_app
-
 
 REGISTERED_SOURCES = [
     "fec_api",
@@ -20,17 +19,17 @@ REGISTERED_SOURCES = [
 @celery_app.task(name="etl.sync_source", bind=True, max_retries=3, default_retry_delay=300)
 def sync_source(self, source_name: str):
     """Trigger a full ETL sync for a named source."""
-    from app.etl.fec import FECAdapter
-    from app.etl.congress_gov import CongressGovAdapter
-    from app.etl.voteview import VoteViewAdapter
-    from app.etl.opensecrets import OpenSecretsAdapter
-    from app.etl.senate_lda import SenateLDAAdapter
-    from app.etl.house_clerk import HouseClerkAdapter
-    from app.etl.usaspending import USASpendingAdapter
-    from app.etl.sec_edgar import SECEdgarAdapter
-    from app.etl.quiver_quant import QuiverQuantAdapter
-    from app.models import Source
     from app.core.database import SessionLocal
+    from app.etl.congress_gov import CongressGovAdapter
+    from app.etl.fec import FECAdapter
+    from app.etl.house_clerk import HouseClerkAdapter
+    from app.etl.opensecrets import OpenSecretsAdapter
+    from app.etl.quiver_quant import QuiverQuantAdapter
+    from app.etl.sec_edgar import SECEdgarAdapter
+    from app.etl.senate_lda import SenateLDAAdapter
+    from app.etl.usaspending import USASpendingAdapter
+    from app.etl.voteview import VoteViewAdapter
+    from app.models import Source
 
     adapters = {
         "fec_api": FECAdapter(),
@@ -53,7 +52,7 @@ def sync_source(self, source_name: str):
     try:
         source = db.query(Source).filter(Source.name == source_name).first()
         if source is not None:
-            source.last_synced_at = datetime.now(timezone.utc)
+            source.last_synced_at = datetime.now(UTC)
             source.total_records = (source.total_records or 0) + result.records_upserted
             source.status = result.status
             db.commit()
@@ -74,8 +73,8 @@ def sync_source(self, source_name: str):
 @celery_app.task(name="etl.sync_all_sources")
 def sync_all_sources():
     """Run all registered source syncs."""
-    from app.models import Source
     from app.core.database import SessionLocal
+    from app.models import Source
 
     db = SessionLocal()
     try:

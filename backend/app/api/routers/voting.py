@@ -1,11 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, cast
-from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import get_db
-from app.models import VotingRecord, PoliticianIdeologyScore
-from app.schemas.voting import VotingRecordOut, VotingRecordListOut, IdeologyScoreOut, PoliticianVoteStats
+from app.models import PoliticianIdeologyScore, VotingRecord
+from app.schemas.voting import IdeologyScoreOut, PoliticianVoteStats, VotingRecordListOut, VotingRecordOut
 
 router = APIRouter(prefix="/api/voting", tags=["voting"])
 
