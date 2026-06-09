@@ -1,6 +1,9 @@
-from sqlalchemy import String, Boolean, DateTime, JSON, ARRAY, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
+
+from sqlalchemy import ARRAY, JSON, Boolean, DateTime, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
@@ -33,9 +36,10 @@ class Politician(Base):
     source_name: Mapped[str] = mapped_column(String(50))
     source_record_id: Mapped[str] = mapped_column(String(100))
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
     last_data_refresh: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    search_tsv: Mapped[Any | None] = mapped_column(TSVECTOR, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("source_name", "source_record_id", name="uq_politician_dedup"),

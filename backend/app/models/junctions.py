@@ -1,4 +1,6 @@
-from sqlalchemy import Integer, Float, String, ARRAY, UniqueConstraint, ForeignKey
+from datetime import UTC, datetime
+
+from sqlalchemy import ARRAY, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -43,4 +45,22 @@ class PoliticianGovernmentContract(Base):
 
     __table_args__ = (
         UniqueConstraint("politician_id", "contract_id", name="uq_politician_contract"),
+    )
+
+
+class PoliticianTag(Base):
+    """Junction table attaching admin-defined tags to politicians.
+
+    Tags are admin-only metadata (see ``Tag.is_admin_only``); they are not
+    ingested from any external source.
+    """
+    __tablename__ = "politician_tag"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    politician_id: Mapped[int] = mapped_column(Integer, ForeignKey("politician.id", ondelete="CASCADE"))
+    tag_id: Mapped[int] = mapped_column(Integer, ForeignKey("tag.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    __table_args__ = (
+        UniqueConstraint("politician_id", "tag_id", name="uq_politician_tag"),
     )

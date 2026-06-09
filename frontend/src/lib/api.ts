@@ -191,6 +191,58 @@ export interface OrganizationFlow {
   links: FlowLink[];
 }
 
+export interface SearchResultItem {
+  entity_type: "politician" | "organization" | "contribution" | "voting_record";
+  entity_id: number;
+  title: string;
+  subtitle: string | null;
+  url: string | null;
+  rank: number;
+}
+
+export interface SearchResponse {
+  query: string;
+  total: number;
+  items: SearchResultItem[];
+}
+
+export interface SourceHealth {
+  name: string;
+  status: string;
+  last_synced_at: string | null;
+  sync_interval: string | null;
+  total_records: number;
+  error_count: number;
+  last_error: string | null;
+  stale: boolean;
+}
+
+export interface SourceHealthSummary {
+  total: number;
+  healthy: number;
+  failing: number;
+  stale: number;
+  total_records_ingested: number;
+}
+
+export interface SourceHealthResponse {
+  sources: SourceHealth[];
+  summary: SourceHealthSummary;
+}
+
+export interface Tag {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  is_admin_only: boolean;
+}
+
+export interface PoliticianTagsResponse {
+  politician_id: number;
+  tags: Tag[];
+}
+
 export async function fetchPoliticianVoting(
   id: number,
   congress?: number,
@@ -272,5 +324,31 @@ export async function fetchOrganizationFlow(
 ): Promise<OrganizationFlow> {
   const res = await fetch(`${API_BASE}/api/organizations/${id}/flow?limit=${limit}`);
   if (!res.ok) throw new Error("Failed to fetch organization flow");
+  return res.json();
+}
+
+export async function searchAll(q: string, limit = 20): Promise<SearchResponse> {
+  const res = await fetch(
+    `${API_BASE}/api/search?q=${encodeURIComponent(q)}&limit=${limit}`
+  );
+  if (!res.ok) throw new Error("Search failed");
+  return res.json();
+}
+
+export async function fetchSourceHealth(
+  adminKey?: string
+): Promise<SourceHealthResponse> {
+  const headers: Record<string, string> = {};
+  if (adminKey) headers["X-Admin-Key"] = adminKey;
+  const res = await fetch(`${API_BASE}/api/admin/sources`, { headers });
+  if (!res.ok) throw new Error("Admin source health unavailable");
+  return res.json();
+}
+
+export async function fetchPoliticianTags(
+  politicianId: number
+): Promise<PoliticianTagsResponse> {
+  const res = await fetch(`${API_BASE}/api/admin/politicians/${politicianId}/tags`);
+  if (!res.ok) throw new Error("Failed to fetch politician tags");
   return res.json();
 }

@@ -1,6 +1,8 @@
-from sqlalchemy import String, Boolean, DateTime, JSON, Integer, UniqueConstraint
+from typing import Any
+
+from sqlalchemy import JSON, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
-from datetime import datetime
 
 from app.core.database import Base
 
@@ -16,6 +18,7 @@ class Organization(Base):
     source_name: Mapped[str] = mapped_column(String(50))
     source_record_id: Mapped[str] = mapped_column(String(100))
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
+    search_tsv: Mapped[Any | None] = mapped_column(TSVECTOR, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("source_name", "source_record_id", name="uq_organization_dedup"),

@@ -7,11 +7,13 @@ import {
   fetchIdeologyScores,
   fetchContributionSummary,
   fetchPoliticianFinancials,
+  fetchPoliticianTags,
   type VotingRecord,
   type Contribution,
   type IdeologyScore,
   type ContributionSummary,
   type FinancialDisclosure,
+  type Tag,
 } from "../lib/api";
 import { useState } from "react";
 import DonorChart from "../components/DonorChart";
@@ -87,9 +89,15 @@ export default function PoliticianPage() {
     enabled: !!id,
   });
 
-  const { data: financials } = useQuery({
+  const { data: financials, isLoading: finLoading } = useQuery({
     queryKey: ["politician-financials", id],
     queryFn: () => fetchPoliticianFinancials(politicianId, 50),
+    enabled: !!id,
+  });
+
+  const { data: tagsData } = useQuery({
+    queryKey: ["politician-tags", id],
+    queryFn: () => fetchPoliticianTags(politicianId),
     enabled: !!id,
   });
 
@@ -102,16 +110,16 @@ export default function PoliticianPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-start gap-6 mb-8">
+      <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-6 mb-8">
         {politician.photo_url && (
           <img
             src={politician.photo_url}
             alt={politician.full_name}
-            className="w-32 h-32 rounded-full object-cover border-4 border-gray-200"
+            className="w-24 h-24 sm:w-32 sm:h-32 rounded-full object-cover border-4 border-gray-200"
           />
         )}
         <div>
-          <h2 className="text-3xl font-bold">{politician.full_name}</h2>
+          <h2 className="text-2xl sm:text-3xl font-bold">{politician.full_name}</h2>
           <p className="text-lg text-gray-600">
             {politician.chamber === "senate" ? "Senator" : "Representative"}
             {" · "}{politician.state}
@@ -120,6 +128,19 @@ export default function PoliticianPage() {
           {party && <span className="text-sm bg-blue-100 text-blue-800 rounded px-3 py-1 mt-2 inline-block">{party}</span>}
           {politician.bioguide_id && (
             <p className="text-xs text-gray-400 mt-1">Bioguide: {politician.bioguide_id}</p>
+          )}
+          {tagsData && tagsData.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-2">
+              {tagsData.tags.map((tag: Tag) => (
+                <span
+                  key={tag.id}
+                  className="text-xs bg-amber-100 text-amber-900 rounded px-2 py-0.5"
+                  title={tag.description ?? undefined}
+                >
+                  {tag.name}
+                </span>
+              ))}
+            </div>
           )}
         </div>
       </div>
@@ -292,7 +313,9 @@ export default function PoliticianPage() {
             <ProvenanceBadge source="quiver_quant" />
           </div>
         </div>
-        {financials && financials.length > 0 ? (
+        {finLoading ? (
+          <p className="text-sm text-gray-500">Loading...</p>
+        ) : financials && financials.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b">
