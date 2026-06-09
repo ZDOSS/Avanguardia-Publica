@@ -112,7 +112,7 @@ class OpenSecretsAdapter(BaseSourceAdapter):
                         records.append({
                             "_type": "contribution",
                             "cycle": row.get("cycle"),
-                            "donor_name": _safe_strip(row.get("pac_id")),
+                            "donor_name": _safe_strip(row.get("pac_id")),  # TODO: resolve to cmte_name via committee master lookup
                             "donor_type": "pac",
                             "recipient_id": _safe_strip(row.get("cid")),
                             "committee_id": _safe_strip_or_none(row.get("pac_id")),
