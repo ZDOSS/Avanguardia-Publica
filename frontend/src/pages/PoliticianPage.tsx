@@ -10,8 +10,6 @@ import {
   fetchPoliticianTags,
   type VotingRecord,
   type Contribution,
-  type IdeologyScore,
-  type ContributionSummary,
   type FinancialDisclosure,
   type Tag,
 } from "../lib/api";
