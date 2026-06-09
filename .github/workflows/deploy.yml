@@ -1,5 +1,14 @@
 name: Deploy Frontend to GitHub Pages
 
+# One-time setup: GitHub Pages must be enabled in the repo settings
+# before this workflow can succeed. The settings page is at
+# https://github.com/<owner>/<repo>/settings/pages — pick "GitHub
+# Actions" as the Source. Until that is done, the deploy-pages step
+# will return a 404 with the message "Ensure GitHub Pages has been
+# enabled".
+#
+# See docs/DEPLOYMENT.md for the full setup walkthrough.
+
 on:
   push:
     branches: [main]
@@ -11,9 +20,23 @@ permissions:
   pages: write
   id-token: write
 
+# Don't run two deploys in parallel — the second one would race the
+# first against the GitHub Pages CDN and either fail or end up
+# serving stale assets.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    # The github-pages environment is created automatically by
+    # GitHub the first time a workflow references it; from then on,
+    # the deploy step requires that environment to exist, which
+    # matches the "Pages enabled" requirement at the API level.
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     defaults:
       run:
         working-directory: frontend
@@ -31,4 +54,5 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend/dist
-      - uses: actions/deploy-pages@v4
+      - id: deployment
+        uses: actions/deploy-pages@v4
