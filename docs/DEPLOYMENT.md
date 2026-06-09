@@ -162,7 +162,9 @@ and the previous version stays running.
 To apply a migration manually:
 
 ```bash
-heroku run alembic upgrade head   # or equivalent
+# Railway: railway run alembic upgrade head
+# Fly.io:  fly ssh console -C "alembic upgrade head"
+# Render:  open the service Shell tab and run: alembic upgrade head
 ```
 
 To roll back:
