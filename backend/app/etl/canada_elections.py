@@ -32,6 +32,7 @@ follow-up once the politician catalog is in.
 import csv
 import hashlib
 from datetime import UTC, datetime
+from datetime import date as date_cls
 from pathlib import Path
 from typing import Any
 
@@ -53,7 +54,7 @@ def _safe_strip(value, default: str = ""):
     return stripped if stripped else default
 
 
-def _parse_canada_election_date(value) -> datetime | None:
+def _parse_canada_election_date(value) -> date_cls | None:
     """Parse Elections Canada ``YYYY-MM-DD`` (or close variants) to a date."""
     if value is None:
         return None
@@ -71,9 +72,9 @@ def _parse_canada_election_date(value) -> datetime | None:
 # Mapping from Elections Canada province codes to our 2-letter ``state``
 # column. Canadian provinces already use 2-letter postal codes so this
 # is a no-op in most cases; territories use 2-letter codes too.
-_PROVINCE_PASS_THROUGH = set(
-    ["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"]
-)
+_PROVINCE_PASS_THROUGH = {
+    "AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"
+}
 
 
 def _normalize_province(raw: str | None) -> str:

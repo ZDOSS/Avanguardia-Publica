@@ -56,9 +56,10 @@ class CACalAccessAdapter(BaseSourceAdapter):
 
     async def fetch_records(self, file_path: str | None = None) -> list[dict[str, Any]]:
         """Read ``Cover_Page_Cd.csv`` (or the caller-supplied path)."""
-        base = Path(file_path or settings.ca_calaccess_bulk_path)
-        if not base:
+        raw = file_path or settings.ca_calaccess_bulk_path
+        if not raw:
             return []
+        base = Path(raw)
 
         # The Cal-Access export unzips to a flat directory of CSVs. If
         # the user points us at the directory, pick the cover-page file
@@ -68,8 +69,10 @@ class CACalAccessAdapter(BaseSourceAdapter):
             if not candidates:
                 return []
             paths = candidates
-        else:
+        elif base.is_file():
             paths = [base]
+        else:
+            return []
 
         records: list[dict[str, Any]] = []
         for path in paths:
@@ -120,8 +123,10 @@ class CACalAccessAdapter(BaseSourceAdapter):
 
         # Stable per-candidate key: (last, first, party, chamber). The
         # same person running in two different cycles will collapse,
-        # which is desirable for the candidate catalog.
-        key_seed = f"{last}|{first}|{party}|{chamber}".encode()
+        # which is desirable for the candidate catalog. ``party or ''``
+        # collapses None (non-partisan candidates) to an empty string
+        # so it can't collide with the literal string "None".
+        key_seed = f"{last}|{first}|{party or ''}|{chamber}".encode()
         source_record_id = f"ca-calaccess-{hashlib.sha256(key_seed).hexdigest()[:16]}"
 
         return {
