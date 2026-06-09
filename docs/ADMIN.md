@@ -33,9 +33,12 @@ backend.
 | `/api/admin/politicians/{id}/tags` | GET | List a politician's public tags | None (admin-only tags filtered out) |
 | `/api/admin/politicians/{id}/tags/{tag_id}` | PUT / DELETE | Attach / detach a tag | `X-Admin-Key` |
 
-All admin endpoints respond 401 when the `X-Admin-Key` header doesn't
-match the server's `ADMIN_API_KEY` (and 401 is the *only* failure
-mode — there's no rate limiting yet).
+Admin endpoints marked `X-Admin-Key` in the table above respond 401
+when the `X-Admin-Key` header doesn't match the server's
+`ADMIN_API_KEY` (and 401 is the *only* failure mode — there's no rate
+limiting yet). The two `None`-auth rows (`GET /api/admin/politicians/{id}/tags`
+and the source health snapshot when `ADMIN_API_KEY` is unset) do not
+require the header.
 
 ## Source health dashboard
 
