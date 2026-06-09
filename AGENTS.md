@@ -57,6 +57,9 @@ Never accumulate uncommitted changes across multiple rounds. Greptile reviews th
 ### 21. Apply Greptile fixes verbatim
 Use the exact code Greptile suggests in its review comments and summary, character for character. Do not refactor, restyle, or add extra type annotations unless the suggestion directly conflicts with an existing codebase convention. The only allowed deviation is an explicit column type prefix (e.g., `Integer, ForeignKey(...)` → `ForeignKey(...)`) to match the suggestion exactly.
 
+### 22. ALWAYS read the Greptile review body, not just the inline comments
+After pushing a commit, Greptile updates the PR body with a "Greptile Summary", a "Confidence Score", and a list of "Important Files Changed". The summary frequently flags blocking defects (e.g. in-place migration edits, missing ORDER BY, unnormalized ETL date strings) that do NOT appear as inline review comments and would be missed if you only look at `pulls/<n>/comments`. Always fetch the full review via `gh api repos/<owner>/<repo>/pulls/<n>` (or `gh pr view <n> --json body`) and treat blocking items in the summary as P1 fixes. Inline comments are the source of truth for per-line suggestions; the body summary is the source of truth for architectural/blocking defects.
+
 ## Frontend Implementation Rules
 
 ### 16. Vite `base` MUST match the GitHub Pages repo sub-path

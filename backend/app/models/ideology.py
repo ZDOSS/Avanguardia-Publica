@@ -14,7 +14,8 @@ class PoliticianIdeologyScore(Base):
     dw_nominate_dim1: Mapped[float | None] = mapped_column(Float, nullable=True)
     dw_nominate_dim2: Mapped[float | None] = mapped_column(Float, nullable=True)
     source_name: Mapped[str] = mapped_column(String(50))
+    source_record_id: Mapped[str] = mapped_column(String(100))
 
     __table_args__ = (
-        UniqueConstraint("politician_id", "congress", "chamber", name="uq_ideology_score"),
+        UniqueConstraint("source_name", "source_record_id", name="uq_ideology_score_dedup"),
     )
