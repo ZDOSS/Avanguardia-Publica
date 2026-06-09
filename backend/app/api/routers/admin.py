@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import require_admin
 from app.core.database import get_db
-from app.models import Contribution, Source, VotingRecord
+from app.models import Contribution, Politician, Source, VotingRecord
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -54,6 +54,8 @@ def sources_health(db: Session = Depends(get_db)):
         "usaspending": None,
         "sec_edgar": None,
         "quiver_quant": None,
+        "canada_elections": Politician,
+        "ca_calaccess": Politician,
     }
 
     health: list[SourceHealth] = []

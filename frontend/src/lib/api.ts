@@ -6,6 +6,8 @@ export interface Politician {
   middle_name: string | null;
   last_name: string;
   full_name: string;
+  country_code: string;
+  jurisdiction_level: string;
   state: string;
   district: string | null;
   chamber: string;
@@ -24,12 +26,16 @@ export interface PoliticianList {
 
 export async function fetchPoliticians(params?: {
   page?: number;
+  country_code?: string;
+  jurisdiction_level?: string;
   state?: string;
   chamber?: string;
   search?: string;
 }): Promise<PoliticianList> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.country_code) searchParams.set("country_code", params.country_code);
+  if (params?.jurisdiction_level) searchParams.set("jurisdiction_level", params.jurisdiction_level);
   if (params?.state) searchParams.set("state", params.state);
   if (params?.chamber) searchParams.set("chamber", params.chamber);
   if (params?.search) searchParams.set("search", params.search);

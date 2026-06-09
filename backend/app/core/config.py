@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     quiver_quant_api_key: str = ""
     admin_api_key: str = ""
     sec_edgar_user_agent: str = ""
+    canada_elections_bulk_path: str = ""
+    ca_calaccess_bulk_path: str = ""
     cors_origins: str = "https://zdoss.github.io,http://localhost:5173"
 
     model_config = {"env_file": ".env", "extra": "ignore"}

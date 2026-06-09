@@ -13,6 +13,8 @@ REGISTERED_SOURCES = [
     "usaspending",
     "sec_edgar",
     "quiver_quant",
+    "canada_elections",
+    "ca_calaccess",
 ]
 
 
@@ -20,6 +22,8 @@ REGISTERED_SOURCES = [
 def sync_source(self, source_name: str):
     """Trigger a full ETL sync for a named source."""
     from app.core.database import SessionLocal
+    from app.etl.ca_calaccess import CACalAccessAdapter
+    from app.etl.canada_elections import CanadaElectionsAdapter
     from app.etl.congress_gov import CongressGovAdapter
     from app.etl.fec import FECAdapter
     from app.etl.house_clerk import HouseClerkAdapter
@@ -41,6 +45,8 @@ def sync_source(self, source_name: str):
         "usaspending": USASpendingAdapter(),
         "sec_edgar": SECEdgarAdapter(),
         "quiver_quant": QuiverQuantAdapter(),
+        "canada_elections": CanadaElectionsAdapter(),
+        "ca_calaccess": CACalAccessAdapter(),
     }
     adapter = adapters.get(source_name)
     if not adapter:

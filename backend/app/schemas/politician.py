@@ -10,6 +10,8 @@ class PoliticianBase(BaseModel):
     last_name: str
     suffix: str | None = None
     full_name: str
+    country_code: str = "US"
+    jurisdiction_level: str = "federal"
     state: str
     district: str | None = None
     chamber: str

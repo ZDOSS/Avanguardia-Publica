@@ -19,6 +19,8 @@ router = APIRouter(prefix="/api/politicians", tags=["politicians"])
 def _politicians_cache_key(
     page: int,
     per_page: int,
+    country_code: str | None,
+    jurisdiction_level: str | None,
     state: str | None,
     chamber: str | None,
     party: str | None,
@@ -27,14 +29,17 @@ def _politicians_cache_key(
 ) -> str:
     """Compose a stable cache key from every filterable query parameter.
 
-    Filter values are normalised (uppercase state, lowercase chamber) so
-    equivalent queries collapse to the same key. ``db`` is part of the
-    signature so the FastAPI ``Depends(get_db)`` injection doesn't break
-    the call.
+    Filter values are normalised (uppercase country/state/party, lowercase
+    chamber/jurisdiction) so equivalent queries collapse to the same
+    key. ``db`` is part of the signature so the FastAPI
+    ``Depends(get_db)`` injection doesn't break the call.
     """
     return (
         f"politicians:list:p={page}:pp={per_page}"
-        f":st={(state or '').upper()}:ch={(chamber or '').lower()}"
+        f":co={(country_code or '').upper()}"
+        f":jl={(jurisdiction_level or '').lower()}"
+        f":st={(state or '').upper()}"
+        f":ch={(chamber or '').lower()}"
         f":pa={(party or '').upper()}:q={search or ''}"
     )
 
@@ -44,6 +49,11 @@ def _politicians_cache_key(
 def list_politicians(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
+    country_code: str | None = Query(None, min_length=2, max_length=2, description="ISO 3166-1 alpha-2"),
+    jurisdiction_level: str | None = Query(
+        None,
+        description="federal | state | provincial | territorial | municipal",
+    ),
     state: str | None = Query(None, min_length=2, max_length=2),
     chamber: str | None = Query(None),
     party: str | None = Query(None),
@@ -52,6 +62,10 @@ def list_politicians(
 ):
     query = db.query(Politician)
 
+    if country_code:
+        query = query.filter(Politician.country_code == country_code.upper())
+    if jurisdiction_level:
+        query = query.filter(Politician.jurisdiction_level == jurisdiction_level.lower())
     if state:
         query = query.filter(Politician.state == state.upper())
     if chamber:

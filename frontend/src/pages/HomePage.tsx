@@ -1,49 +1,131 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchPoliticians, Politician } from "../lib/api";
+import { chamberLabel } from "../lib/politician";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
+// US states plus Canadian provinces/territories. The state filter is
+// jurisdiction-aware: when country_code is "CA" the dropdown lists
+// provinces, otherwise it lists US states.
+const US_STATES =
+  "AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split(
+    " ",
+  );
+const CA_PROVINCES = ["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"];
+
 export default function HomePage() {
   const [search, setSearch] = useState("");
+  const [country, setCountry] = useState("");
+  const [jurisdiction, setJurisdiction] = useState("");
   const [state, setState] = useState("");
   const [chamber, setChamber] = useState("");
   const [page, setPage] = useState(1);
 
+  // Reset state/province and jurisdiction filters whenever the country
+  // changes so the user doesn't get stuck filtering Canada results by
+  // a US-specific jurisdiction level (or vice versa). The two countries
+  // expose different jurisdiction taxonomies (US: federal|state; CA:
+  // federal|provincial|territorial), so carrying a stale value across
+  // the country boundary silently returns an empty result set.
+  function setCountryAndResetFilters(value: string) {
+    setCountry(value);
+    setState("");
+    setJurisdiction("");
+    setPage(1);
+  }
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ["politicians", { page, state, chamber, search }],
-    queryFn: () => fetchPoliticians({ page, state: state || undefined, chamber: chamber || undefined, search: search || undefined }),
+    queryKey: ["politicians", { page, country, jurisdiction, state, chamber, search }],
+    queryFn: () =>
+      fetchPoliticians({
+        page,
+        country_code: country || undefined,
+        jurisdiction_level: jurisdiction || undefined,
+        state: state || undefined,
+        chamber: chamber || undefined,
+        search: search || undefined,
+      }),
   });
+
+  const stateOptions = country === "CA" ? CA_PROVINCES : US_STATES;
+  const isCanada = country === "CA";
 
   return (
     <div>
       <div className="mb-6">
-        <h2 className="text-2xl font-bold mb-4">US Politicians</h2>
+        <h2 className="text-2xl font-bold mb-4">Politicians</h2>
         <div className="flex gap-3 flex-wrap">
           <input
             type="text"
             placeholder="Search by name..."
             className="border rounded px-3 py-2 w-full sm:w-64"
             value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
           />
           <select
             className="border rounded px-3 py-2 w-full sm:w-auto"
-            value={state}
-            onChange={(e) => { setState(e.target.value); setPage(1); }}
+            value={country}
+            onChange={(e) => setCountryAndResetFilters(e.target.value)}
           >
-            <option value="">All States</option>
-            {"AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split(" ").map(s => (
-              <option key={s} value={s}>{s}</option>
+            <option value="">All Countries</option>
+            <option value="US">United States</option>
+            <option value="CA">Canada</option>
+          </select>
+          <select
+            className="border rounded px-3 py-2 w-full sm:w-auto"
+            value={jurisdiction}
+            onChange={(e) => {
+              setJurisdiction(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">All Levels</option>
+            {isCanada ? (
+              <>
+                <option value="federal">Federal</option>
+                <option value="provincial">Provincial</option>
+                <option value="territorial">Territorial</option>
+              </>
+            ) : (
+              <>
+                <option value="federal">Federal</option>
+                <option value="state">State</option>
+              </>
+            )}
+          </select>
+          <select
+            className="border rounded px-3 py-2 w-full sm:w-auto"
+            value={state}
+            onChange={(e) => {
+              setState(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">{isCanada ? "All Provinces" : "All States"}</option>
+            {stateOptions.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
             ))}
           </select>
           <select
             className="border rounded px-3 py-2 w-full sm:w-auto"
             value={chamber}
-            onChange={(e) => { setChamber(e.target.value); setPage(1); }}
+            onChange={(e) => {
+              setChamber(e.target.value);
+              setPage(1);
+            }}
           >
             <option value="">All Chambers</option>
             <option value="house">House</option>
             <option value="senate">Senate</option>
+            <option value="state_house">State House</option>
+            <option value="state_senate">State Senate</option>
+            <option value="state_executive">Statewide Office</option>
+            <option value="governor">Governor</option>
           </select>
         </div>
       </div>
@@ -62,8 +144,11 @@ export default function HomePage() {
               >
                 <h3 className="font-semibold text-lg">{p.full_name}</h3>
                 <p className="text-sm text-gray-600">
-                  {p.chamber === "senate" ? "Senator" : "Representative"} &middot; {p.state}
+                  {chamberLabel(p.chamber, p.country_code)} &middot; {p.state}
                   {p.district && `-${p.district}`}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {p.country_code} · {p.jurisdiction_level}
                 </p>
                 {p.party_history && (
                   <span className="inline-block mt-1 text-xs bg-gray-100 rounded px-2 py-0.5">
@@ -77,7 +162,7 @@ export default function HomePage() {
             <button
               className="w-full sm:w-auto px-4 py-2 border rounded disabled:opacity-50"
               disabled={page <= 1}
-              onClick={() => setPage(p => p - 1)}
+              onClick={() => setPage((p) => p - 1)}
             >
               Previous
             </button>
@@ -87,7 +172,7 @@ export default function HomePage() {
             <button
               className="w-full sm:w-auto px-4 py-2 border rounded disabled:opacity-50"
               disabled={page >= Math.ceil(data.total / data.per_page)}
-              onClick={() => setPage(p => p + 1)}
+              onClick={() => setPage((p) => p + 1)}
             >
               Next
             </button>

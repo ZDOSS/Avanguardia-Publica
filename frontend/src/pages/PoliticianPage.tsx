@@ -13,6 +13,7 @@ import {
   type FinancialDisclosure,
   type Tag,
 } from "../lib/api";
+import { chamberLabel } from "../lib/politician";
 import { useState } from "react";
 import DonorChart from "../components/DonorChart";
 import { ProvenanceBadge, ThirdPartyDisclaimer } from "../components/ProvenanceBadge";
@@ -119,9 +120,18 @@ export default function PoliticianPage() {
         <div>
           <h2 className="text-2xl sm:text-3xl font-bold">{politician.full_name}</h2>
           <p className="text-lg text-gray-600">
-            {politician.chamber === "senate" ? "Senator" : "Representative"}
+            {chamberLabel(politician.chamber, politician.country_code)}
             {" · "}{politician.state}
             {politician.district && `-${politician.district}`}
+          </p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {politician.country_code === "CA"
+              ? "Canada"
+              : politician.country_code === "US"
+                ? "United States"
+                : politician.country_code}
+            {" · "}
+            {politician.jurisdiction_level}
           </p>
           {party && <span className="text-sm bg-blue-100 text-blue-800 rounded px-3 py-1 mt-2 inline-block">{party}</span>}
           {politician.bioguide_id && (
