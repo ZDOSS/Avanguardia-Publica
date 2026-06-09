@@ -39,7 +39,13 @@ export default function SearchBar() {
       navigate(item.url);
       setOpen(false);
       setQuery("");
+      return;
     }
+    // Entities without a dedicated detail page (contributions, voting
+    // records) fall through to the full search results view so the user
+    // gets context rather than a silent click-to-nothing.
+    navigate(`/search?q=${encodeURIComponent(query.trim())}`);
+    setOpen(false);
   }
 
   return (

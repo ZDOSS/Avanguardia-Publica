@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -15,6 +17,8 @@ from app.api.routers import (
 )
 from app.core.cache import get_client
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Avanguardia Publica API", version="0.4.0")
 
@@ -45,7 +49,13 @@ def health():
 
 @app.get("/api/health/ready")
 def readiness():
-    """Readiness check: verifies DB and (optionally) Redis are reachable."""
+    """Readiness check: verifies DB and (optionally) Redis are reachable.
+
+    The DB error message is logged server-side and replaced with a
+    generic ``"error"`` string in the response body so internal network
+    details (hostnames, ports, driver internals) never leak to public
+    callers.
+    """
     from sqlalchemy import text
 
     from app.core.database import SessionLocal
@@ -57,8 +67,9 @@ def readiness():
             db.execute(text("SELECT 1"))
         finally:
             db.close()
-    except Exception as e:
-        db_status = f"error: {e}"
+    except Exception:
+        logger.exception("Readiness check: database connection failed")
+        db_status = "error"
 
     redis_status = "ok" if get_client() is not None else "unavailable"
 
