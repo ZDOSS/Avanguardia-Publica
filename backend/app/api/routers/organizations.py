@@ -58,6 +58,22 @@ def get_organization_flow(
         raise HTTPException(status_code=404, detail="Organization not found")
 
     org_name = org.name
+    nodes = [{"id": f"org:{org_name}", "label": org_name, "type": "organization"}]
+    links: list[dict] = []
+
+    # Guard: opensecrets_id is nullable. Without it the filter
+    # ``Contribution.committee_id == None`` would translate to
+    # ``WHERE committee_id IS NULL`` and surface every orphan contribution
+    # in the database as if it flowed from this org. Return an empty flow
+    # until the org is matched to an OpenSecrets committee.
+    if not org.opensecrets_id:
+        return {
+            "organization_id": organization_id,
+            "organization_name": org_name,
+            "nodes": nodes,
+            "links": links,
+        }
+
     outgoing = (
         db.query(
             Contribution.recipient_name,
@@ -72,9 +88,6 @@ def get_organization_flow(
         .all()
     )
 
-    nodes = [{"id": f"org:{org_name}", "label": org_name, "type": "organization"}]
-    links: list[dict] = []
-    seen_recipients: set[str] = set()
     for row in outgoing:
         recipient = row.recipient_name or "Unknown"
         nodes.append({
@@ -82,7 +95,6 @@ def get_organization_flow(
             "label": recipient,
             "type": "recipient",
         })
-        seen_recipients.add(recipient)
         links.append({
             "source": f"org:{org_name}",
             "target": f"recipient:{recipient}",

@@ -3,8 +3,10 @@
 Source: https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&type=4
 Auth:   none, but the SEC requires a descriptive User-Agent header
         (``Sample Company Name AdminContact@<host>``) per their fair-access
-        policy. We surface this requirement via the SEC_EDGAR_USER_AGENT env
-        var, defaulting to a safe string.
+        policy. We read it from the ``SEC_EDGAR_USER_AGENT`` env var, falling
+        back to a clearly-marked placeholder; production deployments MUST set
+        the env var to a real contact email (e.g.
+        ``Avanguardia Publica research@your-domain.example``).
 
 Form 4 filings report insider transactions (purchases, sales, grants) by
 officers, directors, and >10% holders. This adapter pulls recent Form 4
@@ -14,17 +16,40 @@ filer's CIK, name, and ticker.
 Strategy:
 - Daily index ``/Archives/edgar/daily-index/{YYYY-MM-DD}/form.idx`` lists
   filings by form type. We filter to Form 4 entries.
-- Each filing's accession number is the stable ``source_record_id``.
+- The form.idx file is **fixed-width**, NOT whitespace-delimited. Company
+  names may contain spaces, so a naive ``str.split()`` will misalign CIK /
+  date / filename columns. We parse each line with a column-gutter regex
+  that requires 2+ spaces between fields.
 - politician_id is intentionally not set here; this captures corporate
   insiders, not politicians. Cross-entity linking is out of scope.
 """
 
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
 
+from app.core.config import settings
 from app.etl.base import BaseSourceAdapter
+
+
+# The SEC daily-index form.idx file is a **fixed-width** file (NOT
+# whitespace-delimited). Per the SEC's spec, each non-empty data row has
+# five fields separated by column-aligned whitespace, with company names
+# potentially containing spaces. We cannot use ``str.split()`` to parse
+# the file because that would fragment multi-word company names across
+# multiple slots, misaligning CIK, date, and filename columns.
+#
+# We use a regex that requires each field to be separated by 2+ spaces,
+# matching the visual column gutters in the actual file.
+_IDX_LINE_RE = re.compile(
+    r"^(?P<form>\S+)\s+"
+    r"(?P<company>.+?)\s{2,}"
+    r"(?P<cik>\d+)\s+"
+    r"(?P<date>\d{4}-\d{2}-\d{2})\s+"
+    r"(?P<filename>\S+)$"
+)
 
 
 class SECEdgarAdapter(BaseSourceAdapter):
@@ -36,7 +61,13 @@ class SECEdgarAdapter(BaseSourceAdapter):
 
     def __init__(self) -> None:
         super().__init__()
-        self.headers = {"User-Agent": "Avanguardia Publica research@avanguardia-publica.example"}
+        # SEC requires a real, contactable User-Agent. Production must
+        # configure SEC_EDGAR_USER_AGENT; the fallback here is intentionally
+        # flagged so misconfiguration is obvious in logs.
+        user_agent = getattr(settings, "sec_edgar_user_agent", "") or ""
+        if not user_agent:
+            user_agent = "Avanguardia Publica (configure SEC_EDGAR_USER_AGENT per SEC fair-access policy)"
+        self.headers = {"User-Agent": user_agent}
 
     async def fetch_records(self, days_back: int | None = None) -> list[dict[str, Any]]:
         days = days_back or 3
@@ -53,19 +84,16 @@ class SECEdgarAdapter(BaseSourceAdapter):
                 if resp.status_code == 404 or "form.idx" not in str(resp.url):
                     continue
                 for line in resp.text.splitlines():
-                    if not line.startswith("4 "):
+                    match = _IDX_LINE_RE.match(line)
+                    if not match:
                         continue
-                    parts = line.split()
-                    if len(parts) < 6:
-                        continue
-                    _, _, _, form_type, company_name, cik, filename = parts[:7]
-                    if form_type.strip() != "4":
+                    if match.group("form") != "4":
                         continue
                     records.append({
-                        "filing_date": target_date,
-                        "company_name": company_name.strip(),
-                        "cik": cik.strip(),
-                        "filing_url": f"https://www.sec.gov/Archives/{filename.strip()}",
+                        "filing_date": match.group("date") or target_date,
+                        "company_name": match.group("company"),
+                        "cik": match.group("cik"),
+                        "filing_url": f"https://www.sec.gov/Archives/{match.group('filename')}",
                     })
                 if len(records) >= self.max_pages_default * 1000:
                     break

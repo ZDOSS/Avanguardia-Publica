@@ -120,7 +120,7 @@ class HouseClerkAdapter(BaseSourceAdapter):
 
         if record.get("_type") == "member_group":
             for inner in record.pop("records", []):
-                await self._upsert(inner, db=db)
+                await self._upsert(self.normalize(inner), db=db)
             return
 
         model_name = record.pop("_model", None)

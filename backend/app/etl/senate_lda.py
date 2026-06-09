@@ -37,6 +37,10 @@ class SenateLDAAdapter(BaseSourceAdapter):
             offset = 0
             pages_fetched = 0
             while pages_fetched < self.max_pages_default:
+                # NOTE: The Senate LDA REST API requires the API key as a
+                # query parameter; an ``Authorization`` header is not
+                # accepted. The key will appear in server access logs at
+                # lda.senate.gov and any request-tracing infrastructure.
                 params: dict[str, Any] = {
                     "api_key": settings.senate_lda_api_key,
                     "limit": 250,

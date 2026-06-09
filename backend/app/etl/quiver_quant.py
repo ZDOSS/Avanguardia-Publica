@@ -89,10 +89,15 @@ class QuiverQuantAdapter(BaseSourceAdapter):
         filer_name = record.pop("_filer_name", None)
 
         if filer_name:
-            last = filer_name.split()[-1] if filer_name else ""
+            parts = filer_name.split()
+            last = parts[-1] if parts else ""
+            first = parts[0] if len(parts) > 1 else ""
             politician = (
                 db.query(Politician)
-                .filter(Politician.last_name.ilike(last))
+                .filter(
+                    Politician.last_name.ilike(last),
+                    Politician.first_name.ilike(first or "%"),
+                )
                 .first()
             )
             if politician:
