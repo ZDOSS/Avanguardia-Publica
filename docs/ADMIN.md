@@ -36,9 +36,15 @@ backend.
 Admin endpoints marked `X-Admin-Key` in the table above respond 401
 when the `X-Admin-Key` header doesn't match the server's
 `ADMIN_API_KEY` (and 401 is the *only* failure mode — there's no rate
-limiting yet). The two `None`-auth rows (`GET /api/admin/politicians/{id}/tags`
-and the source health snapshot when `ADMIN_API_KEY` is unset) do not
+limiting yet). The one `None`-auth row
+(`GET /api/admin/politicians/{id}/tags`) is public and does not
 require the header.
+
+Independently, the `require_admin` dependency is a no-op when the
+server's `ADMIN_API_KEY` is unset — every endpoint, including the
+`X-Admin-Key`-protected ones, becomes accessible in that dev-mode
+configuration. See the "Setting up" section above for the warning
+about running that way in production.
 
 ## Source health dashboard
 
