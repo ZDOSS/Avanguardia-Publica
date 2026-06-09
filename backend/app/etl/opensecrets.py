@@ -19,6 +19,7 @@ Expected files (industry-standard OpenSecrets format):
 import csv
 import hashlib
 import os
+from datetime import date as date_cls, datetime
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,26 @@ def _safe_strip_or_none(value):
         return None
     stripped = str(value).strip()
     return stripped if stripped else None
+
+
+def _parse_opensecrets_date(value) -> date_cls | None:
+    """Parse an OpenSecrets bulk CSV date string to a date object.
+
+    OpenSecrets indivs/pacs files emit dates as ``MM/DD/YYYY`` (sometimes
+    ``M/D/YYYY``). Returning a real ``date`` keeps the value independent of
+    PostgreSQL's ``DateStyle`` session setting.
+    """
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    for fmt in ("%m/%d/%Y", "%m-%d-%Y", "%Y-%m-%d", "%Y%m%d"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 class OpenSecretsAdapter(BaseSourceAdapter):
@@ -186,8 +207,10 @@ class OpenSecretsAdapter(BaseSourceAdapter):
         cycle = raw.get("cycle", "")
         donor = raw.get("donor_name", "")
         recipient = raw.get("recipient_id", "")
-        date = raw.get("date", "")
-        _key = f"{cycle}|{donor}|{recipient}|{date}|{amount_str}"
+        raw_date = raw.get("date", "")
+        normalized_date = _parse_opensecrets_date(raw_date)
+        date_key = normalized_date.isoformat() if normalized_date else str(raw_date or "").strip()
+        _key = f"{cycle}|{donor}|{recipient}|{date_key}|{amount_str}"
         source_record_id = f"opensecrets-{cycle}-{hashlib.sha256(_key.encode()).hexdigest()[:16]}"
 
         return {
@@ -197,7 +220,7 @@ class OpenSecretsAdapter(BaseSourceAdapter):
             "recipient_name": "",  # resolved to politician.last_name in _upsert when politician_id is set
             "committee_id": raw.get("committee_id"),
             "amount": amount,
-            "date": raw.get("date"),
+            "date": normalized_date,
             "election_cycle": int(cycle) if cycle and cycle.isdigit() else None,
             "location": f"{raw.get('city', '')}, {raw.get('state', '')}" if raw.get("city") or raw.get("state") else None,
             "employer": raw.get("employer"),

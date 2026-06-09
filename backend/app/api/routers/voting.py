@@ -62,7 +62,7 @@ def list_ideology_scores(
         query = query.filter(PoliticianIdeologyScore.politician_id == politician_id)
     if congress:
         query = query.filter(PoliticianIdeologyScore.congress == congress)
-    scores = query.all()
+    scores = query.order_by(PoliticianIdeologyScore.congress.desc(), PoliticianIdeologyScore.id.desc()).all()
     return [IdeologyScoreOut.model_validate(s) for s in scores]
 
 
