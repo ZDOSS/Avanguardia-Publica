@@ -1,11 +1,11 @@
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.auth import require_admin
 from app.core.database import get_db
 from app.models import Contribution, Source, VotingRecord
 
@@ -26,14 +26,6 @@ class SourceHealth(BaseModel):
 class SourceHealthResponse(BaseModel):
     sources: list[SourceHealth]
     summary: dict
-
-
-def require_admin(x_admin_key: str | None = Header(default=None)):
-    """Header-based admin auth. Disabled when ADMIN_API_KEY is unset."""
-    if not settings.admin_api_key:
-        return
-    if x_admin_key != settings.admin_api_key:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin key required")
 
 
 @router.get("/sources", response_model=SourceHealthResponse, dependencies=[Depends(require_admin)])
@@ -111,25 +103,30 @@ def sources_health(db: Session = Depends(get_db)):
     return SourceHealthResponse(sources=health, summary=summary)
 
 
-def _parse_interval_hours(interval: str | None) -> int | None:
-    """Parse ``"daily"`` / ``"6h"`` / ``"30m"`` to hours, or None on miss."""
+def _parse_interval_hours(interval: str | None) -> float | None:
+    """Parse ``"daily"`` / ``"6h"`` / ``"30m"`` to hours, or None on miss.
+
+    Returns a float so sub-hour intervals (e.g. ``"5m"``) keep their
+    precision; the stale check then compares against a 2× multiple that
+    scales with the source's declared cadence.
+    """
     if not interval:
         return None
     interval = interval.strip().lower()
     if interval == "daily":
-        return 24
+        return 24.0
     if interval == "hourly":
-        return 1
+        return 1.0
     if interval == "weekly":
-        return 24 * 7
+        return 24.0 * 7
     if interval.endswith("h"):
         try:
-            return int(interval[:-1])
+            return float(int(interval[:-1]))
         except ValueError:
             return None
     if interval.endswith("m"):
         try:
-            return max(1, int(interval[:-1]) // 60)
+            return int(interval[:-1]) / 60.0
         except ValueError:
             return None
     return None

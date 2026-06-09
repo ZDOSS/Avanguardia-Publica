@@ -1,9 +1,9 @@
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.auth import require_admin
 from app.core.database import get_db
 from app.models import Politician, PoliticianTag, Tag
 from app.schemas.tag import (
@@ -15,13 +15,6 @@ from app.schemas.tag import (
 )
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
-
-
-def require_admin(x_admin_key: str | None = Header(default=None)):
-    if not settings.admin_api_key:
-        return
-    if x_admin_key != settings.admin_api_key:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin key required")
 
 
 @router.get("/tags", response_model=list[TagOut], dependencies=[Depends(require_admin)])

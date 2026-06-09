@@ -16,8 +16,31 @@ from app.schemas.voting import VotingRecordOut
 router = APIRouter(prefix="/api/politicians", tags=["politicians"])
 
 
+def _politicians_cache_key(
+    page: int,
+    per_page: int,
+    state: str | None,
+    chamber: str | None,
+    party: str | None,
+    search: str | None,
+    db: Session = None,
+) -> str:
+    """Compose a stable cache key from every filterable query parameter.
+
+    Filter values are normalised (uppercase state, lowercase chamber) so
+    equivalent queries collapse to the same key. ``db`` is part of the
+    signature so the FastAPI ``Depends(get_db)`` injection doesn't break
+    the call.
+    """
+    return (
+        f"politicians:list:p={page}:pp={per_page}"
+        f":st={(state or '').upper()}:ch={(chamber or '').lower()}"
+        f":pa={(party or '').upper()}:q={search or ''}"
+    )
+
+
 @router.get("", response_model=PoliticianListOut)
-@cache_json("politicians:list", ttl_seconds=60)
+@cache_json(_politicians_cache_key, ttl_seconds=60)
 def list_politicians(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
