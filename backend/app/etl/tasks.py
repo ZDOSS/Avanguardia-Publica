@@ -4,6 +4,19 @@ from datetime import datetime, timezone
 from app.core.celery_app import celery_app
 
 
+REGISTERED_SOURCES = [
+    "fec_api",
+    "congress_gov_api",
+    "voteview",
+    "opensecrets_bulk",
+    "senate_lda",
+    "house_clerk",
+    "usaspending",
+    "sec_edgar",
+    "quiver_quant",
+]
+
+
 @celery_app.task(name="etl.sync_source", bind=True, max_retries=3, default_retry_delay=300)
 def sync_source(self, source_name: str):
     """Trigger a full ETL sync for a named source."""
@@ -11,6 +24,11 @@ def sync_source(self, source_name: str):
     from app.etl.congress_gov import CongressGovAdapter
     from app.etl.voteview import VoteViewAdapter
     from app.etl.opensecrets import OpenSecretsAdapter
+    from app.etl.senate_lda import SenateLDAAdapter
+    from app.etl.house_clerk import HouseClerkAdapter
+    from app.etl.usaspending import USASpendingAdapter
+    from app.etl.sec_edgar import SECEdgarAdapter
+    from app.etl.quiver_quant import QuiverQuantAdapter
     from app.models import Source
     from app.core.database import SessionLocal
 
@@ -19,6 +37,11 @@ def sync_source(self, source_name: str):
         "congress_gov_api": CongressGovAdapter(),
         "voteview": VoteViewAdapter(),
         "opensecrets_bulk": OpenSecretsAdapter(),
+        "senate_lda": SenateLDAAdapter(),
+        "house_clerk": HouseClerkAdapter(),
+        "usaspending": USASpendingAdapter(),
+        "sec_edgar": SECEdgarAdapter(),
+        "quiver_quant": QuiverQuantAdapter(),
     }
     adapter = adapters.get(source_name)
     if not adapter:
@@ -56,9 +79,8 @@ def sync_all_sources():
 
     db = SessionLocal()
     try:
-        registered = ["fec_api", "congress_gov_api", "voteview", "opensecrets_bulk"]
         existing = {s.name for s in db.query(Source).all()}
-        for name in registered:
+        for name in REGISTERED_SOURCES:
             if name not in existing:
                 db.add(Source(name=name, status="idle", sync_interval="daily"))
         db.commit()

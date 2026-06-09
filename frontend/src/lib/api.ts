@@ -96,6 +96,101 @@ export interface ContributionSummary {
   by_donor_type: Record<string, number>;
 }
 
+export interface LobbyingRecord {
+  id: number;
+  lda_id: string;
+  registrant_name: string;
+  client_name: string | null;
+  lobbyist_name: string | null;
+  issue_area: string | null;
+  issue_text: string | null;
+  amount: number | null;
+  report_quarter: string | null;
+  filing_type: string | null;
+  government_entities_lobbied: string | null;
+  source_xml_url: string | null;
+  source_name: string;
+  source_record_id: string;
+}
+
+export interface LobbyingSummary {
+  total_amount: number;
+  total_count: number;
+  by_issue_area: Record<string, number>;
+  by_quarter: Record<string, number>;
+}
+
+export interface FinancialDisclosure {
+  id: number;
+  // Nullable: SEC EDGAR Form 4 records are corporate insiders, not
+  // politicians. Quiver Quant rows that don't match a legislator are
+  // also stored without politician_id for later admin resolution.
+  politician_id: number | null;
+  filing_year: number | null;
+  filing_type: string | null;
+  asset_name: string | null;
+  asset_type: string | null;
+  transaction_type: string | null;
+  amount_range_low: number | null;
+  amount_range_high: number | null;
+  notification_date: string | null;
+  source_url: string | null;
+  ticker: string | null;
+  source_name: string;
+  source_record_id: string;
+}
+
+export interface FinancialDisclosureSummary {
+  total_count: number;
+  by_ticker: Record<string, number>;
+  by_transaction_type: Record<string, number>;
+  by_year: Record<string, number>;
+}
+
+export interface GovernmentContract {
+  id: number;
+  award_id: string;
+  recipient_name: string;
+  awarding_agency: string | null;
+  amount: number | null;
+  award_date: string | null;
+  description: string | null;
+  naics_code: string | null;
+  place_of_performance: string | null;
+  source_name: string;
+  source_record_id: string;
+}
+
+export interface Organization {
+  id: number;
+  name: string;
+  type: string;
+  fec_id: string | null;
+  opensecrets_id: string | null;
+  source_name: string;
+  source_record_id: string;
+}
+
+export interface FlowNode {
+  id: string;
+  label: string;
+  type: string;
+}
+
+export interface FlowLink {
+  source: string;
+  target: string;
+  weight: number;
+  count: number;
+}
+
+export interface OrganizationFlow {
+  organization_id: number;
+  organization_name: string;
+  nodes: FlowNode[];
+  links: FlowLink[];
+}
+
 export async function fetchPoliticianVoting(
   id: number,
   congress?: number,
@@ -141,5 +236,41 @@ export async function fetchIdeologyScores(
   if (congress) params.set("congress", String(congress));
   const res = await fetch(`${API_BASE}/api/voting/ideology-scores?${params}`);
   if (!res.ok) throw new Error("Failed to fetch ideology scores");
+  return res.json();
+}
+
+export async function fetchPoliticianFinancials(
+  id: number,
+  limit: number = 50
+): Promise<FinancialDisclosure[]> {
+  const res = await fetch(`${API_BASE}/api/politicians/${id}/financials?limit=${limit}`);
+  if (!res.ok) throw new Error("Failed to fetch financial disclosures");
+  return res.json();
+}
+
+export async function fetchOrganizations(
+  params?: { page?: number; name?: string; type?: string }
+): Promise<{ items: Organization[]; total: number; page: number; per_page: number }> {
+  const search = new URLSearchParams();
+  if (params?.page) search.set("page", String(params.page));
+  if (params?.name) search.set("name", params.name);
+  if (params?.type) search.set("type", params.type);
+  const res = await fetch(`${API_BASE}/api/organizations?${search}`);
+  if (!res.ok) throw new Error("Failed to fetch organizations");
+  return res.json();
+}
+
+export async function fetchOrganization(id: number): Promise<Organization> {
+  const res = await fetch(`${API_BASE}/api/organizations/${id}`);
+  if (!res.ok) throw new Error("Organization not found");
+  return res.json();
+}
+
+export async function fetchOrganizationFlow(
+  id: number,
+  limit: number = 50
+): Promise<OrganizationFlow> {
+  const res = await fetch(`${API_BASE}/api/organizations/${id}/flow?limit=${limit}`);
+  if (!res.ok) throw new Error("Failed to fetch organization flow");
   return res.json();
 }
