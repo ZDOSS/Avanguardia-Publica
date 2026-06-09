@@ -111,13 +111,24 @@ class CACalAccessAdapter(BaseSourceAdapter):
 
         # Cal-Access exports filings for federal candidates registered
         # in California as well as CA state-level candidates. Federal
-        # candidates (U.S. House, U.S. Senate) are sourced from
-        # Congress.gov, so we skip them here to avoid double-counting
-        # and to keep jurisdiction_level='state' accurate. Unknown CA
-        # offices (e.g. Board of Equalization, Superintendent of Public
-        # Instruction) map to 'state_executive' rather than silently
-        # defaulting to 'state_house'.
-        if "u.s. house" in office_lower or "u.s. senate" in office_lower or "us house" in office_lower or "us senate" in office_lower:
+        # candidates are sourced from Congress.gov, so we skip them
+        # here to avoid double-counting and to keep
+        # jurisdiction_level='state' accurate. Cal-Access labels
+        # federal House candidates as "U.S. REPRESENTATIVE" (not
+        # "U.S. HOUSE") and federal Senate candidates as "U.S.
+        # SENATOR" — we match on substrings that cover all observed
+        # Cal-Access spellings.
+        federal_markers = (
+            "u.s. house",
+            "us house",
+            "u.s. representative",
+            "us representative",
+            "u.s. senate",
+            "u.s. senator",
+            "us senate",
+            "us senator",
+        )
+        if any(marker in office_lower for marker in federal_markers):
             return None
         elif "governor" in office_lower:
             chamber = "governor"
