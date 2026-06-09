@@ -97,9 +97,10 @@ class CanadaElectionsAdapter(BaseSourceAdapter):
         ingests. If the directory is unset, the adapter returns no
         records (same fallback as the OpenSecrets bulk adapter).
         """
-        base = Path(file_path or settings.canada_elections_bulk_path)
-        if not base:
+        raw = file_path or settings.canada_elections_bulk_path
+        if not raw:
             return []
+        base = Path(raw)
         if base.is_file():
             candidates = [base]
         elif base.is_dir():

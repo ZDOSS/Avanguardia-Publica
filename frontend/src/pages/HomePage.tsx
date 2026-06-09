@@ -124,6 +124,7 @@ export default function HomePage() {
             <option value="senate">Senate</option>
             <option value="state_house">State House</option>
             <option value="state_senate">State Senate</option>
+            <option value="state_executive">Statewide Office</option>
             <option value="governor">Governor</option>
           </select>
         </div>
