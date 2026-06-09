@@ -79,7 +79,13 @@ class VoteViewAdapter(BaseSourceAdapter):
                             "cast_code": int(row.get("cast_code", 0)) if pd.notna(row.get("cast_code")) else 0,
                             "bill_number": str(row.get("bill_number", "")).strip() if pd.notna(row.get("bill_number")) else None,
                             "bill_type": str(row.get("bill_type", "")).strip() if pd.notna(row.get("bill_type")) else None,
-                            "vote_date": str(row.get("date", "")).strip() if pd.notna(row.get("date")) else None,
+                            "vote_date": (
+                                f"{int(row.get('date')):08d}"[:4]
+                                + "-"
+                                + f"{int(row.get('date')):08d}"[4:6]
+                                + "-"
+                                + f"{int(row.get('date')):08d}"[6:]
+                            ) if pd.notna(row.get("date")) else None,
                             "issue_area": str(row.get("issue_area", "")).strip() if pd.notna(row.get("issue_area")) else None,
                         })
                 except httpx.HTTPStatusError as e:
