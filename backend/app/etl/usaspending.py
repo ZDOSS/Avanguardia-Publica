@@ -81,8 +81,12 @@ class USASpendingAdapter(BaseSourceAdapter):
         return records
 
     def _recent_fy(self, count: int) -> list[int]:
+        # US federal fiscal year runs Oct 1 – Sep 30. FY year is named
+        # after the calendar year in which it ENDS:
+        # - Jan..Sep 2026  → FY2026 (ends Sep 30 2026)
+        # - Oct..Dec 2026  → FY2027 (ends Sep 30 2027)
         now = datetime.now(timezone.utc)
-        fy = now.year if now.month >= 10 else now.year - 1
+        fy = now.year + 1 if now.month >= 10 else now.year
         return [fy - i for i in range(count)]
 
     def normalize(self, raw: dict) -> dict[str, Any]:
