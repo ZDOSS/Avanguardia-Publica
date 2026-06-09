@@ -18,6 +18,8 @@ class Politician(Base):
     suffix: Mapped[str | None] = mapped_column(String(20), nullable=True)
     full_name: Mapped[str] = mapped_column(String(300))
     party_history: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    country_code: Mapped[str] = mapped_column(String(2), default="US")
+    jurisdiction_level: Mapped[str] = mapped_column(String(20), default="federal")
     state: Mapped[str] = mapped_column(String(2))
     district: Mapped[str | None] = mapped_column(String(10), nullable=True)
     chamber: Mapped[str] = mapped_column(String(20))
