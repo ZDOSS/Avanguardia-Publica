@@ -217,7 +217,7 @@ class OpenSecretsAdapter(BaseSourceAdapter):
             "opensecrets_id": opensecrets_id or None,
             "source_name": self.source_name,
             "source_record_id": opensecrets_id or f"opensecrets-org-{raw['name']}",
-            "metadata": {
+            "metadata_": {
                 "party_affiliation": raw.get("party_affiliation"),
                 "connected_org": raw.get("connected_org"),
             },
