@@ -57,6 +57,9 @@ Never accumulate uncommitted changes across multiple rounds. Greptile reviews th
 ### 21. Apply Greptile fixes verbatim
 Use the exact code Greptile suggests in its review comments and summary, character for character. Do not refactor, restyle, or add extra type annotations unless the suggestion directly conflicts with an existing codebase convention. The only allowed deviation is an explicit column type prefix (e.g., `Integer, ForeignKey(...)` → `ForeignKey(...)`) to match the suggestion exactly.
 
+### 22. After pushing a commit to a PR, wait 10 minutes then re-check Greptile
+Greptile's review on a commit is not instant — it runs asynchronously after push. After `git push` to a PR branch, wait 10 minutes, then poll the PR's reviews/comments for the new Greptile review (`gh api repos/<owner>/<repo>/pulls/<n>/reviews` or check the Greptile GitHub App comment). Apply any fixes Greptile flags in the new review per rule #21, commit, push, and repeat. Stale comments anchored on a pre-fix diff do not need to be re-applied — verify the current file state matches the spirit of the suggestion before skipping.
+
 ## Frontend Implementation Rules
 
 ### 16. Vite `base` MUST match the GitHub Pages repo sub-path
