@@ -77,12 +77,11 @@ def get_organization_flow(
     outgoing = (
         db.query(
             Contribution.recipient_name,
-            Contribution.politician_id,
             func.sum(Contribution.amount).label("weight"),
             func.count(Contribution.id).label("cnt"),
         )
         .filter(Contribution.committee_id == org.opensecrets_id)
-        .group_by(Contribution.recipient_name, Contribution.politician_id)
+        .group_by(Contribution.recipient_name)
         .order_by(func.sum(Contribution.amount).desc())
         .limit(limit)
         .all()
