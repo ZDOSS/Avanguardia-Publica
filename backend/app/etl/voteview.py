@@ -27,8 +27,10 @@ class VoteViewAdapter(BaseSourceAdapter):
     max_pages_default = 1  # bulk download, not paginated
 
     # VoteView CSV URLs for current congress + historical
-    VOTES_URL = f"{base_url}/votes/" + "{congress}_votes.csv"
-    MEMBERS_URL = f"{base_url}/members/" + "{congress}_members.csv"
+    # VoteView prefixes congress-specific files with the chamber code "HS"
+    # (House + Senate combined). e.g. HS118_votes.csv, HS118_members.csv.
+    VOTES_URL = f"{base_url}/votes/" + "HS{congress}_votes.csv"
+    MEMBERS_URL = f"{base_url}/members/" + "HS{congress}_members.csv"
 
     async def fetch_records(self, congress: int | None = None) -> list[dict[str, Any]]:
         """Fetch VoteView data for a given congress (or all if None)."""
