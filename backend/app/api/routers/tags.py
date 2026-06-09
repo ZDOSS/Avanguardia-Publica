@@ -52,12 +52,12 @@ def update_tag(tag_id: int, payload: TagUpdate, db: Session = Depends(get_db)):
     tag = db.query(Tag).filter(Tag.id == tag_id).first()
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
-    if payload.name is not None:
-        tag.name = payload.name
-    if payload.description is not None:
-        tag.description = payload.description
-    if payload.is_admin_only is not None:
-        tag.is_admin_only = payload.is_admin_only
+    # ``exclude_unset=True`` distinguishes a missing field from an explicit
+    # null, so an admin can clear ``description`` by sending
+    # ``{"description": null}`` rather than having the call silently no-op.
+    updates = payload.model_dump(exclude_unset=True)
+    for field, value in updates.items():
+        setattr(tag, field, value)
     db.commit()
     db.refresh(tag)
     return tag
@@ -142,7 +142,10 @@ def list_politician_tags(politician_id: int, db: Session = Depends(get_db)):
     rows = (
         db.query(Tag)
         .join(PoliticianTag, PoliticianTag.tag_id == Tag.id)
-        .filter(PoliticianTag.politician_id == politician_id)
+        .filter(
+            PoliticianTag.politician_id == politician_id,
+            Tag.is_admin_only == False,  # noqa: E712
+        )
         .order_by(Tag.name)
         .all()
     )

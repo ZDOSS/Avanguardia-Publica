@@ -3,16 +3,28 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { searchAll, type SearchResultItem } from "../lib/api";
 
+const DEBOUNCE_MS = 250;
+
 export default function SearchBar() {
   const [query, setQuery] = useState("");
+  // The value fed to react-query is debounced so we don't fire one
+  // backend request (8 DB queries) per keystroke. ``query`` is the
+  // immediate text in the box; ``debouncedQuery`` lags behind by
+  // ``DEBOUNCE_MS`` and is what triggers the network call.
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [query]);
+
   const { data } = useQuery({
-    queryKey: ["search", query],
-    queryFn: () => searchAll(query, 8),
-    enabled: query.length >= 2,
+    queryKey: ["search", debouncedQuery],
+    queryFn: () => searchAll(debouncedQuery, 8),
+    enabled: debouncedQuery.length >= 2,
     staleTime: 30_000,
   });
 
@@ -64,7 +76,7 @@ export default function SearchBar() {
           onFocus={() => setOpen(true)}
         />
       </form>
-      {open && query.length >= 2 && data && data.items.length > 0 && (
+      {open && debouncedQuery.length >= 2 && data && data.items.length > 0 && (
         <ul className="absolute top-full left-0 right-0 mt-1 bg-white border rounded shadow-lg z-50 max-h-80 overflow-auto text-sm text-gray-900">
           {data.items.map((item) => (
             <li
