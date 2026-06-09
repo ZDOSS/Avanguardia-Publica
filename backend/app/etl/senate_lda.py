@@ -48,12 +48,24 @@ class SenateLDAAdapter(BaseSourceAdapter):
                 }
                 if filing_year:
                     params["filing_year"] = filing_year
-                resp = await client.get(
-                    f"{self.base_url}/filings/",
-                    params=params,
-                    timeout=60,
-                )
-                resp.raise_for_status()
+                # Per-page try/except: a transient 429/5xx on one page
+                # must not abort the entire multi-page sync. We log via
+                # the standard ``print`` channel (the base run_sync does
+                # not surface fetch errors directly) and break out of the
+                # loop with whatever records we collected so far.
+                try:
+                    resp = await client.get(
+                        f"{self.base_url}/filings/",
+                        params=params,
+                        timeout=60,
+                    )
+                    resp.raise_for_status()
+                except httpx.HTTPStatusError as e:
+                    print(f"senate_lda: page {pages_fetched} HTTP {e.response.status_code}, stopping")
+                    break
+                except httpx.RequestError as e:
+                    print(f"senate_lda: page {pages_fetched} request error {e}, stopping")
+                    break
                 data = resp.json()
                 results = data.get("results", [])
                 if not results:

@@ -4,7 +4,10 @@ from pydantic import BaseModel
 
 class FinancialDisclosureOut(BaseModel):
     id: int
-    politician_id: int
+    # Nullable: SEC EDGAR Form 4 records are corporate insiders, not
+    # politicians. Quiver Quant rows that don't match a legislator are
+    # also stored without politician_id for later admin resolution.
+    politician_id: int | None = None
     filing_year: int | None = None
     filing_type: str | None = None
     asset_name: str | None = None

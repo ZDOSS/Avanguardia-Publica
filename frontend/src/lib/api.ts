@@ -122,7 +122,10 @@ export interface LobbyingSummary {
 
 export interface FinancialDisclosure {
   id: number;
-  politician_id: number;
+  // Nullable: SEC EDGAR Form 4 records are corporate insiders, not
+  // politicians. Quiver Quant rows that don't match a legislator are
+  // also stored without politician_id for later admin resolution.
+  politician_id: number | null;
   filing_year: number | null;
   filing_type: string | null;
   asset_name: string | null;
