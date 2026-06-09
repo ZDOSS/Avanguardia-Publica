@@ -22,12 +22,12 @@ export default function HomePage() {
           <input
             type="text"
             placeholder="Search by name..."
-            className="border rounded px-3 py-2 w-64"
+            className="border rounded px-3 py-2 w-full sm:w-64"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
           <select
-            className="border rounded px-3 py-2"
+            className="border rounded px-3 py-2 w-full sm:w-auto"
             value={state}
             onChange={(e) => { setState(e.target.value); setPage(1); }}
           >
@@ -37,7 +37,7 @@ export default function HomePage() {
             ))}
           </select>
           <select
-            className="border rounded px-3 py-2"
+            className="border rounded px-3 py-2 w-full sm:w-auto"
             value={chamber}
             onChange={(e) => { setChamber(e.target.value); setPage(1); }}
           >
@@ -53,7 +53,7 @@ export default function HomePage() {
 
       {data && (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             {data.items.map((p: Politician) => (
               <Link
                 key={p.id}
@@ -73,9 +73,9 @@ export default function HomePage() {
               </Link>
             ))}
           </div>
-          <div className="flex justify-center gap-4 mt-6">
+          <div className="flex flex-col sm:flex-row sm:justify-center items-center gap-2 sm:gap-4 mt-6">
             <button
-              className="px-4 py-2 border rounded disabled:opacity-50"
+              className="w-full sm:w-auto px-4 py-2 border rounded disabled:opacity-50"
               disabled={page <= 1}
               onClick={() => setPage(p => p - 1)}
             >
@@ -85,7 +85,7 @@ export default function HomePage() {
               Page {page} of {Math.ceil(data.total / data.per_page)}
             </span>
             <button
-              className="px-4 py-2 border rounded disabled:opacity-50"
+              className="w-full sm:w-auto px-4 py-2 border rounded disabled:opacity-50"
               disabled={page >= Math.ceil(data.total / data.per_page)}
               onClick={() => setPage(p => p + 1)}
             >

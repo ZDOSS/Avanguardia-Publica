@@ -13,8 +13,9 @@ Strategy:
 - Each filing's ``filing_uuid`` becomes the stable ``source_record_id``.
 """
 
-import httpx
 from typing import Any
+
+import httpx
 
 from app.core.config import settings
 from app.etl.base import BaseSourceAdapter

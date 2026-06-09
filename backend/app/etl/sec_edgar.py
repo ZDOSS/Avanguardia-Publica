@@ -33,7 +33,6 @@ import httpx
 from app.core.config import settings
 from app.etl.base import BaseSourceAdapter
 
-
 # The SEC daily-index form.idx file is a **fixed-width** file (NOT
 # whitespace-delimited). Per the SEC's spec, each non-empty data row has
 # five fields separated by column-aligned whitespace, with company names

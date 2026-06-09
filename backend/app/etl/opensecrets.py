@@ -18,8 +18,8 @@ Expected files (industry-standard OpenSecrets format):
 
 import csv
 import hashlib
-import os
-from datetime import date as date_cls, datetime
+from datetime import date as date_cls
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -92,7 +92,7 @@ class OpenSecretsAdapter(BaseSourceAdapter):
             # Individual contributions
             indivs_file = base / f"indivs{year}.txt"
             if indivs_file.exists():
-                with open(indivs_file, "r", encoding="latin-1") as f:
+                with open(indivs_file, encoding="latin-1") as f:
                     reader = csv.DictReader(f, delimiter="|", fieldnames=[
                         "cycle", "fec_trans_id", "contrib_id", "contrib",
                         "recip_id", "org_name", "ult_org", "real_code",
@@ -124,7 +124,7 @@ class OpenSecretsAdapter(BaseSourceAdapter):
             # PAC contributions
             pacs_file = base / f"pacs{year}.txt"
             if pacs_file.exists():
-                with open(pacs_file, "r", encoding="latin-1") as f:
+                with open(pacs_file, encoding="latin-1") as f:
                     reader = csv.DictReader(f, delimiter="|", fieldnames=[
                         "cycle", "fec_rec_no", "pac_id", "cid", "amount",
                         "date", "real_code", "type", "di", "feccandid"
@@ -145,7 +145,7 @@ class OpenSecretsAdapter(BaseSourceAdapter):
             # Committee master (for organization metadata)
             cmtes_file = base / f"cmtes{year}.txt"
             if cmtes_file.exists():
-                with open(cmtes_file, "r", encoding="latin-1") as f:
+                with open(cmtes_file, encoding="latin-1") as f:
                     reader = csv.DictReader(f, delimiter="|", fieldnames=[
                         "cmte_id", "cmte_name", "treasurer", "street1", "street2",
                         "city", "state", "zip", "cmte_designation", "cmte_type",
@@ -248,7 +248,7 @@ class OpenSecretsAdapter(BaseSourceAdapter):
 
     async def _upsert(self, record: dict, db=None) -> None:
         """Insert or update a normalized OpenSecrets record."""
-        from app.models import Politician, Contribution, Organization
+        from app.models import Contribution, Organization, Politician
 
         model_name = record.pop("_model")
 

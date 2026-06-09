@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models import GovernmentContract
-from app.schemas.contract import GovernmentContractOut, GovernmentContractListOut, GovernmentContractSummary
+from app.schemas.contract import GovernmentContractListOut, GovernmentContractOut, GovernmentContractSummary
 
 router = APIRouter(prefix="/api/government-contracts", tags=["contracts"])
 

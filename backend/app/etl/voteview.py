@@ -7,15 +7,12 @@ VoteView provides:
 Sources: https://voteview.com/articles/data_help
 """
 
-import csv
 import io
-import zipfile
 from typing import Any
 
 import httpx
 import pandas as pd
 
-from app.core.config import settings
 from app.etl.base import BaseSourceAdapter
 
 
@@ -155,7 +152,7 @@ class VoteViewAdapter(BaseSourceAdapter):
 
     async def _upsert(self, record: dict, db=None) -> None:
         """Insert or update a normalized VoteView record."""
-        from app.models import Politician, VotingRecord, PoliticianIdeologyScore
+        from app.models import Politician, PoliticianIdeologyScore, VotingRecord
 
         # Resolve politician by icpsr_id
         icpsr = record.pop("_icpsr", None)

@@ -1,20 +1,46 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import cast, func
-from sqlalchemy.dialects.postgresql import JSONB
 import json
 
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import cast
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Session
+
+from app.core.cache import cache_json
 from app.core.database import get_db
-from app.models import Politician, VotingRecord, Contribution, FinancialDisclosure
-from app.schemas.politician import PoliticianOut, PoliticianListOut
-from app.schemas.voting import VotingRecordOut
+from app.models import Contribution, FinancialDisclosure, Politician, VotingRecord
 from app.schemas.contribution import ContributionOut
 from app.schemas.financial import FinancialDisclosureOut
+from app.schemas.politician import PoliticianListOut, PoliticianOut
+from app.schemas.voting import VotingRecordOut
 
 router = APIRouter(prefix="/api/politicians", tags=["politicians"])
 
 
+def _politicians_cache_key(
+    page: int,
+    per_page: int,
+    state: str | None,
+    chamber: str | None,
+    party: str | None,
+    search: str | None,
+    db: Session = None,
+) -> str:
+    """Compose a stable cache key from every filterable query parameter.
+
+    Filter values are normalised (uppercase state, lowercase chamber) so
+    equivalent queries collapse to the same key. ``db`` is part of the
+    signature so the FastAPI ``Depends(get_db)`` injection doesn't break
+    the call.
+    """
+    return (
+        f"politicians:list:p={page}:pp={per_page}"
+        f":st={(state or '').upper()}:ch={(chamber or '').lower()}"
+        f":pa={(party or '').upper()}:q={search or ''}"
+    )
+
+
 @router.get("", response_model=PoliticianListOut)
+@cache_json(_politicians_cache_key, ttl_seconds=60)
 def list_politicians(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
@@ -42,12 +68,12 @@ def list_politicians(
     offset = (page - 1) * per_page
     politicians = query.order_by(Politician.full_name).offset(offset).limit(per_page).all()
 
-    return PoliticianListOut(
-        items=[PoliticianOut.model_validate(p) for p in politicians],
-        total=total,
-        page=page,
-        per_page=per_page,
-    )
+    return {
+        "items": [PoliticianOut.model_validate(p).model_dump() for p in politicians],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }
 
 
 @router.get("/{politician_id}", response_model=PoliticianOut)

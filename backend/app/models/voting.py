@@ -1,6 +1,9 @@
-from sqlalchemy import String, Integer, Date, UniqueConstraint, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column
 from datetime import date
+from typing import Any
+
+from sqlalchemy import Date, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
@@ -23,6 +26,7 @@ class VotingRecord(Base):
     issue_area: Mapped[str | None] = mapped_column(String(200), nullable=True)
     source_name: Mapped[str] = mapped_column(String(50))
     source_record_id: Mapped[str] = mapped_column(String(100))
+    search_tsv: Mapped[Any | None] = mapped_column(TSVECTOR, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("source_name", "source_record_id", name="uq_voting_record_dedup"),
