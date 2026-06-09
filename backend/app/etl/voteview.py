@@ -112,9 +112,16 @@ class VoteViewAdapter(BaseSourceAdapter):
         }
 
     def _normalize_vote(self, raw: dict) -> dict[str, Any]:
-        # VoteView cast_code: 1=yea, 6=nay, 9=not voting, 0=present
+        # VoteView cast_code: 1=yea, 2=paired yea, 3=announced yea, 4=announced nay,
+        # 5=paired nay, 6=nay, 7=present (rules violation), 8=present (rules violation),
+        # 9=not voting, 0=present
         cast_code = raw.get("cast_code", 0)
-        vote_map = {1: "yea", 6: "nay", 9: "not_voting", 0: "present"}
+        vote_map = {
+            1: "yea", 2: "yea", 3: "yea",
+            4: "nay", 5: "nay", 6: "nay",
+            7: "present", 8: "present", 0: "present",
+            9: "not_voting",
+        }
         vote = vote_map.get(cast_code, "unknown")
 
         # Construct source_record_id: voteview-{congress}-{session}-{rollnumber}-{icpsr}
