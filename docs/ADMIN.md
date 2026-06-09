@@ -25,16 +25,26 @@ backend.
 
 ## Admin endpoints
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/admin/sources` | GET | Per-source ETL health snapshot |
-| `/api/admin/tags` | GET / POST | List / create tags |
-| `/api/admin/tags/{id}` | PATCH / DELETE | Update / delete a tag |
-| `/api/admin/politicians/{id}/tags/{tag_id}` | PUT / DELETE | Attach / detach a tag |
+| Endpoint | Method | Purpose | Auth |
+|----------|--------|---------|------|
+| `/api/admin/sources` | GET | Per-source ETL health snapshot | `X-Admin-Key` |
+| `/api/admin/tags` | GET / POST | List / create tags | `X-Admin-Key` |
+| `/api/admin/tags/{id}` | PATCH / DELETE | Update / delete a tag | `X-Admin-Key` |
+| `/api/admin/politicians/{id}/tags` | GET | List a politician's public tags | None (admin-only tags filtered out) |
+| `/api/admin/politicians/{id}/tags/{tag_id}` | PUT / DELETE | Attach / detach a tag | `X-Admin-Key` |
 
-All admin endpoints respond 401 when the `X-Admin-Key` header doesn't
-match the server's `ADMIN_API_KEY` (and 401 is the *only* failure
-mode — there's no rate limiting yet).
+Admin endpoints marked `X-Admin-Key` in the table above respond 401
+when the `X-Admin-Key` header doesn't match the server's
+`ADMIN_API_KEY` (and 401 is the *only* failure mode — there's no rate
+limiting yet). The one `None`-auth row
+(`GET /api/admin/politicians/{id}/tags`) is public and does not
+require the header.
+
+Independently, the `require_admin` dependency is a no-op when the
+server's `ADMIN_API_KEY` is unset — every endpoint, including the
+`X-Admin-Key`-protected ones, becomes accessible in that dev-mode
+configuration. See the "Setting up" section above for the warning
+about running that way in production.
 
 ## Source health dashboard
 
@@ -104,7 +114,7 @@ curl -X POST http://localhost:8000/api/admin/tags \
 ```
 
 Setting `is_admin_only: false` makes the tag visible to anonymous
-users via `GET /api/politicians/{id}/tags`.
+users via `GET /api/admin/politicians/{id}/tags`.
 
 ### Attach to a politician
 
