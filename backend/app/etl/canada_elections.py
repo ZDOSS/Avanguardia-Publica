@@ -112,13 +112,20 @@ class CanadaElectionsAdapter(BaseSourceAdapter):
             with open(path, encoding="utf-8-sig", newline="") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    records.append(self._row_to_dict(row, source_file=path.name))
+                    normalized = self._row_to_dict(row, source_file=path.name)
+                    if normalized is not None:
+                        records.append(normalized)
         return records
 
-    def _row_to_dict(self, row: dict[str, str], source_file: str) -> dict[str, Any]:
+    def _row_to_dict(self, row: dict[str, str], source_file: str) -> dict[str, Any] | None:
         first = _safe_strip_or_none(row.get("Candidate_First_Name"))
         middle = _safe_strip_or_none(row.get("Candidate_Middle_Name"))
         last = _safe_strip_or_none(row.get("Candidate_Last_Name"))
+        if not first and not last:
+            # Name-less rows (e.g. write-in aggregates, blank CSV
+            # entries) should be skipped — same defensive pattern as
+            # ca_calaccess, which drops pure-committee filings.
+            return None
         full = " ".join(p for p in (first, middle, last) if p)
         party = _safe_strip_or_none(row.get("Candidate_Party_Abbreviation")) or _safe_strip_or_none(
             row.get("Candidate_Party_Name")

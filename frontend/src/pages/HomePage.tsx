@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchPoliticians, Politician } from "../lib/api";
+import { chamberLabel } from "../lib/politician";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -12,23 +13,6 @@ const US_STATES =
   );
 const CA_PROVINCES = ["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"];
 
-function chamberLabel(p: Politician): string {
-  switch (p.chamber) {
-    case "senate":
-      return "Senator";
-    case "house":
-      return p.country_code === "CA" ? "MP" : "Representative";
-    case "state_senate":
-      return "State Senator";
-    case "state_house":
-      return "State Representative";
-    case "governor":
-      return "Governor";
-    default:
-      return p.chamber;
-  }
-}
-
 export default function HomePage() {
   const [search, setSearch] = useState("");
   const [country, setCountry] = useState("");
@@ -37,11 +21,16 @@ export default function HomePage() {
   const [chamber, setChamber] = useState("");
   const [page, setPage] = useState(1);
 
-  // Reset state/province filter whenever the country changes so the
-  // user doesn't get stuck filtering "CA" states by a US postal code.
-  function setCountryAndResetState(value: string) {
+  // Reset state/province and jurisdiction filters whenever the country
+  // changes so the user doesn't get stuck filtering Canada results by
+  // a US-specific jurisdiction level (or vice versa). The two countries
+  // expose different jurisdiction taxonomies (US: federal|state; CA:
+  // federal|provincial|territorial), so carrying a stale value across
+  // the country boundary silently returns an empty result set.
+  function setCountryAndResetFilters(value: string) {
     setCountry(value);
     setState("");
+    setJurisdiction("");
     setPage(1);
   }
 
@@ -79,7 +68,7 @@ export default function HomePage() {
           <select
             className="border rounded px-3 py-2 w-full sm:w-auto"
             value={country}
-            onChange={(e) => setCountryAndResetState(e.target.value)}
+            onChange={(e) => setCountryAndResetFilters(e.target.value)}
           >
             <option value="">All Countries</option>
             <option value="US">United States</option>
@@ -154,7 +143,7 @@ export default function HomePage() {
               >
                 <h3 className="font-semibold text-lg">{p.full_name}</h3>
                 <p className="text-sm text-gray-600">
-                  {chamberLabel(p)} &middot; {p.state}
+                  {chamberLabel(p.chamber, p.country_code)} &middot; {p.state}
                   {p.district && `-${p.district}`}
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">

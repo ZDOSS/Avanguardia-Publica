@@ -108,14 +108,29 @@ class CACalAccessAdapter(BaseSourceAdapter):
         committee_id = _safe_strip_or_none(lookup.get("filer_id"))
         office = _safe_strip_or_none(lookup.get("cand_office")) or ""
         office_lower = office.lower()
-        if "state senate" in office_lower or office_lower == "senate":
+
+        # Cal-Access exports filings for federal candidates registered
+        # in California as well as CA state-level candidates. Federal
+        # candidates (U.S. House, U.S. Senate) are sourced from
+        # Congress.gov, so we skip them here to avoid double-counting
+        # and to keep jurisdiction_level='state' accurate. Unknown CA
+        # offices (e.g. Board of Equalization, Superintendent of Public
+        # Instruction) map to 'state_executive' rather than silently
+        # defaulting to 'state_house'.
+        if "u.s. house" in office_lower or "u.s. senate" in office_lower or "us house" in office_lower or "us senate" in office_lower:
+            return None
+        elif "governor" in office_lower:
+            chamber = "governor"
+        elif "state senate" in office_lower or office_lower == "senate":
             chamber = "state_senate"
         elif "state assembly" in office_lower or "assembly" in office_lower or office_lower == "house":
             chamber = "state_house"
-        elif "governor" in office_lower:
-            chamber = "governor"
         else:
-            chamber = "state_house"  # default for CA legislative offices
+            # Statewide executive offices that aren't the governorship:
+            # Secretary of State, Attorney General, Controller,
+            # Treasurer, Insurance Commissioner, Superintendent of
+            # Public Instruction, Board of Equalization, etc.
+            chamber = "state_executive"
 
         # Cal-Access doesn't include a district field on the cover page
         # itself, so we leave it as None. The Contributions page in a
