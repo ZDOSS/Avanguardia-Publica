@@ -1,6 +1,7 @@
 import { Routes, Route, Link } from "react-router-dom";
 import HomePage from "./pages/HomePage";
 import PoliticianPage from "./pages/PoliticianPage";
+import OrganizationPage from "./pages/OrganizationPage";
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/politician/:id" element={<PoliticianPage />} />
+          <Route path="/organization/:id" element={<OrganizationPage />} />
         </Routes>
       </main>
     </div>

@@ -1,14 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import cast
+from sqlalchemy import cast, func
 from sqlalchemy.dialects.postgresql import JSONB
 import json
 
 from app.core.database import get_db
-from app.models import Politician, VotingRecord, Contribution
+from app.models import Politician, VotingRecord, Contribution, FinancialDisclosure
 from app.schemas.politician import PoliticianOut, PoliticianListOut
 from app.schemas.voting import VotingRecordOut
 from app.schemas.contribution import ContributionOut
+from app.schemas.financial import FinancialDisclosureOut
 
 router = APIRouter(prefix="/api/politicians", tags=["politicians"])
 
@@ -89,3 +90,24 @@ def get_politician_contributions(
         Contribution.politician_id == politician_id
     ).order_by(Contribution.date.desc()).limit(limit).all()
     return [ContributionOut.model_validate(r) for r in records]
+
+
+@router.get("/{politician_id}/financials", response_model=list[FinancialDisclosureOut])
+def get_politician_financials(
+    politician_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """Stock trades, asset disclosures, and STOCK Act transactions for a politician."""
+    politician = db.query(Politician).filter(Politician.id == politician_id).first()
+    if not politician:
+        raise HTTPException(status_code=404, detail="Politician not found")
+
+    records = (
+        db.query(FinancialDisclosure)
+        .filter(FinancialDisclosure.politician_id == politician_id)
+        .order_by(FinancialDisclosure.notification_date.desc().nullslast())
+        .limit(limit)
+        .all()
+    )
+    return [FinancialDisclosureOut.model_validate(r) for r in records]

@@ -6,13 +6,16 @@ import {
   fetchPoliticianContributions,
   fetchIdeologyScores,
   fetchContributionSummary,
+  fetchPoliticianFinancials,
   type VotingRecord,
   type Contribution,
   type IdeologyScore,
   type ContributionSummary,
+  type FinancialDisclosure,
 } from "../lib/api";
 import { useState } from "react";
 import DonorChart from "../components/DonorChart";
+import { ProvenanceBadge, ThirdPartyDisclaimer } from "../components/ProvenanceBadge";
 
 function VoteBadge({ vote }: { vote: string }) {
   const colors: Record<string, string> = {
@@ -81,6 +84,12 @@ export default function PoliticianPage() {
   const { data: contribSummary } = useQuery({
     queryKey: ["contribution-summary", politicianId],
     queryFn: () => fetchContributionSummary(politicianId),
+    enabled: !!id,
+  });
+
+  const { data: financials } = useQuery({
+    queryKey: ["politician-financials", id],
+    queryFn: () => fetchPoliticianFinancials(politicianId, 50),
     enabled: !!id,
   });
 
@@ -274,10 +283,60 @@ export default function PoliticianPage() {
         )}
       </section>
 
+      {/* Stock Trades & Financial Disclosures */}
+      <section className="mt-8 border rounded-lg p-4 bg-white">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">Stock Trades & Financial Disclosures</h3>
+          <div className="flex gap-1">
+            <ProvenanceBadge source="house_clerk" />
+            <ProvenanceBadge source="quiver_quant" />
+          </div>
+        </div>
+        {financials && financials.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-b">
+                <tr className="text-left text-gray-500">
+                  <th className="pb-2 pr-4">Date</th>
+                  <th className="pb-2 pr-4">Asset</th>
+                  <th className="pb-2 pr-4">Ticker</th>
+                  <th className="pb-2 pr-4">Type</th>
+                  <th className="pb-2 pr-4">Amount Range</th>
+                  <th className="pb-2">Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                {financials.map((f: FinancialDisclosure) => (
+                  <tr key={f.id} className="border-b last:border-b-0">
+                    <td className="py-2 pr-4 text-gray-600">{f.notification_date ?? "—"}</td>
+                    <td className="py-2 pr-4 font-medium">{f.asset_name ?? "—"}</td>
+                    <td className="py-2 pr-4">{f.ticker ?? "—"}</td>
+                    <td className="py-2 pr-4 capitalize">{f.transaction_type ?? "—"}</td>
+                    <td className="py-2 pr-4 text-gray-600">
+                      {f.amount_range_low != null && f.amount_range_high != null
+                        ? `$${f.amount_range_low.toLocaleString()} – $${f.amount_range_high.toLocaleString()}`
+                        : "—"}
+                    </td>
+                    <td className="py-2">
+                      <ProvenanceBadge source={f.source_name} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500">No financial disclosures on file.</p>
+        )}
+      </section>
+
       {/* Data Provenance */}
       <div className="mt-8 text-xs text-gray-400 text-center">
-        Data sourced from government APIs (Congress.gov, FEC) and third-party sources (VoteView, OpenSecrets).
-        Last updated after data ingestion.
+        <p>
+          Data sourced from government APIs (Congress.gov, FEC, USAspending.gov, Senate LDA, House Clerk, SEC EDGAR)
+          and third-party sources (VoteView, OpenSecrets, Quiver Quantitative).
+        </p>
+        <ThirdPartyDisclaimer />
       </div>
     </div>
   );
