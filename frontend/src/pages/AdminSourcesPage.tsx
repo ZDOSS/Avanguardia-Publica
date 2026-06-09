@@ -32,7 +32,7 @@ export default function AdminSourcesPage() {
     enabled: true,
   });
 
-  const isAuthError = error instanceof Error && /unavailable|401/.test(error.message);
+  const isAuthError = error instanceof Error && /\b401\b/.test(error.message);
 
   function saveKey(value: string) {
     setAdminKey(value);

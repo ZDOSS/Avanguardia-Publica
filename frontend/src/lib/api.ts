@@ -341,7 +341,7 @@ export async function fetchSourceHealth(
   const headers: Record<string, string> = {};
   if (adminKey) headers["X-Admin-Key"] = adminKey;
   const res = await fetch(`${API_BASE}/api/admin/sources`, { headers });
-  if (!res.ok) throw new Error("Admin source health unavailable");
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
   return res.json();
 }
 

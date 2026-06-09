@@ -25,6 +25,35 @@ def search(
     ts_query = func.websearch_to_tsquery("english", q)
     per_entity_limit = max(5, limit // 4 + 1)
 
+    # True per-entity match counts. Run as cheap aggregate COUNT(*) queries
+    # against the same GIN-indexed condition; the items[] slice above is
+    # capped at per_entity_limit for ranking, but the client can show the
+    # real total without us re-running the full text search.
+    politician_total = (
+        db.query(func.count(Politician.id))
+        .filter(Politician.search_tsv.op("@@")(ts_query))
+        .scalar()
+        or 0
+    )
+    org_total = (
+        db.query(func.count(Organization.id))
+        .filter(Organization.search_tsv.op("@@")(ts_query))
+        .scalar()
+        or 0
+    )
+    contribution_total = (
+        db.query(func.count(Contribution.id))
+        .filter(Contribution.search_tsv.op("@@")(ts_query))
+        .scalar()
+        or 0
+    )
+    voting_total = (
+        db.query(func.count(VotingRecord.id))
+        .filter(VotingRecord.search_tsv.op("@@")(ts_query))
+        .scalar()
+        or 0
+    )
+
     politician_rows = (
         db.query(
             Politician.id,
@@ -105,7 +134,7 @@ def search(
                 entity_id=row.id,
                 title=row.donor_name or "Unknown donor",
                 subtitle=subtitle,
-                url="",
+                url=None,
                 rank=float(row.rank or 0),
             )
         )
@@ -116,13 +145,13 @@ def search(
                 entity_id=row.id,
                 title=row.bill_title or "Untitled bill",
                 subtitle="Vote",
-                url="",
+                url=None,
                 rank=float(row.rank or 0),
             )
         )
 
     items.sort(key=lambda item: item.rank, reverse=True)
-    total = len(items)
+    total = politician_total + org_total + contribution_total + voting_total
     items = items[:limit]
 
     return SearchResponse(query=q, total=total, items=items)
