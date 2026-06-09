@@ -9,7 +9,12 @@ class FinancialDisclosure(Base):
     __tablename__ = "financial_disclosure"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    politician_id: Mapped[int] = mapped_column(Integer, ForeignKey("politician.id", ondelete="CASCADE"))
+    # Nullable: SEC EDGAR Form 4 records are corporate insiders, not
+    # politicians. Quiver Quant rows that don't match a legislator are
+    # also stored without politician_id for later admin resolution.
+    politician_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("politician.id", ondelete="CASCADE"), nullable=True
+    )
     filing_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     filing_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     asset_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
