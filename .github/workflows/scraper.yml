@@ -1,0 +1,43 @@
+name: Nightly ETL Scraper
+
+on:
+  schedule:
+    # Run every day at 1:00 AM UTC
+    - cron: '0 1 * * *'
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  scrape-and-update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          cd scraper
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run pipeline
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          LITTLESIS_API_KEY: ${{ secrets.LITTLESIS_API_KEY }}
+          WORLDNEWS_API_KEY: ${{ secrets.WORLDNEWS_API_KEY }}
+        run: |
+          cd scraper
+          python main.py
+
+      # Trigger frontend deployment after successful scraping
+      - name: Trigger Frontend Build
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          event-type: trigger-frontend-build
