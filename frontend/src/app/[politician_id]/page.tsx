@@ -4,6 +4,9 @@ import PoliticianClient from './PoliticianClient';
 // This function runs at build time on GitHub Actions
 export async function generateStaticParams() {
   try {
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      throw new Error("No Supabase URL configured. Using mock IDs.");
+    }
     const { data } = await supabase.from('politicians').select('id');
     if (!data || data.length === 0) return [{ politician_id: 'biden-joe' }, { politician_id: 'harris-kamala' }];
     
@@ -27,6 +30,9 @@ export default async function Page(props: { params: Promise<{ politician_id: str
   let unconfirmed = [];
 
   try {
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      throw new Error("No Supabase URL configured. Falling back to mock data.");
+    }
     const { data: polData } = await supabase
       .from('politicians')
       .select('*, contact_info(*), financial_disclosures(*), campaign_donors(*), voting_records(*)')
