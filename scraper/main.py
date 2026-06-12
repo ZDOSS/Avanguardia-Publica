@@ -1,4 +1,5 @@
 import os
+import time
 from dotenv import load_dotenv
 from loader import SupabaseLoader
 from extractors.gov_api import get_cabinet_members
@@ -20,8 +21,9 @@ def main():
     print(f"Found {len(members)} cabinet members.")
     
     # 2. Iterate through each member and scrape third-party data sequentially
-    for member in members:
-        print(f"\\n--- Scraping data for {member['full_name']} ---")
+    total = len(members)
+    for index, member in enumerate(members, start=1):
+        print(f"\n--- [{index}/{total}] Scraping data for {member['full_name']} ---")
         
         # Try to augment with Wikidata (e.g. get bioguide_id)
         wiki_bio = get_wikidata_bio(member['full_name'])
@@ -43,8 +45,11 @@ def main():
             print("  [*] Fetching World News data...")
             news_data = get_news_data(member['full_name'])
             loader.process_mentions(politician_id, news_data, 'WorldNews')
+            
+        # Respect API rate limits for downstream services
+        time.sleep(1)
         
-    print("\\nPipeline finished successfully.")
+    print("\nPipeline finished successfully.")
 
 if __name__ == "__main__":
     main()
