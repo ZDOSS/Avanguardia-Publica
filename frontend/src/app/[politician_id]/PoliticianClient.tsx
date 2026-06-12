@@ -118,7 +118,7 @@ export default function PoliticianClient({ politician, unconfirmed }: Props) {
             ].map(tab => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => setActiveTab(tab.id as 'financial' | 'donors' | 'voting' | 'network')}
                 className={`py-4 px-2 font-bold text-lg tab-btn cursor-pointer ${
                   activeTab === tab.id 
                     ? tab.id === 'network' ? 'active-network text-[var(--color-warning-badge)]' : 'active text-[var(--color-official-link)]'
