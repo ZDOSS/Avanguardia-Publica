@@ -5,7 +5,7 @@ import PoliticianClient from './PoliticianClient';
 export async function generateStaticParams() {
   try {
     const { data } = await supabase.from('politicians').select('id');
-    if (!data) return [];
+    if (!data || data.length === 0) return [{ politician_id: 'biden-joe' }, { politician_id: 'harris-kamala' }];
     
     return data.map((politician) => ({
       politician_id: politician.id,
@@ -13,7 +13,7 @@ export async function generateStaticParams() {
   } catch (e) {
     console.error("Failed to generate static params:", e);
     // Return mock ID for local testing
-    return [{ politician_id: 'biden-joe' }];
+    return [{ politician_id: 'biden-joe' }, { politician_id: 'harris-kamala' }];
   }
 }
 
