@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 from dotenv import load_dotenv
 from loader import SupabaseLoader
@@ -58,6 +59,7 @@ def main():
         print("\nPipeline finished successfully.")
     else:
         print(f"\nPipeline finished with {errors_caught} errors.")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
