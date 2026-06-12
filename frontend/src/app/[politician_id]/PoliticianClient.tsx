@@ -3,11 +3,64 @@
 import { useState } from 'react';
 import Link from 'next/link';
 
-export default function PoliticianClient({ politician, unconfirmed }: { politician: any, unconfirmed: any[] }) {
+export interface FinancialDisclosure {
+  id: string;
+  filing_date: string;
+  transaction_type: string;
+  asset_name: string;
+  asset_value_range: string;
+}
+
+export interface CampaignDonor {
+  id: string;
+  donation_date: string;
+  donor_name: string;
+  pac_status: boolean;
+  amount: number;
+}
+
+export interface VotingRecord {
+  id: string;
+  bill_name: string;
+  bill_summary: string;
+  vote_date: string;
+  vote_cast: string;
+}
+
+export interface ContactInfo {
+  office_address: string;
+  phone_number: string;
+  official_website: string;
+}
+
+export interface UnconfirmedMention {
+  id: string;
+  source_api: string;
+  sentiment_score: number | null;
+  content_summary: string;
+  url: string | null;
+}
+
+export interface PoliticianData {
+  id: string;
+  full_name: string;
+  current_office: string;
+  party: string;
+  contact_info?: ContactInfo[];
+  financial_disclosures?: FinancialDisclosure[];
+  campaign_donors?: CampaignDonor[];
+  voting_records?: VotingRecord[];
+}
+
+interface Props {
+  politician: PoliticianData;
+  unconfirmed: UnconfirmedMention[];
+}
+
+export default function PoliticianClient({ politician, unconfirmed }: Props) {
   const [activeTab, setActiveTab] = useState<'financial' | 'donors' | 'voting' | 'network'>('financial');
 
-  const contact = politician?.contact_info?.[0] || {};
-  const isMock = politician.id === 'biden-joe' && !politician.party;
+  const contact = politician?.contact_info?.[0] || {} as Partial<ContactInfo>;
 
   return (
     <div className="min-h-screen bg-[var(--color-official-bg)] text-[var(--color-official-text)] transition-colors">
@@ -93,7 +146,7 @@ export default function PoliticianClient({ politician, unconfirmed }: { politici
                   </tr>
                 </thead>
                 <tbody>
-                  {politician.financial_disclosures?.length ? politician.financial_disclosures.map((item: any) => (
+                  {politician.financial_disclosures?.length ? politician.financial_disclosures.map((item: FinancialDisclosure) => (
                     <tr key={item.id} className="border-b border-[var(--color-official-border)] hover:bg-[var(--color-official-bg-alt)]/50 transition-colors">
                       <td className="p-4 whitespace-nowrap text-sm">{item.filing_date}</td>
                       <td className="p-4"><span className="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 rounded text-xs font-bold uppercase tracking-wider">{item.transaction_type}</span></td>
@@ -121,7 +174,7 @@ export default function PoliticianClient({ politician, unconfirmed }: { politici
                   </tr>
                 </thead>
                 <tbody>
-                  {politician.campaign_donors?.length ? politician.campaign_donors.map((item: any) => (
+                  {politician.campaign_donors?.length ? politician.campaign_donors.map((item: CampaignDonor) => (
                     <tr key={item.id} className="border-b border-[var(--color-official-border)] hover:bg-[var(--color-official-bg-alt)]/50 transition-colors">
                       <td className="p-4 whitespace-nowrap text-sm">{item.donation_date}</td>
                       <td className="p-4 font-medium">{item.donor_name}</td>
@@ -145,7 +198,7 @@ export default function PoliticianClient({ politician, unconfirmed }: { politici
           {/* Voting Record */}
           {activeTab === 'voting' && (
             <div className="space-y-4">
-              {politician.voting_records?.length ? politician.voting_records.map((item: any) => (
+              {politician.voting_records?.length ? politician.voting_records.map((item: VotingRecord) => (
                 <div key={item.id} className="p-6 premium-card flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                   <div>
                     <h3 className="font-bold text-xl mb-2 leading-tight">{item.bill_name}</h3>
@@ -175,7 +228,7 @@ export default function PoliticianClient({ politician, unconfirmed }: { politici
               </div>
               
               <div className="grid gap-4 md:grid-cols-2">
-                {unconfirmed?.length ? unconfirmed.map((item: any) => (
+                {unconfirmed?.length ? unconfirmed.map((item: UnconfirmedMention) => (
                   <div key={item.id} className="p-5 bg-[var(--color-official-bg)] border border-[var(--color-official-border)] rounded-xl shadow-sm hover:shadow-md transition-shadow">
                     <div className="flex justify-between items-start mb-3">
                       <span className="text-xs font-bold text-[var(--color-official-text-muted)] uppercase tracking-widest bg-[var(--color-official-bg-alt)] px-2 py-1 rounded">
