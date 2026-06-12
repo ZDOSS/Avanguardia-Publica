@@ -23,31 +23,34 @@ def main():
     # 2. Iterate through each member and scrape third-party data sequentially
     total = len(members)
     for index, member in enumerate(members, start=1):
-        print(f"\n--- [{index}/{total}] Scraping data for {member['full_name']} ---")
-        
-        # Try to augment with Wikidata (e.g. get bioguide_id)
-        wiki_bio = get_wikidata_bio(member['full_name'])
-        if wiki_bio.get('bioguide_id'):
-            member['bioguide_id'] = wiki_bio['bioguide_id']
-            print(f"  [+] Found bioguide_id: {member['bioguide_id']}")
+        try:
+            print(f"\n--- [{index}/{total}] Scraping data for {member['full_name']} ---")
+            
+            # Try to augment with Wikidata (e.g. get bioguide_id)
+            wiki_bio = get_wikidata_bio(member['full_name'])
+            if wiki_bio.get('bioguide_id'):
+                member['bioguide_id'] = wiki_bio['bioguide_id']
+                print(f"  [+] Found bioguide_id: {member['bioguide_id']}")
 
-        # Upsert Hub (politicians table)
-        politician_id = loader.upsert_politician(member)
-        
-        # Only proceed with third-party data if we successfully upserted the politician
-        if politician_id and politician_id != "dummy-uuid":
-            # Scrape LittleSis
-            print("  [*] Fetching LittleSis data...")
-            ls_data = get_littlesis_data(member['full_name'])
-            loader.process_mentions(politician_id, ls_data, 'LittleSis')
+            # Upsert Hub (politicians table)
+            politician_id = loader.upsert_politician(member)
             
-            # Scrape World News
-            print("  [*] Fetching World News data...")
-            news_data = get_news_data(member['full_name'])
-            loader.process_mentions(politician_id, news_data, 'WorldNews')
-            
-        # Respect API rate limits for downstream services
-        time.sleep(1)
+            # Only proceed with third-party data if we successfully upserted the politician
+            if politician_id and politician_id != "dummy-uuid":
+                # Scrape LittleSis
+                print("  [*] Fetching LittleSis data...")
+                ls_data = get_littlesis_data(member['full_name'])
+                loader.process_mentions(politician_id, ls_data, 'LittleSis')
+                
+                # Scrape World News
+                print("  [*] Fetching World News data...")
+                news_data = get_news_data(member['full_name'])
+                loader.process_mentions(politician_id, news_data, 'WorldNews')
+        except Exception as e:
+            print(f"  [!] Error scraping {member['full_name']}: {e}")
+        finally:
+            # Respect API rate limits for downstream services
+            time.sleep(1)
         
     print("\nPipeline finished successfully.")
 

@@ -24,9 +24,10 @@ def get_congress_members():
         term_obj = legislator.get("terms", [])[-1] if legislator.get("terms") else {}
         
         # Format Name
+        official_full = name_obj.get("official_full")
         first = name_obj.get("first", "")
         last = name_obj.get("last", "")
-        full_name = f"{first} {last}".strip()
+        full_name = official_full if official_full else f"{first} {last}".strip()
         
         # Format Office
         office_type = term_obj.get("type", "")
