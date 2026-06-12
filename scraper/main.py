@@ -9,7 +9,7 @@ from extractors.wikidata import get_wikidata_bio
 
 def main():
     load_dotenv()
-    print("Starting Avanguardia-Publica Phase 0.1 Scraper Pipeline...")
+    print("Starting Avanguardia-Publica Phase 1 Scraper Pipeline...")
     
     # Initialize DB connection
     supabase_url = os.environ.get("SUPABASE_URL")
