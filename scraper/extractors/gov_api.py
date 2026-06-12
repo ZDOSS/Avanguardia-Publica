@@ -15,8 +15,8 @@ def get_congress_members():
     response.raise_for_status()
     data = yaml.safe_load(response.text)
     
-    if not data:
-        raise ValueError("Failed to parse YAML: the returned data is empty or invalid.")
+    if not data or not isinstance(data, list):
+        raise ValueError("Failed to parse YAML: the returned data is not a list as expected.")
     
     politicians = []
     for legislator in data:
