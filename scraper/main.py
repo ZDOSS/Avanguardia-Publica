@@ -2,7 +2,7 @@ import os
 import time
 from dotenv import load_dotenv
 from loader import SupabaseLoader
-from extractors.gov_api import get_cabinet_members
+from extractors.gov_api import get_congress_members
 from extractors.littlesis import get_littlesis_data
 from extractors.worldnews import get_news_data
 from extractors.wikidata import get_wikidata_bio
@@ -16,9 +16,9 @@ def main():
     supabase_key = os.environ.get("SUPABASE_KEY")
     loader = SupabaseLoader(supabase_url, supabase_key)
     
-    # 1. Fetch active cabinet members
-    members = get_cabinet_members()
-    print(f"Found {len(members)} cabinet members.")
+    # 1. Fetch active Congress members
+    members = get_congress_members()
+    print(f"Found {len(members)} Congress members.")
     
     # 2. Iterate through each member and scrape third-party data sequentially
     total = len(members)
