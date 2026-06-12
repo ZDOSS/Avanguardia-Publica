@@ -30,7 +30,6 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          LITTLESIS_API_KEY: ${{ secrets.LITTLESIS_API_KEY }}
           WORLDNEWS_API_KEY: ${{ secrets.WORLDNEWS_API_KEY }}
         run: |
           cd scraper

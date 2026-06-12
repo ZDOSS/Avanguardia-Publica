@@ -6,11 +6,6 @@ def get_littlesis_data(full_name: str) -> list:
     Queries LittleSis API for a given politician's name.
     Returns a list of unconfirmed mentions/relationships.
     """
-    api_key = os.environ.get("LITTLESIS_API_KEY")
-    if not api_key:
-        print("LITTLESIS_API_KEY not found, skipping LittleSis extraction.")
-        return []
-
     # LittleSis Entities Search Endpoint
     # Format: https://littlesis.org/api/entities/search?q=NAME
     
