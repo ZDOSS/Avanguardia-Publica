@@ -36,7 +36,8 @@ def get_congress_members():
             office = f"US Senator from {state}"
         elif office_type == "rep":
             district = term_obj.get("district", "")
-            office = f"US Representative from {state}-{district}"
+            district_str = "At-Large" if str(district) == "0" else str(district)
+            office = f"US Representative from {state}-{district_str}"
         else:
             office = "Unknown Office"
             

@@ -22,6 +22,7 @@ def main():
     
     # 2. Iterate through each member and scrape third-party data sequentially
     total = len(members)
+    errors_caught = 0
     for index, member in enumerate(members, start=1):
         try:
             print(f"\n--- [{index}/{total}] Scraping data for {member['full_name']} ---")
@@ -48,11 +49,15 @@ def main():
                 loader.process_mentions(politician_id, news_data, 'WorldNews')
         except Exception as e:
             print(f"  [!] Error scraping {member['full_name']}: {e}")
+            errors_caught += 1
         finally:
             # Respect API rate limits for downstream services
             time.sleep(1)
         
-    print("\nPipeline finished successfully.")
+    if errors_caught == 0:
+        print("\nPipeline finished successfully.")
+    else:
+        print(f"\nPipeline finished with {errors_caught} errors.")
 
 if __name__ == "__main__":
     main()
