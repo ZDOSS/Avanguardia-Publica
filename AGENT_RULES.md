@@ -5,3 +5,4 @@
 3. **NEW PRS OFF MAIN**: For completely new features or changes, you must always branch directly off `main` and create a new PR off `main`. 
 4. **STOP ASSUMING**: Stop deliberating and assuming any workflows. Follow the user's instructions literally. Do not invent new branches or workflows out of thin air to "correct" things unless ordered to.
 5. **GPG VERIFICATION IS A USER TASK**: If GitHub shows commits as "Unverified", do NOT re-export the GPG key or try to fix it. The commits are already correctly signed (`-S -s`). The "Unverified" status strictly means the user needs to upload the key to their GitHub Settings. State this clearly and stop repeating the GPG export process.
+6. **NO CREDENTIAL FILES IN REPO**: NEVER create, export, or store any GPG keys, SSH keys, or credential files within the repository directory under any circumstances, even if they are public keys.
