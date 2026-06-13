@@ -180,7 +180,7 @@ export default function PoliticianClient({ politician, unconfirmed }: Props) {
                       <td className="p-4 font-medium">{item.donor_name}</td>
                       <td className="p-4">
                         {item.pac_status ? (
-                          <span className="px-2 py-1 bg-[var(--color-official-bg-alt)] text-[var(--color-warning-badge)] border border-[var(--color-official-border)] rounded text-xs font-bold uppercase tracking-wider">PAC</span>
+                          <span className="px-2 py-1 bg-[var(--color-official-bg-alt)] text-[var(--color-official-text-muted)] border border-[var(--color-official-border)] rounded text-xs font-bold uppercase tracking-wider">PAC</span>
                         ) : (
                           <span className="px-2 py-1 bg-[var(--color-official-bg-alt)] text-[var(--color-official-link)] border border-[var(--color-official-border)] rounded text-xs font-bold uppercase tracking-wider">Individual</span>
                         )}
@@ -206,8 +206,8 @@ export default function PoliticianClient({ politician, unconfirmed }: Props) {
                     <span className="text-xs font-mono uppercase text-[var(--color-official-text-muted)] tracking-widest">{item.vote_date}</span>
                   </div>
                   <div className="shrink-0">
-                    <span className={`px-4 py-2 rounded-full font-bold text-sm tracking-widest uppercase border ${
-                      item.vote_cast === 'Yea' ? 'bg-[var(--color-official-bg-alt)] text-[var(--color-official-link)] border-[var(--color-official-border)]' : 'bg-[var(--color-official-bg-alt)] text-[var(--color-warning-badge)] border-[var(--color-official-border)]'
+                    <span className={`px-4 py-2 rounded-full font-bold text-sm tracking-widest uppercase border bg-[var(--color-official-bg-alt)] border-[var(--color-official-border)] ${
+                      item.vote_cast === 'Yea' ? 'text-[var(--color-official-link)]' : 'text-[var(--color-warning-badge)]'
                     }`}>
                       {item.vote_cast}
                     </span>
