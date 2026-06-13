@@ -84,7 +84,7 @@ export default function PoliticianClient({ politician, unconfirmed }: Props) {
           
           <div className="flex flex-col justify-between w-full">
             <div>
-              <h1 className="text-4xl md:text-5xl font-extrabold mb-2 bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400">
+              <h1 className="text-4xl md:text-5xl font-extrabold mb-2 text-[var(--color-official-text)]">
                 {politician.full_name}
               </h1>
               <p className="text-xl md:text-2xl text-[var(--color-official-text-muted)] font-light">
@@ -149,7 +149,7 @@ export default function PoliticianClient({ politician, unconfirmed }: Props) {
                   {politician.financial_disclosures?.length ? politician.financial_disclosures.map((item: FinancialDisclosure) => (
                     <tr key={item.id} className="border-b border-[var(--color-official-border)] hover:bg-[var(--color-official-bg-alt)]/50 transition-colors">
                       <td className="p-4 whitespace-nowrap text-sm">{item.filing_date}</td>
-                      <td className="p-4"><span className="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 rounded text-xs font-bold uppercase tracking-wider">{item.transaction_type}</span></td>
+                      <td className="p-4"><span className="px-2 py-1 bg-[var(--color-official-bg-alt)] text-[var(--color-official-text)] border border-[var(--color-official-border)] rounded text-xs font-bold uppercase tracking-wider">{item.transaction_type}</span></td>
                       <td className="p-4 font-medium">{item.asset_name}</td>
                       <td className="p-4 text-[var(--color-official-text-muted)]">{item.asset_value_range}</td>
                     </tr>
@@ -180,9 +180,9 @@ export default function PoliticianClient({ politician, unconfirmed }: Props) {
                       <td className="p-4 font-medium">{item.donor_name}</td>
                       <td className="p-4">
                         {item.pac_status ? (
-                          <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-400 rounded text-xs font-bold uppercase tracking-wider">PAC</span>
+                          <span className="px-2 py-1 bg-[var(--color-official-bg-alt)] text-[var(--color-official-text-muted)] border border-[var(--color-official-border)] rounded text-xs font-bold uppercase tracking-wider">PAC</span>
                         ) : (
-                          <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-400 rounded text-xs font-bold uppercase tracking-wider">Individual</span>
+                          <span className="px-2 py-1 bg-[var(--color-official-bg-alt)] text-[var(--color-official-link)] border border-[var(--color-official-border)] rounded text-xs font-bold uppercase tracking-wider">Individual</span>
                         )}
                       </td>
                       <td className="p-4 font-mono font-bold">${item.amount}</td>
@@ -206,8 +206,8 @@ export default function PoliticianClient({ politician, unconfirmed }: Props) {
                     <span className="text-xs font-mono uppercase text-[var(--color-official-text-muted)] tracking-widest">{item.vote_date}</span>
                   </div>
                   <div className="shrink-0">
-                    <span className={`px-4 py-2 rounded-full font-bold text-sm tracking-widest uppercase ${
-                      item.vote_cast === 'Yea' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400' : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400'
+                    <span className={`px-4 py-2 rounded-full font-bold text-sm tracking-widest uppercase border bg-[var(--color-official-bg-alt)] border-[var(--color-official-border)] ${
+                      item.vote_cast === 'Yea' ? 'text-[var(--color-official-link)]' : 'text-[var(--color-warning-badge)]'
                     }`}>
                       {item.vote_cast}
                     </span>
