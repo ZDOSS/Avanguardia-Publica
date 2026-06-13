@@ -34,9 +34,3 @@ jobs:
         run: |
           cd scraper
           python main.py
-
-      # Trigger frontend deployment after successful scraping
-      - name: Trigger Frontend Build
-        uses: peter-evans/repository-dispatch@v2
-        with:
-          event-type: trigger-frontend-build
