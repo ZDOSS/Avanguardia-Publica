@@ -3,8 +3,6 @@ name: Deploy Next.js to GitHub Pages
 on:
   push:
     branches: ["master", "main"]
-  repository_dispatch:
-    types: [trigger-frontend-build] # Triggered by the scraper workflow
   workflow_dispatch:
 
 permissions:
@@ -42,8 +40,8 @@ jobs:
           
       - name: Build Next.js Export
         env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
         run: |
           cd frontend
           npm run build
