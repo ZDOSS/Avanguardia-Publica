@@ -7,7 +7,8 @@ export async function generateStaticParams() {
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       throw new Error("No Supabase URL or Anon Key configured. Using mock IDs.");
     }
-    const { data } = await supabase.from('politicians').select('id');
+    const { data, error } = await supabase.from('politicians').select('id');
+    if (error) throw error;
     if (!data || data.length === 0) return [{ politician_id: 'biden-joe' }, { politician_id: 'harris-kamala' }];
     
     return data.map((politician) => ({
@@ -33,27 +34,29 @@ export default async function Page(props: { params: Promise<{ politician_id: str
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       throw new Error("No Supabase URL or Anon Key configured. Falling back to mock data.");
     }
-    const { data: polData } = await supabase
+    const { data: polData, error: polError } = await supabase
       .from('politicians')
       .select('*, contact_info(*), financial_disclosures(*), campaign_donors(*), voting_records(*)')
       .eq('id', politician_id)
       .single();
       
+    if (polError) throw polError;
     if (polData) {
       politician = polData;
     }
 
-    const { data: mentions } = await supabase
+    const { data: mentions, error: mentionsError } = await supabase
       .from('unconfirmed_mentions')
       .select('*')
       .eq('politician_id', politician_id)
       .order('created_at', { ascending: false });
 
+    if (mentionsError) throw mentionsError;
     if (mentions) {
       unconfirmed = mentions;
     }
   } catch (e) {
-    console.error(e);
+    console.error("Error fetching politician page data:", e);
   }
 
   // If we couldn't fetch (e.g. no env vars during local dev), use mock data
