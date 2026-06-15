@@ -246,9 +246,17 @@ GDELT_MASTER_URL = (
 # In-memory cache to prevent re-downloading the TSV for every politician
 _gdelt_cache: list[tuple[str, str]] | None = None
 _gdelt_cache_url: str | None = None
+_gdelt_cache_time: float | None = None
+_GDELT_CACHE_TTL = 900  # 15 minutes
 
 def _get_gdelt_cache() -> list[tuple[str, str]]:
-    global _gdelt_cache, _gdelt_cache_url
+    global _gdelt_cache, _gdelt_cache_url, _gdelt_cache_time
+    
+    # Short-circuit BEFORE the manifest network request if the cache is still fresh
+    if _gdelt_cache is not None and _gdelt_cache_time is not None:
+        if time.monotonic() - _gdelt_cache_time < _GDELT_CACHE_TTL:
+            return _gdelt_cache
+
     try:
         # Step 1: get the latest file manifest
         resp = requests.get(GDELT_MASTER_URL, timeout=_TIMEOUT)
@@ -261,6 +269,7 @@ def _get_gdelt_cache() -> list[tuple[str, str]]:
 
         # If we already downloaded this exact file in this run, return the cache
         if _gdelt_cache is not None and _gdelt_cache_url == gkg_url:
+            _gdelt_cache_time = time.monotonic()
             return _gdelt_cache
 
         # Step 2: download the GKG file (it's a zipped TSV)
@@ -288,6 +297,7 @@ def _get_gdelt_cache() -> list[tuple[str, str]]:
 
         _gdelt_cache = new_cache
         _gdelt_cache_url = gkg_url
+        _gdelt_cache_time = time.monotonic()
         return _gdelt_cache
     except Exception as exc:
         logger.error("[GDELT] Error fetching master file: %s", exc)
