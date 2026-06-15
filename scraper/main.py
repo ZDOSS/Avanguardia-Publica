@@ -24,10 +24,12 @@ def main():
     loader = SupabaseLoader(supabase_url, supabase_key)
 
     # FEC donor enrichment only runs with a real api.data.gov key — DEMO_KEY's tiny
-    # hourly limit would 429 almost immediately across all members.
-    fec_enabled = bool(os.environ.get("FEC_API_KEY"))
+    # hourly limit would 429 almost immediately across all members, so it is treated
+    # the same as "not configured".
+    fec_key = os.environ.get("FEC_API_KEY")
+    fec_enabled = bool(fec_key) and fec_key.strip().upper() != "DEMO_KEY"
     if not fec_enabled:
-        print("Note: FEC_API_KEY not set — skipping campaign-donor enrichment.")
+        print("Note: FEC_API_KEY not set (or DEMO_KEY) — skipping campaign-donor enrichment.")
     
     # 1. Fetch active Congress members
     members = get_congress_members()
