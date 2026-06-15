@@ -238,7 +238,7 @@ def _fetch_thenewsapi(full_name: str) -> list[dict]:
 # 5. GDELT + newspaper3k (unmetered open-source fallback)
 # ---------------------------------------------------------------------------
 GDELT_MASTER_URL = (
-    "http://data.gdeltproject.org/gdeltv2/lastupdate.txt"
+    "https://data.gdeltproject.org/gdeltv2/lastupdate.txt"
 )
 
 # In-memory cache to prevent re-downloading the TSV for every politician

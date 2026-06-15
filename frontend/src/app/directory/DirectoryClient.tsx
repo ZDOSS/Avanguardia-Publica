@@ -291,7 +291,7 @@ export default function DirectoryClient() {
       !search ||
       p.full_name.toLowerCase().includes(search.toLowerCase()) ||
       (p.current_office || "").toLowerCase().includes(search.toLowerCase());
-    const matchParty = activeFilter === "All" || p.party === activeFilter;
+    const matchParty = activeFilter === "All" || (p.party || "Unknown") === activeFilter;
     return matchSearch && matchParty;
   });
 
