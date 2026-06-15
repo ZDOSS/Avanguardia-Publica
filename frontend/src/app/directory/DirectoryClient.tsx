@@ -138,8 +138,18 @@ function buildTree(politicians: Politician[]): CategoryNode[] {
   }
 
   // Convert to array structure
+  const BRANCH_ORDER = [
+    "Federal Government",
+    "State & Territorial Governments",
+    "Local Government",
+    "Uncategorized",
+  ];
+
   const result: CategoryNode[] = [];
-  for (const [, bEntry] of branchMap) {
+  for (const branch of BRANCH_ORDER) {
+    if (!branchMap.has(branch)) continue;
+    const bEntry = branchMap.get(branch)!;
+
     const sectionNodes: CategoryNode[] = [];
     for (const [, sEntry] of bEntry.sections) {
       const subNodes: CategoryNode[] = [];

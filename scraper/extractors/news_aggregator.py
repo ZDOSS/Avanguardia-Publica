@@ -12,13 +12,11 @@ NewsAPI.org is ONLY used in development/local environments (not production).
 """
 
 import os
-import csv
 import io
 import zipfile
 import time
 import logging
 import requests
-from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
