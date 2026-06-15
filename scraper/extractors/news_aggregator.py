@@ -286,10 +286,10 @@ def _get_gdelt_cache() -> list[tuple[str, str]]:
                         line = raw_line.decode("utf-8", errors="replace")
                         cols = line.split("\t")
                         # GKG column 4 is the source document URL
-                        if len(cols) > 4:
+                        if len(cols) > 11:
                             src_url = cols[4].strip()
-                            # column 10 contains person entities (rough keyword match)
-                            entities_col = cols[10].strip().lower() if len(cols) > 10 else ""
+                            # column 11 contains person entities in V2 GKG, not column 10 (which is locations)
+                            entities_col = cols[11].strip().lower()
                             if src_url:
                                 new_cache.append((src_url, entities_col))
                     except Exception:
@@ -334,13 +334,10 @@ def _scrape_article_text(url: str) -> str | None:
         article.parse()
         return article.text[:400] if article.text else None
     except ImportError:
-        # newspaper3k not installed — fall back to raw HEAD+snippet
-        try:
-            r = requests.get(url, timeout=_TIMEOUT, headers={"User-Agent": "Mozilla/5.0"})
-            # Return first 300 chars of visible text (very rough)
-            return r.text[:300].strip() or None
-        except Exception:
-            return None
+        # newspaper3k not installed — we can't extract clean text without it.
+        # Returning raw HTML (r.text) causes garbage data, so we safely return None.
+        logger.warning("[newspaper3k] Not installed; cannot extract text from %s", url)
+        return None
     except Exception as exc:
         logger.warning("[newspaper3k] Could not parse %s: %s", url, exc)
         return None
