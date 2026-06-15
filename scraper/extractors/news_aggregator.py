@@ -14,6 +14,7 @@ NewsAPI.org is ONLY used in development/local environments (not production).
 import os
 import csv
 import io
+import zipfile
 import time
 import logging
 import requests
@@ -262,24 +263,28 @@ def _get_gdelt_cache() -> list[tuple[str, str]]:
         if _gdelt_cache is not None and _gdelt_cache_url == gkg_url:
             return _gdelt_cache
 
-        # Step 2: download the GKG file (it's a large TSV, so stream it)
-        gkg_resp = requests.get(gkg_url, timeout=30, stream=True)
+        # Step 2: download the GKG file (it's a zipped TSV)
+        gkg_resp = requests.get(gkg_url, timeout=30)
         gkg_resp.raise_for_status()
 
         new_cache = []
-        for raw_line in gkg_resp.iter_lines():
-            try:
-                line = raw_line.decode("utf-8", errors="replace")
-                cols = line.split("\t")
-                # GKG column 4 is the source document URL
-                if len(cols) > 4:
-                    src_url = cols[4].strip()
-                    # column 10 contains person entities (rough keyword match)
-                    entities_col = cols[10].strip().lower() if len(cols) > 10 else ""
-                    if src_url:
-                        new_cache.append((src_url, entities_col))
-            except Exception:
-                continue
+        with zipfile.ZipFile(io.BytesIO(gkg_resp.content)) as z:
+            # GKG zip files contain exactly one file
+            filename = z.namelist()[0]
+            with z.open(filename) as f:
+                for raw_line in f:
+                    try:
+                        line = raw_line.decode("utf-8", errors="replace")
+                        cols = line.split("\t")
+                        # GKG column 4 is the source document URL
+                        if len(cols) > 4:
+                            src_url = cols[4].strip()
+                            # column 10 contains person entities (rough keyword match)
+                            entities_col = cols[10].strip().lower() if len(cols) > 10 else ""
+                            if src_url:
+                                new_cache.append((src_url, entities_col))
+                    except Exception:
+                        continue
 
         _gdelt_cache = new_cache
         _gdelt_cache_url = gkg_url
@@ -295,13 +300,13 @@ def _fetch_gdelt_urls(full_name: str, max_articles: int = 10) -> list[str]:
     """
     cache = _get_gdelt_cache()
     name_lower = full_name.lower()
-    last_name = name_lower.split()[-1] if name_lower else ""
     urls: list[str] = []
 
     for src_url, entities_col in cache:
         if len(urls) >= max_articles:
             break
-        if last_name and last_name in entities_col:
+        # Match using the full name to avoid common last name false positives
+        if name_lower and name_lower in entities_col:
             urls.append(src_url)
 
     return urls
