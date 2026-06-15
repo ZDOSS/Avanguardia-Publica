@@ -26,7 +26,12 @@ _TIMEOUT = 15
 
 # Per-run request budget to stay under the free hourly rate limit. Reset per process.
 _MAX_REQUESTS = 900
+# Trip the breaker after this many consecutive failures so a sustained outage bounds
+# wall-clock time (without this, the budget alone allows _MAX_REQUESTS * _TIMEOUT of
+# hanging on timeouts).
+_MAX_CONSECUTIVE_FAILURES = 5
 _request_count = 0
+_consecutive_failures = 0
 _breaker_tripped = False
 
 # Default number of recent donors to pull per politician.
@@ -40,8 +45,9 @@ def reset_budget() -> None:
     module in a long-lived process) should call this between runs to avoid the budget
     accumulating or the breaker staying tripped across calls.
     """
-    global _request_count, _breaker_tripped
+    global _request_count, _breaker_tripped, _consecutive_failures
     _request_count = 0
+    _consecutive_failures = 0
     _breaker_tripped = False
 
 
@@ -51,7 +57,7 @@ def _api_key() -> str:
 
 def _get(path: str, params: dict):
     """Single budgeted GET against OpenFEC. Returns parsed JSON or None on failure."""
-    global _request_count, _breaker_tripped
+    global _request_count, _breaker_tripped, _consecutive_failures
 
     if _breaker_tripped or _request_count >= _MAX_REQUESTS:
         _breaker_tripped = True
@@ -59,17 +65,27 @@ def _get(path: str, params: dict):
 
     params = dict(params)
     params["api_key"] = _api_key()
+    # Count the attempt before issuing it, so timeouts/connection errors also draw
+    # down the budget (otherwise a sustained outage never trips the count breaker).
+    _request_count += 1
     try:
         resp = requests.get(f"{_BASE}{path}", params=params, timeout=_TIMEOUT)
-        _request_count += 1
         if resp.status_code == 429:
             logger.warning("[FEC] Rate limit (429) hit — tripping breaker for this run.")
             _breaker_tripped = True
             return None
         resp.raise_for_status()
+        _consecutive_failures = 0
         return resp.json()
     except Exception as exc:
         logger.warning("[FEC] Request failed for %s: %s", path, exc)
+        _consecutive_failures += 1
+        if _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+            logger.warning(
+                "[FEC] %d consecutive failures — tripping breaker for this run.",
+                _consecutive_failures,
+            )
+            _breaker_tripped = True
         return None
 
 
