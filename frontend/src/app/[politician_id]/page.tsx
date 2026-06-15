@@ -16,6 +16,9 @@ export async function generateStaticParams() {
     }));
   } catch (e) {
     console.error("Failed to generate static params:", e);
+    if (process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true') {
+      throw e;
+    }
     // Return mock ID for local testing
     return [{ politician_id: 'biden-joe' }, { politician_id: 'harris-kamala' }];
   }
@@ -38,7 +41,7 @@ export default async function Page(props: { params: Promise<{ politician_id: str
       .from('politicians')
       .select('*, contact_info(*), financial_disclosures(*), campaign_donors(*), voting_records(*)')
       .eq('id', politician_id)
-      .single();
+      .maybeSingle();
       
     if (polError) throw polError;
     if (polData) {
@@ -57,6 +60,9 @@ export default async function Page(props: { params: Promise<{ politician_id: str
     }
   } catch (e) {
     console.error("Error fetching politician page data:", e);
+    if (process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true') {
+      throw e;
+    }
   }
 
   // If we couldn't fetch (e.g. no env vars during local dev), use mock data
