@@ -25,10 +25,10 @@ type Rule = { keywords: string[]; path: string[] };
 
 const RULES: Rule[] = [
   // State – Executive
-  { keywords: ["governor of", "governor,"],
-    path: ["State & Territorial Governments", "State Executive", "Governor"] },
   { keywords: ["lieutenant governor"],
     path: ["State & Territorial Governments", "State Executive", "Lieutenant Governor"] },
+  { keywords: ["governor of", "governor,"],
+    path: ["State & Territorial Governments", "State Executive", "Governor"] },
   { keywords: ["state attorney general"],
     path: ["State & Territorial Governments", "State Executive", "State AG & Cabinet"] },
   { keywords: ["secretary of state of", "state treasurer", "state comptroller", "state auditor"],
