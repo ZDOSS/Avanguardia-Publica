@@ -69,9 +69,9 @@ export default async function Page(props: { params: Promise<{ politician_id: str
     }
   } catch (e) {
     console.error("Error fetching politician page data:", e);
-    if (process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true') {
-      throw e;
-    }
+    // Do not swallow DB errors; throw them so Next.js serves a 500 error 
+    // instead of a 404, preventing search engines from de-indexing valid pages.
+    throw e;
   }
 
   // If we couldn't fetch (e.g. no DB connection or politician doesn't exist), fallback or 404
