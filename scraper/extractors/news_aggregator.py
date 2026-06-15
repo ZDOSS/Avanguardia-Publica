@@ -242,17 +242,12 @@ GDELT_MASTER_URL = (
     "http://data.gdeltproject.org/gdeltv2/lastupdate.txt"
 )
 
+# In-memory cache to prevent re-downloading the TSV for every politician
+_gdelt_cache: list[tuple[str, str]] | None = None
+_gdelt_cache_url: str | None = None
 
-def _fetch_gdelt_urls(full_name: str, max_articles: int = 10) -> list[str]:
-    """
-    Fetches the latest GDELT GKG (Global Knowledge Graph) export, parses the
-    CSV for rows whose source URL is non-empty, and returns up to max_articles
-    URLs from the most recent 15-minute update file.
-
-    We filter by name keyword in the URL path as a rough proxy — GDELT doesn't
-    support per-name queries on the master file; a full implementation would use
-    the GDELT DOC API for richer filtering.
-    """
+def _get_gdelt_cache() -> list[tuple[str, str]]:
+    global _gdelt_cache, _gdelt_cache_url
     try:
         # Step 1: get the latest file manifest
         resp = requests.get(GDELT_MASTER_URL, timeout=_TIMEOUT)
@@ -263,16 +258,16 @@ def _fetch_gdelt_urls(full_name: str, max_articles: int = 10) -> list[str]:
         gkg_line = lines[2] if len(lines) >= 3 else lines[0]
         gkg_url = gkg_line.split()[-1]  # last token is the URL
 
+        # If we already downloaded this exact file in this run, return the cache
+        if _gdelt_cache is not None and _gdelt_cache_url == gkg_url:
+            return _gdelt_cache
+
         # Step 2: download the GKG file (it's a large TSV, so stream it)
         gkg_resp = requests.get(gkg_url, timeout=30, stream=True)
         gkg_resp.raise_for_status()
 
-        name_lower = full_name.lower()
-        urls: list[str] = []
-
+        new_cache = []
         for raw_line in gkg_resp.iter_lines():
-            if len(urls) >= max_articles:
-                break
             try:
                 line = raw_line.decode("utf-8", errors="replace")
                 cols = line.split("\t")
@@ -281,15 +276,35 @@ def _fetch_gdelt_urls(full_name: str, max_articles: int = 10) -> list[str]:
                     src_url = cols[4].strip()
                     # column 10 contains person entities (rough keyword match)
                     entities_col = cols[10].strip().lower() if len(cols) > 10 else ""
-                    if src_url and name_lower.split()[-1] in entities_col:
-                        urls.append(src_url)
+                    if src_url:
+                        new_cache.append((src_url, entities_col))
             except Exception:
                 continue
 
-        return urls
+        _gdelt_cache = new_cache
+        _gdelt_cache_url = gkg_url
+        return _gdelt_cache
     except Exception as exc:
         logger.error("[GDELT] Error fetching master file: %s", exc)
         return []
+
+
+def _fetch_gdelt_urls(full_name: str, max_articles: int = 10) -> list[str]:
+    """
+    Filters the cached GDELT GKG dataset for rows matching the politician's name.
+    """
+    cache = _get_gdelt_cache()
+    name_lower = full_name.lower()
+    last_name = name_lower.split()[-1] if name_lower else ""
+    urls: list[str] = []
+
+    for src_url, entities_col in cache:
+        if len(urls) >= max_articles:
+            break
+        if last_name and last_name in entities_col:
+            urls.append(src_url)
+
+    return urls
 
 
 def _scrape_article_text(url: str) -> str | None:
