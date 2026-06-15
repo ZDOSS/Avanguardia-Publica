@@ -70,11 +70,10 @@ def _fetch_currents(full_name: str) -> list[dict]:
     try:
         resp = requests.get(url, params=params, timeout=_TIMEOUT)
         _bump("currents")
-        if resp.status_code == 429:
-            logger.warning("[Currents] 429 Too Many Requests — rotating to next provider.")
+        if not resp.ok:
+            logger.warning("[Currents] HTTP %s — rotating to next provider.", resp.status_code)
             _counters["currents"] = RATE_LIMITS["currents"]  # trip the breaker
             return []
-        resp.raise_for_status()
         articles = resp.json().get("news", [])
         results = []
         for a in articles[:10]:
@@ -117,11 +116,10 @@ def _fetch_newsapi(full_name: str) -> list[dict]:
     try:
         resp = requests.get(url, params=params, timeout=_TIMEOUT)
         _bump("newsapi")
-        if resp.status_code == 429:
+        if not resp.ok:
+            logger.warning("[NewsAPI] HTTP %s — rotating.", resp.status_code)
             _counters["newsapi"] = RATE_LIMITS["newsapi"]
-            logger.warning("[NewsAPI] 429 — rate limit tripped.")
             return []
-        resp.raise_for_status()
         articles = resp.json().get("articles", [])
         results = []
         for a in articles:
@@ -159,11 +157,10 @@ def _fetch_newsdata(full_name: str) -> list[dict]:
     try:
         resp = requests.get(url, params=params, timeout=_TIMEOUT)
         _bump("newsdata")
-        if resp.status_code == 429:
+        if not resp.ok:
+            logger.warning("[NewsData] HTTP %s — rotating.", resp.status_code)
             _counters["newsdata"] = RATE_LIMITS["newsdata"]
-            logger.warning("[NewsData] 429 — rate limit tripped.")
             return []
-        resp.raise_for_status()
         articles = resp.json().get("results", [])
         results = []
         for a in articles[:10]:
@@ -213,11 +210,10 @@ def _fetch_thenewsapi(full_name: str) -> list[dict]:
     try:
         resp = requests.get(url, params=params, timeout=_TIMEOUT)
         _bump("thenewsapi")
-        if resp.status_code == 429:
+        if not resp.ok:
+            logger.warning("[TheNewsAPI] HTTP %s — rotating.", resp.status_code)
             _counters["thenewsapi"] = RATE_LIMITS["thenewsapi"]
-            logger.warning("[TheNewsAPI] 429 — rate limit tripped.")
             return []
-        resp.raise_for_status()
         articles = resp.json().get("data", [])
         results = []
         for a in articles:
@@ -261,9 +257,16 @@ def _get_gdelt_cache() -> list[tuple[str, str]]:
         resp.raise_for_status()
         # The file lists three lines: CSV, mentions, GKG
         lines = resp.text.strip().splitlines()
-        # First line is the main event CSV; we want the GKG (third line)
-        gkg_line = lines[2] if len(lines) >= 3 else lines[0]
-        gkg_url = gkg_line.split()[-1]  # last token is the URL
+        # Find the line that corresponds to the GKG zip
+        gkg_url = None
+        for line in lines:
+            if line.endswith(".gkg.csv.zip"):
+                gkg_url = line.split()[-1]
+                break
+        
+        if not gkg_url:
+            logger.warning("[GDELT] Could not locate GKG zip in manifest.")
+            return []
 
         # If we already downloaded this exact file in this run, return the cache
         if _gdelt_cache is not None and _gdelt_cache_url == gkg_url:
