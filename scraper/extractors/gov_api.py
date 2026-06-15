@@ -85,16 +85,18 @@ def get_congress_members():
         # Format Party
         party = term_obj.get("party", "Independent")
 
-        # bioguide_id is the stable canonical key; the rest of the id block becomes
-        # the cross-reference crosswalk used to join FEC / GovTrack / Wikidata data.
+        # bioguide_id is the stable canonical key (its own indexed column); the rest
+        # of the id block becomes the cross-reference crosswalk used to join
+        # FEC / GovTrack / Wikidata data. Exclude bioguide here to avoid duplicating it.
         bioguide_id = id_obj.get("bioguide")
+        external_ids = {k: v for k, v in id_obj.items() if k != "bioguide"}
 
         politicians.append({
             "full_name": full_name,
             "current_office": office,
             "party": party,
             "bioguide_id": bioguide_id,
-            "external_ids": id_obj,
+            "external_ids": external_ids,
             "aliases": _build_aliases(name_obj),
             "contact": _extract_contact(term_obj),
         })

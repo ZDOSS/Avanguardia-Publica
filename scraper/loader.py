@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from supabase import create_client, Client
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,9 @@ class SupabaseLoader:
             "party": member_data.get("party"),
             "external_ids": member_data.get("external_ids") or {},
             "aliases": member_data.get("aliases") or [],
+            # DEFAULT NOW() only fires on INSERT, so set it explicitly to keep the
+            # freshness timestamp accurate when we update existing rows.
+            "last_updated": datetime.now(timezone.utc).isoformat(),
         }
         if bioguide_id:
             data_to_write["bioguide_id"] = bioguide_id
@@ -95,6 +99,9 @@ class SupabaseLoader:
             "office_address": contact.get("office_address"),
             "phone_number": contact.get("phone_number"),
             "official_website": contact.get("official_website"),
+            # Refresh freshness timestamp on every upsert (DEFAULT NOW() only fires
+            # on the initial insert, not on the on-conflict update).
+            "last_updated": datetime.now(timezone.utc).isoformat(),
         }
         try:
             self.supabase.table("contact_info").upsert(
