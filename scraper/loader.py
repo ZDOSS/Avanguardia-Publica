@@ -111,6 +111,36 @@ class SupabaseLoader:
         except Exception as e:
             print(f"  [!] Error upserting contact info for {politician_id}: {e}")
 
+    def upsert_campaign_donors(self, politician_id: str, donors: list):
+        """
+        Upserts verified FEC campaign donors. fec_transaction_id is UNIQUE, so we
+        conflict-resolve on it to keep the nightly job idempotent.
+        """
+        if not donors:
+            return
+        if not self.supabase:
+            print(f"  [Dry-run] Upserting {len(donors)} campaign donors")
+            return
+
+        rows = [
+            {
+                "politician_id": politician_id,
+                "donor_name": d.get("donor_name"),
+                "amount": d.get("amount"),
+                "donation_date": d.get("donation_date"),
+                "pac_status": d.get("pac_status", False),
+                "fec_transaction_id": d.get("fec_transaction_id"),
+            }
+            for d in donors
+        ]
+        try:
+            self.supabase.table("campaign_donors").upsert(
+                rows, on_conflict="fec_transaction_id"
+            ).execute()
+            print(f"  [+] Upserted {len(rows)} campaign donors")
+        except Exception as e:
+            print(f"  [!] Error upserting campaign donors for {politician_id}: {e}")
+
     def process_mentions(self, politician_id: str, data_list: list, source_api: str):
         """
         Takes third party data and links it to the politician as an unconfirmed mention.

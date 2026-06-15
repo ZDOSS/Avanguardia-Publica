@@ -7,6 +7,7 @@ from loader import SupabaseLoader
 from extractors.gov_api import get_congress_members
 from extractors.littlesis import get_littlesis_data
 from extractors.news_aggregator import get_news_data
+from extractors.fec import get_campaign_donors
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,6 +22,14 @@ def main():
     supabase_url = os.environ.get("SUPABASE_URL")
     supabase_key = os.environ.get("SUPABASE_KEY")
     loader = SupabaseLoader(supabase_url, supabase_key)
+
+    # FEC donor enrichment only runs with a real api.data.gov key — DEMO_KEY's tiny
+    # hourly limit would 429 almost immediately across all members, so it is treated
+    # the same as "not configured".
+    fec_key = os.environ.get("FEC_API_KEY")
+    fec_enabled = bool(fec_key) and fec_key.strip().upper() != "DEMO_KEY"
+    if not fec_enabled:
+        print("Note: FEC_API_KEY not set (or DEMO_KEY) — skipping campaign-donor enrichment.")
     
     # 1. Fetch active Congress members
     members = get_congress_members()
@@ -46,6 +55,15 @@ def main():
             if politician_id and politician_id != "dummy-uuid":
                 # Store official contact info (verified spoke, sourced from the dataset)
                 loader.upsert_contact_info(politician_id, member.get('contact', {}))
+
+                # Verified spoke: campaign donors from OpenFEC, joined by FEC candidate
+                # IDs in the crosswalk (no fuzzy name matching).
+                if fec_enabled:
+                    fec_ids = (member.get('external_ids') or {}).get('fec') or []
+                    if fec_ids:
+                        print("  [*] Fetching FEC campaign donors...")
+                        donors = get_campaign_donors(fec_ids)
+                        loader.upsert_campaign_donors(politician_id, donors)
 
                 # Scrape LittleSis
                 print("  [*] Fetching LittleSis data...")
