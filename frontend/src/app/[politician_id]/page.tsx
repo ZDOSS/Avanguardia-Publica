@@ -37,26 +37,32 @@ export default async function Page(props: { params: Promise<{ politician_id: str
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       throw new Error("No Supabase URL or Anon Key configured. Falling back to mock data.");
     }
-    const { data: polData, error: polError } = await supabase
-      .from('politicians')
-      .select('*, contact_info(*), financial_disclosures(*), campaign_donors(*), voting_records(*)')
-      .eq('id', politician_id)
-      .maybeSingle();
-      
-    if (polError) throw polError;
-    if (polData) {
-      politician = polData;
-    }
+    
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(politician_id);
+    if (isUUID) {
+      const { data: polData, error: polError } = await supabase
+        .from('politicians')
+        .select('*, contact_info(*), financial_disclosures(*), campaign_donors(*), voting_records(*)')
+        .eq('id', politician_id)
+        .maybeSingle();
+        
+      if (polError) throw polError;
+      if (polData) {
+        politician = polData;
+      }
 
-    const { data: mentions, error: mentionsError } = await supabase
-      .from('unconfirmed_mentions')
-      .select('*')
-      .eq('politician_id', politician_id)
-      .order('created_at', { ascending: false });
+      const { data: mentions, error: mentionsError } = await supabase
+        .from('unconfirmed_mentions')
+        .select('*')
+        .eq('politician_id', politician_id)
+        .order('created_at', { ascending: false });
 
-    if (mentionsError) throw mentionsError;
-    if (mentions) {
-      unconfirmed = mentions;
+      if (mentionsError) throw mentionsError;
+      if (mentions) {
+        unconfirmed = mentions;
+      }
+    } else {
+      console.warn(`Politician ID "${politician_id}" is not a valid UUID. Using mock data fallback.`);
     }
   } catch (e) {
     console.error("Error fetching politician page data:", e);
