@@ -27,7 +27,7 @@ const RULES: Rule[] = [
   // State – Executive
   { keywords: ["lieutenant governor"],
     path: ["State & Territorial Governments", "State Executive", "Lieutenant Governor"] },
-  { keywords: ["governor of", "governor,"],
+  { keywords: ["governor of", "governor,", "governor"],
     path: ["State & Territorial Governments", "State Executive", "Governor"] },
   { keywords: ["state attorney general"],
     path: ["State & Territorial Governments", "State Executive", "State AG & Cabinet"] },
@@ -41,7 +41,7 @@ const RULES: Rule[] = [
     path: ["State & Territorial Governments", "State Legislature", "State House / Assembly"] },
 
   // Local
-  { keywords: ["mayor of", "mayor,"],
+  { keywords: ["mayor of", "mayor,", "mayor"],
     path: ["Local Government", "Municipal", "Mayor"] },
   { keywords: ["city council", "alderman", "alderperson"],
     path: ["Local Government", "Municipal", "City Council"] },

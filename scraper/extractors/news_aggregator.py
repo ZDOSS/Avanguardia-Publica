@@ -179,7 +179,7 @@ def _fetch_newsdata(full_name: str) -> list[dict]:
             results.append({
                 "content_summary": (
                     (a.get("title") or "") + " — " + (a.get("description") or "")
-                )[:300]
+                )[:260]
                 + "\n[Data powered by NewsData.io]",  # attribution required by free tier TOS
                 "url": a.get("link"),
                 "sentiment_score": sentiment_score,
