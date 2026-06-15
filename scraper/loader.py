@@ -141,6 +141,36 @@ class SupabaseLoader:
         except Exception as e:
             print(f"  [!] Error upserting campaign donors for {politician_id}: {e}")
 
+    def upsert_voting_records(self, politician_id: str, records: list):
+        """
+        Upserts verified roll-call votes. The voting_records UNIQUE constraint is
+        (politician_id, bill_name, vote_date), so we conflict-resolve on it to keep
+        the nightly job idempotent. Callers must dedup rows on that key first.
+        """
+        if not records:
+            return
+        if not self.supabase:
+            print(f"  [Dry-run] Upserting {len(records)} voting records")
+            return
+
+        rows = [
+            {
+                "politician_id": politician_id,
+                "bill_name": r.get("bill_name"),
+                "bill_summary": r.get("bill_summary"),
+                "vote_cast": r.get("vote_cast"),
+                "vote_date": r.get("vote_date"),
+            }
+            for r in records
+        ]
+        try:
+            self.supabase.table("voting_records").upsert(
+                rows, on_conflict="politician_id,bill_name,vote_date"
+            ).execute()
+            print(f"  [+] Upserted {len(rows)} voting records")
+        except Exception as e:
+            print(f"  [!] Error upserting voting records for {politician_id}: {e}")
+
     def process_mentions(self, politician_id: str, data_list: list, source_api: str):
         """
         Takes third party data and links it to the politician as an unconfirmed mention.

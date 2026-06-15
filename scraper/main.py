@@ -8,6 +8,7 @@ from extractors.gov_api import get_congress_members
 from extractors.littlesis import get_littlesis_data
 from extractors.news_aggregator import get_news_data
 from extractors.fec import get_campaign_donors
+from extractors.govtrack import get_voting_records
 
 logging.basicConfig(
     level=logging.INFO,
@@ -64,6 +65,14 @@ def main():
                         print("  [*] Fetching FEC campaign donors...")
                         donors = get_campaign_donors(fec_ids)
                         loader.upsert_campaign_donors(politician_id, donors)
+
+                # Verified spoke: roll-call votes from GovTrack, joined by the
+                # govtrack person id in the crosswalk (free, no key).
+                govtrack_id = (member.get('external_ids') or {}).get('govtrack')
+                if govtrack_id is not None:
+                    print("  [*] Fetching GovTrack voting records...")
+                    votes = get_voting_records(govtrack_id)
+                    loader.upsert_voting_records(politician_id, votes)
 
                 # Scrape LittleSis
                 print("  [*] Fetching LittleSis data...")
