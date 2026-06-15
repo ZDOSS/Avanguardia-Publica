@@ -33,6 +33,18 @@ _breaker_tripped = False
 _DONORS_PER_POLITICIAN = 25
 
 
+def reset_budget() -> None:
+    """
+    Reset the per-run request budget and circuit breaker. GitHub Actions uses one
+    process per run so this is implicit there, but tests (or any code that reuses the
+    module in a long-lived process) should call this between runs to avoid the budget
+    accumulating or the breaker staying tripped across calls.
+    """
+    global _request_count, _breaker_tripped
+    _request_count = 0
+    _breaker_tripped = False
+
+
 def _api_key() -> str:
     return os.environ.get("FEC_API_KEY") or "DEMO_KEY"
 
@@ -100,8 +112,10 @@ def _map_receipt(receipt: dict) -> dict | None:
     donation_date = date.split("T")[0] if isinstance(date, str) and date else None
 
     entity_type = (receipt.get("entity_type") or "").upper()
-    # IND = individual; anything else (PAC, ORG, CCM, PTY, COM) is an organisation.
-    pac_status = entity_type not in ("IND", "")
+    # IND = individual; unknown/empty entity_type (OpenFEC returns null for some
+    # filings) is treated conservatively as non-PAC. Anything else (PAC, ORG, CCM,
+    # PTY, COM) is an organisation.
+    pac_status = bool(entity_type) and entity_type != "IND"
 
     return {
         "donor_name": name,
