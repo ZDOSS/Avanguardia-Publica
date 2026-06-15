@@ -121,7 +121,8 @@ def get_voting_records(govtrack_id, limit: int = _VOTES_PER_POLITICIAN) -> list:
         return []
 
     records: dict[tuple, dict] = {}
-    for obj in data.get("objects", []):
+    # `or []` (not a .get default) guards against {"objects": null} from the API.
+    for obj in data.get("objects") or []:
         mapped = _map_vote(obj)
         if mapped:
             records[(mapped["bill_name"], mapped["vote_date"])] = mapped

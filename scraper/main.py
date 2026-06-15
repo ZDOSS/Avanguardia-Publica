@@ -69,7 +69,7 @@ def main():
                 # Verified spoke: roll-call votes from GovTrack, joined by the
                 # govtrack person id in the crosswalk (free, no key).
                 govtrack_id = (member.get('external_ids') or {}).get('govtrack')
-                if govtrack_id:
+                if govtrack_id is not None:
                     print("  [*] Fetching GovTrack voting records...")
                     votes = get_voting_records(govtrack_id)
                     loader.upsert_voting_records(politician_id, votes)
