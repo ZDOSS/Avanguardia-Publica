@@ -87,6 +87,7 @@ def _fetch_currents(full_name: str) -> list[dict]:
         return results
     except Exception as exc:
         logger.error("[Currents] Error for %s: %s", full_name, exc)
+        _counters["currents"] = RATE_LIMITS["currents"]  # trip the breaker
         return []
 
 
@@ -133,6 +134,7 @@ def _fetch_newsapi(full_name: str) -> list[dict]:
         return results
     except Exception as exc:
         logger.error("[NewsAPI] Error for %s: %s", full_name, exc)
+        _counters["newsapi"] = RATE_LIMITS["newsapi"]
         return []
 
 
@@ -186,6 +188,7 @@ def _fetch_newsdata(full_name: str) -> list[dict]:
         return results
     except Exception as exc:
         logger.error("[NewsData] Error for %s: %s", full_name, exc)
+        _counters["newsdata"] = RATE_LIMITS["newsdata"]
         return []
 
 
@@ -227,6 +230,7 @@ def _fetch_thenewsapi(full_name: str) -> list[dict]:
         return results
     except Exception as exc:
         logger.error("[TheNewsAPI] Error for %s: %s", full_name, exc)
+        _counters["thenewsapi"] = RATE_LIMITS["thenewsapi"]
         return []
 
 
@@ -382,22 +386,25 @@ def get_news_data(full_name: str) -> list[dict]:
     # --- Tier 1: Currents API ---
     if _within_limit("currents") and os.environ.get("CURRENTS_API_KEY"):
         results = _fetch_currents(full_name)
-        if results:
-            logger.info("[NewsAggregator] Served by Currents for %s", full_name)
+        if _within_limit("currents"):  # if breaker didn't trip, API is healthy
+            if results:
+                logger.info("[NewsAggregator] Served by Currents for %s", full_name)
             return results
 
     # --- Tier 2: NewsData.io ---
     if _within_limit("newsdata") and os.environ.get("NEWSDATA_API_KEY"):
         results = _fetch_newsdata(full_name)
-        if results:
-            logger.info("[NewsAggregator] Served by NewsData for %s", full_name)
+        if _within_limit("newsdata"):
+            if results:
+                logger.info("[NewsAggregator] Served by NewsData for %s", full_name)
             return results
 
     # --- Tier 3: TheNewsAPI ---
     if _within_limit("thenewsapi") and os.environ.get("THENEWSAPI_KEY"):
         results = _fetch_thenewsapi(full_name)
-        if results:
-            logger.info("[NewsAggregator] Served by TheNewsAPI for %s", full_name)
+        if _within_limit("thenewsapi"):
+            if results:
+                logger.info("[NewsAggregator] Served by TheNewsAPI for %s", full_name)
             return results
 
     # --- Tier 4: GDELT + newspaper3k (always available, no key needed) ---
