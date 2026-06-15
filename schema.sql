@@ -4,12 +4,18 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 1. The Hub: politicians
+-- bioguide_id is the stable canonical key (from @unitedstates/congress-legislators).
+-- external_ids carries the rest of the free ID crosswalk (fec[], govtrack, opensecrets,
+-- wikidata QID, ballotpedia, icpsr, ...) used to join spoke data from free gov APIs.
+-- aliases widens name-based news matching (official_full, "first last", nickname).
 CREATE TABLE IF NOT EXISTS politicians (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     full_name TEXT NOT NULL,
     current_office TEXT,
     party TEXT,
     bioguide_id TEXT UNIQUE,
+    external_ids JSONB NOT NULL DEFAULT '{}'::jsonb,
+    aliases TEXT[] NOT NULL DEFAULT '{}',
     last_updated TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

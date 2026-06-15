@@ -7,7 +7,6 @@ from loader import SupabaseLoader
 from extractors.gov_api import get_congress_members
 from extractors.littlesis import get_littlesis_data
 from extractors.news_aggregator import get_news_data
-from extractors.wikidata import get_wikidata_bio
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,18 +32,21 @@ def main():
     for index, member in enumerate(members, start=1):
         try:
             print(f"\n--- [{index}/{total}] Scraping data for {member['full_name']} ---")
-            
-            # Try to augment with Wikidata (e.g. get bioguide_id)
-            wiki_bio = get_wikidata_bio(member['full_name'])
-            if wiki_bio.get('bioguide_id'):
-                member['bioguide_id'] = wiki_bio['bioguide_id']
-                print(f"  [+] Found bioguide_id: {member['bioguide_id']}")
+
+            # bioguide_id + the full ID crosswalk now come straight from the free
+            # congress-legislators dataset (see gov_api.py) — no fragile Wikidata
+            # name lookup required.
+            if member.get('bioguide_id'):
+                print(f"  [+] bioguide_id: {member['bioguide_id']}")
 
             # Upsert Hub (politicians table)
             politician_id = loader.upsert_politician(member)
-            
+
             # Only proceed with third-party data if we successfully upserted the politician
             if politician_id and politician_id != "dummy-uuid":
+                # Store official contact info (verified spoke, sourced from the dataset)
+                loader.upsert_contact_info(politician_id, member.get('contact', {}))
+
                 # Scrape LittleSis
                 print("  [*] Fetching LittleSis data...")
                 ls_data = get_littlesis_data(member['full_name'])
