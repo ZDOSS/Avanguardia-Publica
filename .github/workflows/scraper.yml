@@ -30,7 +30,11 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          WORLDNEWS_API_KEY: ${{ secrets.WORLDNEWS_API_KEY }}
+          # News API keys — all optional; aggregator falls back gracefully if absent
+          CURRENTS_API_KEY: ${{ secrets.CURRENTS_API_KEY }}
+          NEWSDATA_API_KEY: ${{ secrets.NEWSDATA_API_KEY }}
+          THENEWSAPI_KEY: ${{ secrets.THENEWSAPI_KEY }}
+          # NEWSAPI_KEY is intentionally omitted here — dev-only (localhost)
         run: |
           cd scraper
           python main.py

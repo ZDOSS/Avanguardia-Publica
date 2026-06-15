@@ -83,7 +83,15 @@ export default function Home() {
         </div>
 
         <div className="pt-12 text-left">
-          <h2 className="text-sm font-bold uppercase tracking-widest text-[var(--color-official-text-muted)] mb-6 ml-2">Browse Directory</h2>
+          <div className="flex justify-between items-center mb-6 ml-2">
+            <h2 className="text-sm font-bold uppercase tracking-widest text-[var(--color-official-text-muted)]">Browse Directory</h2>
+            <Link
+              href="/directory"
+              className="text-sm font-bold text-[var(--color-official-link)] hover:underline inline-flex items-center gap-1 transition-colors"
+            >
+              View All Categories &rarr;
+            </Link>
+          </div>
           {loading ? (
             <div className="animate-pulse flex space-x-4">
               <div className="flex-1 space-y-4 py-1">
@@ -92,15 +100,28 @@ export default function Home() {
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {directory.slice(0, 10).map(p => (
-                <Link href={`/${p.id}`} key={p.id} className="premium-card p-5 group flex flex-col h-full bg-[var(--color-official-bg)]">
-                  <div className="font-bold text-lg group-hover:text-[var(--color-official-link)] transition-colors mb-1">{p.full_name}</div>
-                  <div className="text-sm text-[var(--color-official-text-muted)] flex-grow">{p.current_office}</div>
-                  <div className="text-xs font-mono mt-4 text-[var(--color-official-text-muted)] uppercase">{p.party}</div>
-                </Link>
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {directory.slice(0, 6).map(p => (
+                  <Link href={`/${p.id}`} key={p.id} className="premium-card p-5 group flex flex-col h-full bg-[var(--color-official-bg)]">
+                    <div className="font-bold text-lg group-hover:text-[var(--color-official-link)] transition-colors mb-1">{p.full_name}</div>
+                    <div className="text-sm text-[var(--color-official-text-muted)] flex-grow">{p.current_office}</div>
+                    <div className="text-xs font-mono mt-4 text-[var(--color-official-text-muted)] uppercase">{p.party}</div>
+                  </Link>
+                ))}
+              </div>
+              {directory.length > 6 && (
+                <div className="mt-6 text-center">
+                  <Link
+                    href="/directory"
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-full border border-[var(--color-official-border)] text-sm font-bold text-[var(--color-official-text-muted)] hover:text-[var(--color-official-link)] hover:border-[var(--color-official-link)] transition-all"
+                  >
+                    View Full Directory by Category
+                    <span className="text-[var(--color-official-link)]">&rarr;</span>
+                  </Link>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

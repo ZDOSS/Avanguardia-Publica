@@ -1,12 +1,18 @@
 import os
 import sys
 import time
+import logging
 from dotenv import load_dotenv
 from loader import SupabaseLoader
 from extractors.gov_api import get_congress_members
 from extractors.littlesis import get_littlesis_data
-from extractors.worldnews import get_news_data
+from extractors.news_aggregator import get_news_data
 from extractors.wikidata import get_wikidata_bio
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+)
 
 def main():
     load_dotenv()
@@ -44,10 +50,10 @@ def main():
                 ls_data = get_littlesis_data(member['full_name'])
                 loader.process_mentions(politician_id, ls_data, 'LittleSis')
                 
-                # Scrape World News
-                print("  [*] Fetching World News data...")
+                # Fetch news via multi-tier aggregator (Currents → NewsData → TheNewsAPI → GDELT)
+                print("  [*] Fetching news data (multi-tier aggregator)...")
                 news_data = get_news_data(member['full_name'])
-                loader.process_mentions(politician_id, news_data, 'WorldNews')
+                loader.process_mentions(politician_id, news_data, 'NewsAggregator')
         except Exception as e:
             print(f"  [!] Error scraping {member['full_name']}: {e}")
             errors_caught += 1
