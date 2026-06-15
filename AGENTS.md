@@ -1,4 +1,4 @@
-# Avanguardia-Publica Handoff Notes
+# AGENTS.md (Handoff Notes)
 
 Welcome to the Avanguardia-Publica project! This document outlines the current state of the application, architecture, and critical guidelines for future development.
 
@@ -19,7 +19,7 @@ The most recent major feature update was the completion of the Directory and New
    - Offices are correctly bucketed via keyword classification. Federal offices correctly take precedence over generic local ones (e.g., "county").
    - Full party filtering capabilities and a text-based search are fully functional.
 2. **Multi-Tier News Aggregator**
-   - The original WorldNews API was dropped in favor of free-tier services. 
+   - The original WorldNews API was dropped in favor of free-tier services. The old `worldnews.py` extractor has been explicitly deleted.
    - A custom circuit breaker pattern was built (`news_aggregator.py`). It rotates to fallback APIs smoothly on `429 Too Many Requests`, `401 Unauthorized`, `500 Server Error`, or quota exhaustion.
    - Importantly, it correctly avoids cascading to lower tiers if an API simply returns no results (empty list). 
    - Uses an entirely free, keyless fallback to the open-source GDELT project (GKG TSV archives) combined with `newspaper3k` to scrape raw text, heavily protected by a 15-minute TTL cache to respect their servers.
@@ -33,6 +33,7 @@ When contributing to this project, you must adhere strictly to these rules:
 2. **Data Integrity & Labeling:** You are permitted to use unconfirmed data sources (e.g. for politician headers) *only* if the frontend explicitly and visibly labels them as "unconfirmed".
 3. **Classification Order:** When modifying the keyword classifiers in `DirectoryClient.tsx`, remember that Javascript evaluates array rules sequentially. State & Federal rules must always sit above generic Local rules to avoid substring capturing errors.
 4. **DCO Compliance:** Every single commit requires a Developer Certificate of Origin. You **must** append `--signoff` or `-s` to every `git commit` command (e.g., `git commit --signoff -m "message"`).
+5. **Agent Configuration:** If you require additional capabilities to parse data, generate code, or analyze specific schemas, you must explicitly look up and add the appropriate agent skills or rules. We use non-frontier models for some tasks which need an extra push, so always configure the required skills before executing complex workflows.
 
 ## 🚀 Next Steps & Outstanding Work
 - The groundwork is incredibly solid. The new agent should feel free to start building out any further visual analytics, user-authenticated features, or new scraper modules on top of this reliable foundation.
