@@ -83,15 +83,7 @@ function classifyPolitician(office: string): string[] {
 
 // ─── Build nested tree ────────────────────────────────────────────────────────
 function buildTree(politicians: Politician[]): CategoryNode[] {
-  // We use a Map keyed by full path segments as a nested record
-  const tree: Map<string, CategoryNode> = new Map();
-
-  const getOrCreate = (map: Map<string, CategoryNode>, key: string, icon: string): CategoryNode => {
-    if (!map.has(key)) map.set(key, { label: key, icon, politicians: [] });
-    return map.get(key)!;
-  };
-
-  // We'll build a three-level nested structure: branch → section → sub
+  // Three-level nested structure: branch → section → sub
   const branchMap = new Map<string, { node: CategoryNode; sections: Map<string, { node: CategoryNode; subs: Map<string, CategoryNode> }> }>();
 
   const ICONS: Record<string, string> = {
@@ -268,7 +260,8 @@ export default function DirectoryClient() {
         const { data, error } = await supabase
           .from("politicians")
           .select("id, full_name, current_office, party")
-          .order("full_name");
+          .order("full_name")
+          .limit(10000); // Supabase default cap is 1,000; explicit limit prevents silent truncation
         if (error) throw error;
         setPoliticians(data || []);
       } catch (e) {
@@ -330,7 +323,8 @@ export default function DirectoryClient() {
             className="flex-1 bg-transparent border-b border-[var(--color-official-border)] focus:border-[var(--color-official-link)] px-2 py-2 text-base focus:outline-none transition-colors"
           />
           <div className="flex flex-wrap gap-2 items-center">
-            {parties.slice(0, 6).map((party) => (
+            {/* Show all parties — no cap — so no party is silently hidden */}
+            {parties.map((party) => (
               <button
                 key={party}
                 onClick={() => setActiveFilter(party)}
