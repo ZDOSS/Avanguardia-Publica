@@ -97,8 +97,7 @@ def _fetch_currents(full_name: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 def _fetch_newsapi(full_name: str) -> list[dict]:
     env = os.environ.get("APP_ENV", "production").lower()
-    is_dev = env in ("development", "dev", "local", "localhost") or \
-             os.environ.get("GITHUB_ACTIONS", "").lower() != "true"
+    is_dev = env in ("development", "dev", "local", "localhost")
     if not is_dev:
         return []
 

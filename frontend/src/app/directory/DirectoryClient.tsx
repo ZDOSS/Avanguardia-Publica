@@ -24,26 +24,6 @@ interface CategoryNode {
 type Rule = { keywords: string[]; path: string[] };
 
 const RULES: Rule[] = [
-  // Federal – Executive
-  { keywords: ["president of the united states"], path: ["Federal Government", "Executive Branch", "Office of the President"] },
-  { keywords: ["vice president"], path: ["Federal Government", "Executive Branch", "Office of the President"] },
-  { keywords: ["secretary of state", "secretary of the treasury", "secretary of defense",
-      "attorney general", "secretary of", "administrator of", "director of national"],
-    path: ["Federal Government", "Executive Branch", "Cabinet & Agencies"] },
-
-  // Federal – Legislative
-  { keywords: ["u.s. senator", "united states senator", "senator from"],
-    path: ["Federal Government", "Legislative Branch", "Senate"] },
-  { keywords: ["u.s. representative", "representative from", "member of the u.s. house",
-      "member of congress", "house of representatives"],
-    path: ["Federal Government", "Legislative Branch", "House of Representatives"] },
-
-  // Federal – Judicial
-  { keywords: ["supreme court", "chief justice", "associate justice"],
-    path: ["Federal Government", "Judicial Branch", "Supreme Court"] },
-  { keywords: ["circuit court", "district court", "federal judge", "u.s. judge"],
-    path: ["Federal Government", "Judicial Branch", "Federal Courts"] },
-
   // State – Executive
   { keywords: ["governor of", "governor,"],
     path: ["State & Territorial Governments", "State Executive", "Governor"] },
@@ -69,6 +49,26 @@ const RULES: Rule[] = [
     path: ["Local Government", "County", "County Officials"] },
   { keywords: ["school board", "school district"],
     path: ["Local Government", "Special Districts", "School Board"] },
+
+  // Federal – Executive
+  { keywords: ["president of the united states"], path: ["Federal Government", "Executive Branch", "Office of the President"] },
+  { keywords: ["vice president"], path: ["Federal Government", "Executive Branch", "Office of the President"] },
+  { keywords: ["secretary of state", "secretary of the treasury", "secretary of defense",
+      "attorney general", "secretary of", "administrator of", "director of national"],
+    path: ["Federal Government", "Executive Branch", "Cabinet & Agencies"] },
+
+  // Federal – Legislative
+  { keywords: ["u.s. senator", "united states senator", "senator from"],
+    path: ["Federal Government", "Legislative Branch", "Senate"] },
+  { keywords: ["u.s. representative", "representative from", "member of the u.s. house",
+      "member of congress", "house of representatives"],
+    path: ["Federal Government", "Legislative Branch", "House of Representatives"] },
+
+  // Federal – Judicial
+  { keywords: ["supreme court", "chief justice", "associate justice"],
+    path: ["Federal Government", "Judicial Branch", "Supreme Court"] },
+  { keywords: ["circuit court", "district court", "federal judge", "u.s. judge"],
+    path: ["Federal Government", "Judicial Branch", "Federal Courts"] },
 ];
 
 function classifyPolitician(office: string): string[] {
