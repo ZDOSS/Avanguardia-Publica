@@ -1,3 +1,4 @@
+import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import PoliticianClient from './PoliticianClient';
 
@@ -33,30 +34,38 @@ export default async function Page(props: { params: Promise<{ politician_id: str
   let politician = null;
   let unconfirmed = [];
 
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(politician_id);
+
   try {
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-      throw new Error("No Supabase URL or Anon Key configured. Falling back to mock data.");
-    }
-    const { data: polData, error: polError } = await supabase
-      .from('politicians')
-      .select('*, contact_info(*), financial_disclosures(*), campaign_donors(*), voting_records(*)')
-      .eq('id', politician_id)
-      .maybeSingle();
+    if (isUUID) {
+      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+        throw new Error("No Supabase URL or Anon Key configured.");
+      }
       
-    if (polError) throw polError;
-    if (polData) {
-      politician = polData;
-    }
+      const { data: polData, error: polError } = await supabase
+        .from('politicians')
+        .select('*, contact_info(*), financial_disclosures(*), campaign_donors(*), voting_records(*)')
+        .eq('id', politician_id)
+        .maybeSingle();
+        
+      if (polError) throw polError;
+      if (polData) {
+        politician = polData;
+      }
 
-    const { data: mentions, error: mentionsError } = await supabase
-      .from('unconfirmed_mentions')
-      .select('*')
-      .eq('politician_id', politician_id)
-      .order('created_at', { ascending: false });
+      const { data: mentions, error: mentionsError } = await supabase
+        .from('unconfirmed_mentions')
+        .select('*')
+        .eq('politician_id', politician_id)
+        .order('created_at', { ascending: false });
 
-    if (mentionsError) throw mentionsError;
-    if (mentions) {
-      unconfirmed = mentions;
+      if (mentionsError) throw mentionsError;
+      if (mentions) {
+        unconfirmed = mentions;
+      }
+    } else {
+      // Safe logging of the non-UUID politician_id to prevent log injection
+      console.warn(`Non-UUID politician ID detected: ${JSON.stringify(politician_id.slice(0, 100))}. Skipping database query.`);
     }
   } catch (e) {
     console.error("Error fetching politician page data:", e);
@@ -65,18 +74,24 @@ export default async function Page(props: { params: Promise<{ politician_id: str
     }
   }
 
-  // If we couldn't fetch (e.g. no env vars during local dev), use mock data
+  // If we couldn't fetch (e.g. no DB connection or politician doesn't exist), fallback or 404
   if (!politician) {
-    politician = {
-      id: politician_id,
-      full_name: 'Mock Politician (No DB Connection)',
-      current_office: 'Unknown Office',
-      party: 'Independent',
-      contact_info: [{ office_address: '123 Fake St', phone_number: '555-0199', official_website: 'https://example.com' }],
-      financial_disclosures: [],
-      campaign_donors: [],
-      voting_records: []
-    };
+    if (['biden-joe', 'harris-kamala'].includes(politician_id)) {
+      // Return standard mock profile only for the explicit mock paths
+      politician = {
+        id: politician_id,
+        full_name: politician_id === 'biden-joe' ? 'Joe Biden (Mock)' : 'Kamala Harris (Mock)',
+        current_office: politician_id === 'biden-joe' ? 'President of the United States' : 'Vice President of the United States',
+        party: 'Democratic',
+        contact_info: [{ office_address: '1600 Pennsylvania Ave NW', phone_number: '202-456-1111', official_website: 'https://www.whitehouse.gov' }],
+        financial_disclosures: [],
+        campaign_donors: [],
+        voting_records: []
+      };
+    } else {
+      // Trigger Next.js native 404 for invalid pages in production
+      notFound();
+    }
   }
 
   // Pass data to the interactive client component
