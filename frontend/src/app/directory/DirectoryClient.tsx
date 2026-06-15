@@ -40,16 +40,6 @@ const RULES: Rule[] = [
   { keywords: ["state representative", "state assembly", "state house"],
     path: ["State & Territorial Governments", "State Legislature", "State House / Assembly"] },
 
-  // Local
-  { keywords: ["mayor of", "mayor,", "mayor"],
-    path: ["Local Government", "Municipal", "Mayor"] },
-  { keywords: ["city council", "alderman", "alderperson"],
-    path: ["Local Government", "Municipal", "City Council"] },
-  { keywords: ["county", "county commissioner", "county executive", "county supervisor"],
-    path: ["Local Government", "County", "County Officials"] },
-  { keywords: ["school board", "school district"],
-    path: ["Local Government", "Special Districts", "School Board"] },
-
   // Federal – Executive
   { keywords: ["president of the united states"], path: ["Federal Government", "Executive Branch", "Office of the President"] },
   { keywords: ["vice president"], path: ["Federal Government", "Executive Branch", "Office of the President"] },
@@ -69,6 +59,16 @@ const RULES: Rule[] = [
     path: ["Federal Government", "Judicial Branch", "Supreme Court"] },
   { keywords: ["circuit court", "district court", "federal judge", "u.s. judge"],
     path: ["Federal Government", "Judicial Branch", "Federal Courts"] },
+
+  // Local
+  { keywords: ["mayor of", "mayor,", "mayor"],
+    path: ["Local Government", "Municipal", "Mayor"] },
+  { keywords: ["city council", "alderman", "alderperson"],
+    path: ["Local Government", "Municipal", "City Council"] },
+  { keywords: ["county", "county commissioner", "county executive", "county supervisor"],
+    path: ["Local Government", "County", "County Officials"] },
+  { keywords: ["school board", "school district"],
+    path: ["Local Government", "Special Districts", "School Board"] },
 ];
 
 function classifyPolitician(office: string): string[] {
