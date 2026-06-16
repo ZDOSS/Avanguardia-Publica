@@ -112,6 +112,11 @@ def main():
         except Exception as e:
             print(f"  [!] Error upserting state politician {person.get('full_name')}: {e}")
             errors_caught += 1
+        finally:
+            # Brief pause every 100 records so ~8,000 back-to-back upserts don't
+            # saturate the Supabase connection pool / free-tier request limits.
+            if index % 100 == 0:
+                time.sleep(0.1)
 
     if errors_caught == 0:
         print("\nPipeline finished successfully.")

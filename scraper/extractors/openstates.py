@@ -54,9 +54,12 @@ def _office_string(role: dict, state: str) -> str | None:
 
 def _party(person: dict) -> str:
     parties = person.get("party") or []
-    if parties and isinstance(parties, list):
-        return parties[-1].get("name") or "Unknown"
-    return "Unknown"
+    if not parties or not isinstance(parties, list):
+        return "Unknown"
+    # Prefer an entry with no end_date (current affiliation); fall back to the last
+    # entry, which OpenStates records as the most recent in history ordering.
+    current = next((p for p in parties if not p.get("end_date")), parties[-1])
+    return current.get("name") or "Unknown"
 
 
 def _aliases(person: dict) -> list:
@@ -106,6 +109,12 @@ def _state_from_path(path: str) -> str:
 
 
 def _map_person(person: dict, state: str) -> dict | None:
+    # The ocd-person id is the identity key the loader matches on. Without it a
+    # state legislator would fall through to unsafe name matching, so skip the
+    # record entirely if it is missing.
+    person_id = person.get("id")
+    if not person_id:
+        return None
     role = _current_role(person.get("roles") or [])
     if not role or role.get("type") not in _OFFICE_ROLE_TYPES:
         return None
