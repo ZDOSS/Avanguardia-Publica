@@ -63,14 +63,21 @@ class SupabaseLoader:
                 if resp.data:
                     existing_id = resp.data[0]["id"]
                 if existing_id is None:
+                    # Name fallback, but ONLY for legacy federal rows. A row that
+                    # carries a non-federal (OpenStates ocd-person) identity must never
+                    # be matched here: a newly-seated federal member whose bioguide_id
+                    # isn't in the DB yet would otherwise overwrite a same-named state
+                    # legislator, strip its openstates id, and corrupt both records.
                     resp = (
                         self.supabase.table("politicians")
-                        .select("id")
+                        .select("id, external_ids")
                         .eq("full_name", member_data["full_name"])
                         .execute()
                     )
-                    if resp.data:
-                        existing_id = resp.data[0]["id"]
+                    for row in (resp.data or []):
+                        if not (row.get("external_ids") or {}).get("openstates"):
+                            existing_id = row["id"]
+                            break
             elif openstates_id:
                 # Non-federal: match ONLY on the stable ocd-person id (JSONB
                 # containment, served by the external_ids GIN index). No name
