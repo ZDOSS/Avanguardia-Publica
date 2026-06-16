@@ -22,10 +22,11 @@ class SupabaseLoader:
           * Federal (bioguide_id present): match bioguide_id, then fall back to
             full_name — the name fallback also migrates legacy rows written before
             bioguide_id was populated.
-          * Non-federal with a stable source id (e.g. OpenStates ocd-person in
-            external_ids["openstates"]): match ONLY on that id. State legislators
-            commonly share names across states and with federal members, so name
-            matching here would wrongly merge distinct people.
+          * Non-federal with a stable source id (OpenStates ocd-person or Wikidata
+            QID in external_ids): match ONLY on that id. State legislators and
+            federal exec/judicial officials commonly share names with each other and
+            with Congress members, so name matching here would wrongly merge distinct
+            people.
           * Otherwise: match on full_name.
         """
         if not self.supabase:
@@ -33,7 +34,13 @@ class SupabaseLoader:
             return "dummy-uuid"
 
         bioguide_id = member_data.get("bioguide_id")
-        openstates_id = (member_data.get("external_ids") or {}).get("openstates")
+        # Stable non-federal identity schemes, most-trusted first. The first one
+        # present in external_ids is used for matching (JSONB containment).
+        ext = member_data.get("external_ids") or {}
+        stable_match = next(
+            ((scheme, ext[scheme]) for scheme in ("openstates", "wikidata") if ext.get(scheme)),
+            None,
+        )
 
         data_to_write = {
             "full_name": member_data.get("full_name"),
@@ -78,14 +85,14 @@ class SupabaseLoader:
                         if not (row.get("external_ids") or {}).get("openstates"):
                             existing_id = row["id"]
                             break
-            elif openstates_id:
-                # Non-federal: match ONLY on the stable ocd-person id (JSONB
-                # containment, served by the external_ids GIN index). No name
-                # fallback — see the docstring.
+            elif stable_match:
+                # Non-federal: match ONLY on the stable id (JSONB containment, served
+                # by the external_ids GIN index). No name fallback — see the docstring.
+                scheme, value = stable_match
                 resp = (
                     self.supabase.table("politicians")
                     .select("id")
-                    .contains("external_ids", {"openstates": openstates_id})
+                    .contains("external_ids", {scheme: value})
                     .execute()
                 )
                 if resp.data:
