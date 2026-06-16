@@ -26,7 +26,11 @@ export default function Home() {
       
       try {
         if (!process.env.NEXT_PUBLIC_SUPABASE_URL) throw new Error("No URL");
-        const { data, error } = await supabase.from('politicians').select('id, full_name, current_office, party').order('full_name');
+        const { data, error } = await supabase
+          .from('politicians')
+          .select('id, full_name, current_office, party')
+          .order('full_name')
+          .limit(10000); // Supabase default cap is 1,000; explicit limit prevents silent truncation
         if (error) throw error;
         setDirectory(data || []);
       } catch (e) {
