@@ -9,6 +9,7 @@ from extractors.littlesis import get_littlesis_data
 from extractors.news_aggregator import get_news_data
 from extractors.fec import get_campaign_donors
 from extractors.govtrack import get_voting_records
+from extractors.openstates import get_state_politicians
 
 logging.basicConfig(
     level=logging.INFO,
@@ -89,7 +90,29 @@ def main():
         finally:
             # Respect API rate limits for downstream services
             time.sleep(1)
-        
+
+    # 3. State legislators + governors (OpenStates). Hub + official contact only —
+    # the federal-only enrichment (FEC/GovTrack/news) does not apply to state races
+    # and would blow free news quotas across ~8,000 additional people.
+    print("\n=== State legislators + governors (OpenStates) ===")
+    try:
+        state_people = get_state_politicians()
+    except Exception as e:
+        print(f"[!] Failed to fetch state politicians: {e}")
+        state_people = []
+
+    state_total = len(state_people)
+    for index, person in enumerate(state_people, start=1):
+        try:
+            if index % 500 == 0:
+                print(f"  ... [{index}/{state_total}] state politicians processed")
+            politician_id = loader.upsert_politician(person)
+            if politician_id and politician_id != "dummy-uuid":
+                loader.upsert_contact_info(politician_id, person.get('contact', {}))
+        except Exception as e:
+            print(f"  [!] Error upserting state politician {person.get('full_name')}: {e}")
+            errors_caught += 1
+
     if errors_caught == 0:
         print("\nPipeline finished successfully.")
     else:
