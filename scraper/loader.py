@@ -4,6 +4,13 @@ from supabase import create_client, Client
 
 logger = logging.getLogger(__name__)
 
+# Stable, non-federal identity schemes carried in external_ids, most-trusted first.
+# A row carrying any of these is owned by a non-federal source (state legislators via
+# OpenStates, federal exec/judicial via Wikidata) and must never be matched by the
+# federal bioguide name-fallback. Single source of truth so the match logic and the
+# fallback guard can never drift apart.
+_STABLE_SCHEMES = ("openstates", "wikidata")
+
 
 class SupabaseLoader:
     def __init__(self, url: str, key: str):
@@ -38,7 +45,7 @@ class SupabaseLoader:
         # present in external_ids is used for matching (JSONB containment).
         ext = member_data.get("external_ids") or {}
         stable_match = next(
-            ((scheme, ext[scheme]) for scheme in ("openstates", "wikidata") if ext.get(scheme)),
+            ((scheme, ext[scheme]) for scheme in _STABLE_SCHEMES if ext.get(scheme)),
             None,
         )
 
@@ -71,10 +78,11 @@ class SupabaseLoader:
                     existing_id = resp.data[0]["id"]
                 if existing_id is None:
                     # Name fallback, but ONLY for legacy federal rows. A row that
-                    # carries a non-federal (OpenStates ocd-person) identity must never
-                    # be matched here: a newly-seated federal member whose bioguide_id
-                    # isn't in the DB yet would otherwise overwrite a same-named state
-                    # legislator, strip its openstates id, and corrupt both records.
+                    # carries any non-federal stable identity (OpenStates ocd-person or
+                    # Wikidata QID) must never be matched here: a newly-seated federal
+                    # member whose bioguide_id isn't in the DB yet would otherwise
+                    # overwrite a same-named state legislator or Supreme Court justice,
+                    # strip its identity, and corrupt both records.
                     resp = (
                         self.supabase.table("politicians")
                         .select("id, external_ids")
@@ -82,7 +90,8 @@ class SupabaseLoader:
                         .execute()
                     )
                     for row in (resp.data or []):
-                        if not (row.get("external_ids") or {}).get("openstates"):
+                        row_ext = row.get("external_ids") or {}
+                        if not any(row_ext.get(scheme) for scheme in _STABLE_SCHEMES):
                             existing_id = row["id"]
                             break
             elif stable_match:
