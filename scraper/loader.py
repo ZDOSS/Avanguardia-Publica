@@ -100,12 +100,19 @@ class SupabaseLoader:
                 scheme, value = stable_match
                 resp = (
                     self.supabase.table("politicians")
-                    .select("id")
+                    .select("id, bioguide_id")
                     .contains("external_ids", {scheme: value})
                     .execute()
                 )
-                if resp.data:
-                    existing_id = resp.data[0]["id"]
+                # Never adopt a federal congressional row (one carrying a bioguide_id)
+                # from a non-federal source. Congress rows store their wikidata QID in
+                # external_ids, so a former member now in the exec/judicial set (e.g. a
+                # VP who was a senator) would otherwise overwrite the congressional row
+                # to executive office — and the two sources would flip-flop it each run.
+                for row in (resp.data or []):
+                    if not row.get("bioguide_id"):
+                        existing_id = row["id"]
+                        break
             else:
                 resp = (
                     self.supabase.table("politicians")
