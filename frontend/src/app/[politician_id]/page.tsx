@@ -8,13 +8,25 @@ export async function generateStaticParams() {
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       throw new Error("No Supabase URL or Anon Key configured. Using mock IDs.");
     }
-    const { data, error } = await supabase.from('politicians').select('id');
-    if (error) throw error;
-    if (!data || data.length === 0) return [{ politician_id: 'biden-joe' }, { politician_id: 'harris-kamala' }];
-    
-    return data.map((politician) => ({
-      politician_id: politician.id,
-    }));
+    // Supabase caps a single response at 1,000 rows, so page through every
+    // politician — otherwise profiles past the first 1,000 would never get a
+    // static page generated and would 404 once the dataset grows (state/local).
+    const PAGE_SIZE = 1000;
+    const params: { politician_id: string }[] = [];
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const { data, error } = await supabase
+        .from('politicians')
+        .select('id')
+        .order('id')
+        .range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      params.push(...data.map((politician) => ({ politician_id: politician.id })));
+      if (data.length < PAGE_SIZE) break;
+    }
+
+    if (params.length === 0) return [{ politician_id: 'biden-joe' }, { politician_id: 'harris-kamala' }];
+    return params;
   } catch (e) {
     console.error("Failed to generate static params:", e);
     if (process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true') {
