@@ -18,17 +18,22 @@ class SupabaseLoader:
         """
         Upserts a politician into the Hub table and returns the UUID.
 
-        Matching strategy (most-stable first):
-          1. bioguide_id  — the canonical key from @unitedstates/congress-legislators.
-          2. full_name    — fallback that also migrates legacy rows written before
-                            bioguide_id was populated, so we update them in place
-                            instead of creating duplicates.
+        Matching strategy depends on which stable id the source provides:
+          * Federal (bioguide_id present): match bioguide_id, then fall back to
+            full_name — the name fallback also migrates legacy rows written before
+            bioguide_id was populated.
+          * Non-federal with a stable source id (e.g. OpenStates ocd-person in
+            external_ids["openstates"]): match ONLY on that id. State legislators
+            commonly share names across states and with federal members, so name
+            matching here would wrongly merge distinct people.
+          * Otherwise: match on full_name.
         """
         if not self.supabase:
             print(f"  [Dry-run] Upserting politician {member_data['full_name']}")
             return "dummy-uuid"
 
         bioguide_id = member_data.get("bioguide_id")
+        openstates_id = (member_data.get("external_ids") or {}).get("openstates")
 
         data_to_write = {
             "full_name": member_data.get("full_name"),
@@ -46,8 +51,9 @@ class SupabaseLoader:
         try:
             existing_id = None
 
-            # 1. Match on the stable canonical key.
             if bioguide_id:
+                # Federal: bioguide_id column, then name fallback (migrates legacy
+                # null-bioguide rows in place).
                 resp = (
                     self.supabase.table("politicians")
                     .select("id")
@@ -56,9 +62,35 @@ class SupabaseLoader:
                 )
                 if resp.data:
                     existing_id = resp.data[0]["id"]
-
-            # 2. Fallback: match on name (covers legacy rows with a NULL bioguide_id).
-            if existing_id is None:
+                if existing_id is None:
+                    # Name fallback, but ONLY for legacy federal rows. A row that
+                    # carries a non-federal (OpenStates ocd-person) identity must never
+                    # be matched here: a newly-seated federal member whose bioguide_id
+                    # isn't in the DB yet would otherwise overwrite a same-named state
+                    # legislator, strip its openstates id, and corrupt both records.
+                    resp = (
+                        self.supabase.table("politicians")
+                        .select("id, external_ids")
+                        .eq("full_name", member_data["full_name"])
+                        .execute()
+                    )
+                    for row in (resp.data or []):
+                        if not (row.get("external_ids") or {}).get("openstates"):
+                            existing_id = row["id"]
+                            break
+            elif openstates_id:
+                # Non-federal: match ONLY on the stable ocd-person id (JSONB
+                # containment, served by the external_ids GIN index). No name
+                # fallback — see the docstring.
+                resp = (
+                    self.supabase.table("politicians")
+                    .select("id")
+                    .contains("external_ids", {"openstates": openstates_id})
+                    .execute()
+                )
+                if resp.data:
+                    existing_id = resp.data[0]["id"]
+            else:
                 resp = (
                     self.supabase.table("politicians")
                     .select("id")
