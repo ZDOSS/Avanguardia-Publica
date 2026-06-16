@@ -10,6 +10,7 @@ from extractors.news_aggregator import get_news_data
 from extractors.fec import get_campaign_donors
 from extractors.govtrack import get_voting_records
 from extractors.openstates import get_state_politicians
+from extractors.federal import get_federal_exec_judicial
 
 logging.basicConfig(
     level=logging.INFO,
@@ -117,6 +118,24 @@ def main():
             # saturate the Supabase connection pool / free-tier request limits.
             if index % 100 == 0:
                 time.sleep(0.1)
+
+    # 4. Federal executive (President, VP) + judicial (Supreme Court). Hub + official
+    # contact only; identified by Wikidata QID.
+    print("\n=== Federal executive + judicial ===")
+    try:
+        fed_people = get_federal_exec_judicial()
+    except Exception as e:
+        print(f"[!] Failed to fetch federal exec/judicial: {e}")
+        fed_people = []
+
+    for person in fed_people:
+        try:
+            politician_id = loader.upsert_politician(person)
+            if politician_id and politician_id != "dummy-uuid":
+                loader.upsert_contact_info(politician_id, person.get('contact', {}))
+        except Exception as e:
+            print(f"  [!] Error upserting federal official {person.get('full_name')}: {e}")
+            errors_caught += 1
 
     if errors_caught == 0:
         print("\nPipeline finished successfully.")
