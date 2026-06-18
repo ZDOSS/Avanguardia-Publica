@@ -2,14 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase';
+import { fetchAllPoliticians, type PoliticianSummary } from '@/lib/politicians';
 
-interface Politician {
-  id: string;
-  full_name: string;
-  current_office: string;
-  party: string;
-}
+type Politician = PoliticianSummary;
 
 export default function Home() {
   const [search, setSearch] = useState("");
@@ -26,13 +21,10 @@ export default function Home() {
       
       try {
         if (!process.env.NEXT_PUBLIC_SUPABASE_URL) throw new Error("No URL");
-        const { data, error } = await supabase
-          .from('politicians')
-          .select('id, full_name, current_office, party')
-          .order('full_name')
-          .limit(10000); // Supabase default cap is 1,000; explicit limit prevents silent truncation
-        if (error) throw error;
-        setDirectory(data || []);
+        // Pages past Supabase's per-response row cap (a plain `.limit()` is
+        // silently truncated to 1,000 rows).
+        const data = await fetchAllPoliticians();
+        setDirectory(data);
       } catch (e) {
         console.warn("Falling back to mock data. Supabase connection failed:", e);
         setDirectory(mockData);

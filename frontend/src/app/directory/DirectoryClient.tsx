@@ -2,15 +2,10 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { fetchAllPoliticians, type PoliticianSummary } from "@/lib/politicians";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-interface Politician {
-  id: string;
-  full_name: string;
-  current_office: string;
-  party: string;
-}
+type Politician = PoliticianSummary;
 
 interface CategoryNode {
   label: string;
@@ -267,13 +262,10 @@ export default function DirectoryClient() {
   useEffect(() => {
     async function load() {
       try {
-        const { data, error } = await supabase
-          .from("politicians")
-          .select("id, full_name, current_office, party")
-          .order("full_name")
-          .limit(10000); // Supabase default cap is 1,000; explicit limit prevents silent truncation
-        if (error) throw error;
-        setPoliticians(data || []);
+        // Pages past Supabase's per-response row cap so the full directory loads
+        // (a plain `.limit()` is silently truncated to 1,000 rows).
+        const data = await fetchAllPoliticians();
+        setPoliticians(data);
       } catch (e) {
         console.error("Failed to load politicians:", e);
         setError("Could not connect to the database. Please try again later.");
