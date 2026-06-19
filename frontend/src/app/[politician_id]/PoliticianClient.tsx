@@ -221,9 +221,12 @@ export default function PoliticianClient({ politician, unconfirmed }: Props) {
             </div>
           )}
 
-          {/* Connections (cross-referenced individuals — live from the DB) */}
+          {/* Connections (cross-referenced individuals — live from the DB).
+              key={politician.id} remounts the tab on a soft navigation to another profile,
+              re-initialising its loading/error/data state instead of leaking a stale error
+              banner over the next profile's data. */}
           {activeTab === 'connections' && (
-            <ConnectionsTab politicianId={politician.id} politicianName={politician.full_name} />
+            <ConnectionsTab key={politician.id} politicianId={politician.id} politicianName={politician.full_name} />
           )}
 
           {/* Media (VISUAL FIREWALL) — third-party news & mentions */}
