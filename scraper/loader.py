@@ -219,6 +219,10 @@ class SupabaseLoader:
                 "bill_summary": r.get("bill_summary"),
                 "vote_cast": r.get("vote_cast"),
                 "vote_date": r.get("vote_date"),
+                # Stable per-roll-call id + jurisdiction (see migrations/0003). Both
+                # optional — older extractor output without them upserts as NULL.
+                "roll_call_id": r.get("roll_call_id"),
+                "jurisdiction": r.get("jurisdiction"),
             }
             for r in records
         ]
@@ -229,6 +233,68 @@ class SupabaseLoader:
             print(f"  [+] Upserted {len(rows)} voting records")
         except Exception as e:
             print(f"  [!] Error upserting voting records for {politician_id}: {e}")
+
+    def upsert_relationships(self, politician_id: str, edges: list):
+        """
+        Upserts structured network ties (e.g. LittleSis board/affiliation edges) for a
+        politician. UNIQUE(politician_id, related_name, relationship_type) keeps the
+        nightly job idempotent.
+
+        related_politician_id is resolved here by an EXACT full_name match to a tracked
+        politician (never fuzzy — the loader's identity rule, same as upsert_politician).
+        When the related entity isn't someone we track, it stays NULL and the frontend
+        renders an external link instead of an internal profile link.
+        """
+        if not edges:
+            return
+        if not self.supabase:
+            print(f"  [Dry-run] Upserting {len(edges)} relationships")
+            return
+
+        rows = []
+        for e in edges:
+            related_name = e.get("related_name")
+            if not related_name:
+                continue
+            rows.append({
+                "politician_id": politician_id,
+                "related_name": related_name,
+                "related_politician_id": self._resolve_exact_name(related_name),
+                "relationship_type": e.get("relationship_type"),
+                "source_api": e.get("source_api", "LittleSis"),
+                "url": e.get("url"),
+                "last_updated": datetime.now(timezone.utc).isoformat(),
+            })
+        if not rows:
+            return
+        try:
+            self.supabase.table("relationships").upsert(
+                rows, on_conflict="politician_id,related_name,relationship_type"
+            ).execute()
+            print(f"  [+] Upserted {len(rows)} relationships")
+        except Exception as e:
+            print(f"  [!] Error upserting relationships for {politician_id}: {e}")
+
+    def _resolve_exact_name(self, name: str):
+        """
+        Return the politician id whose full_name is an EXACT match to `name`, or None.
+        Deliberately exact-only (no fuzzy) per the entity-resolution rule; an ambiguous
+        or absent match resolves to None rather than guessing.
+        """
+        if not self.supabase or not name:
+            return None
+        try:
+            resp = (
+                self.supabase.table("politicians")
+                .select("id")
+                .eq("full_name", name)
+                .execute()
+            )
+            if resp.data and len(resp.data) == 1:
+                return resp.data[0]["id"]
+        except Exception as e:
+            logger.debug("Name resolve failed for %r: %s", name, e)
+        return None
 
     def process_mentions(self, politician_id: str, data_list: list, source_api: str):
         """

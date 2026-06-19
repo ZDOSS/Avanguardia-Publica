@@ -124,11 +124,14 @@ def _updated_since() -> str:
     return time.strftime("%Y-%m-%d", time.gmtime(time.time() - secs))
 
 
-def _vote_rows_from_bill(bill: dict, known_ocd: set | None):
+def _vote_rows_from_bill(bill: dict, jurisdiction: str | None, known_ocd: set | None):
     """
     Yield (ocd_person, voting_records-row) for every individual legislator vote on a
     bill. Rows that lack a usable voter id, bill identifier, or date are skipped
     (bill_name and vote_date are NOT NULL in the schema).
+
+    `jurisdiction` is the state name this crawl page came from; it is carried onto each
+    row for display/filtering.
     """
     identifier = bill.get("identifier")
     title = bill.get("title")
@@ -147,6 +150,13 @@ def _vote_rows_from_bill(bill: dict, known_ocd: set | None):
         # when a bill has several roll-calls on the same day (committee + floor).
         bill_name = f"{identifier} — {motion}" if motion else identifier
 
+        # Stable id for THIS roll call (an ocd-vote id). Every voter below shares it, so
+        # it powers the exact co-voting self-join (get_covoting). Namespaced by source so
+        # it can never collide with a GovTrack vote id. May be absent on older events —
+        # then the row simply won't participate in co-voting.
+        event_id = event.get("id")
+        roll_call_id = f"openstates:{event_id}" if event_id else None
+
         summary_parts = [p for p in (title, event.get("result")) if p]
         summary = " · ".join(summary_parts)
         if bill_url:
@@ -164,6 +174,8 @@ def _vote_rows_from_bill(bill: dict, known_ocd: set | None):
                 "bill_summary": summary or None,
                 "vote_cast": pv.get("option"),
                 "vote_date": vote_date,
+                "roll_call_id": roll_call_id,
+                "jurisdiction": jurisdiction,
             }
 
 
@@ -206,7 +218,7 @@ def get_state_voting_records(known_ocd_ids: set | None = None) -> dict:
             )
             results = (data or {}).get("results") or []
             for bill in results:
-                for ocd, row in _vote_rows_from_bill(bill, known_ocd_ids):
+                for ocd, row in _vote_rows_from_bill(bill, state, known_ocd_ids):
                     by_person.setdefault(ocd, {})[(row["bill_name"], row["vote_date"])] = row
             # Stop early on the last/short page rather than spending budget on empties.
             if len(results) < _PER_PAGE:

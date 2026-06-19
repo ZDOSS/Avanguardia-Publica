@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import ConnectionsTab from './ConnectionsTab';
 
 export interface FinancialDisclosure {
   id: string;
@@ -58,7 +59,7 @@ interface Props {
 }
 
 export default function PoliticianClient({ politician, unconfirmed }: Props) {
-  const [activeTab, setActiveTab] = useState<'financial' | 'donors' | 'voting' | 'network'>('financial');
+  const [activeTab, setActiveTab] = useState<'financial' | 'donors' | 'voting' | 'connections' | 'media'>('financial');
 
   const contact = politician?.contact_info?.[0] || {} as Partial<ContactInfo>;
 
@@ -114,14 +115,15 @@ export default function PoliticianClient({ politician, unconfirmed }: Props) {
               { id: 'financial', label: 'Financial Disclosures' },
               { id: 'donors', label: 'Campaign Donors' },
               { id: 'voting', label: 'Voting Record' },
-              { id: 'network', label: 'Network & Media' }
+              { id: 'connections', label: 'Connections' },
+              { id: 'media', label: 'Media' }
             ].map(tab => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as 'financial' | 'donors' | 'voting' | 'network')}
+                onClick={() => setActiveTab(tab.id as 'financial' | 'donors' | 'voting' | 'connections' | 'media')}
                 className={`py-4 px-2 font-bold text-lg tab-btn cursor-pointer ${
-                  activeTab === tab.id 
-                    ? tab.id === 'network' ? 'active-network text-[var(--color-warning-badge)]' : 'active text-[var(--color-official-link)]'
+                  activeTab === tab.id
+                    ? tab.id === 'media' ? 'active-network text-[var(--color-warning-badge)]' : 'active text-[var(--color-official-link)]'
                     : 'text-[var(--color-official-text-muted)] hover:text-[var(--color-official-text)]'
                 }`}
               >
@@ -219,8 +221,13 @@ export default function PoliticianClient({ politician, unconfirmed }: Props) {
             </div>
           )}
 
-          {/* Network & Media (VISUAL FIREWALL) */}
-          {activeTab === 'network' && (
+          {/* Connections (cross-referenced individuals — live from the DB) */}
+          {activeTab === 'connections' && (
+            <ConnectionsTab politicianId={politician.id} politicianName={politician.full_name} />
+          )}
+
+          {/* Media (VISUAL FIREWALL) — third-party news & mentions */}
+          {activeTab === 'media' && (
             <div className="visual-firewall">
               <div className="mb-8">
                 <span className="warning-badge animate-pulse">Third-Party Data - Unverified</span>

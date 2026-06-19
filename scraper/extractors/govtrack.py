@@ -94,11 +94,19 @@ def _map_vote(obj: dict) -> dict | None:
     if vote.get("link"):
         summary = f"{summary} — {vote['link']}" if summary else vote["link"]
 
+    # Stable id for this roll call, shared by everyone who voted on it — powers the exact
+    # co-voting self-join (get_covoting). Namespaced 'govtrack:' so it can never collide
+    # with an OpenStates ocd-vote id. jurisdiction is NULL: these are federal votes.
+    vote_id = vote.get("id")
+    roll_call_id = f"govtrack:{vote_id}" if vote_id else None
+
     return {
         "bill_name": bill_name,
         "bill_summary": summary or None,
         "vote_cast": option.get("value"),
         "vote_date": vote_date,
+        "roll_call_id": roll_call_id,
+        "jurisdiction": None,
     }
 
 

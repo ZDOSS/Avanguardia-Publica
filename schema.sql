@@ -57,7 +57,16 @@ CREATE TABLE IF NOT EXISTS campaign_donors (
     fec_transaction_id TEXT UNIQUE
 );
 
+-- Serves the shared-donor cross-reference self-join (see get_shared_donors in
+-- migrations/0003), which matches on a normalized donor name.
+CREATE INDEX IF NOT EXISTS idx_campaign_donors_donor_name_lower
+    ON campaign_donors (lower(btrim(donor_name)));
+
 -- 5. Verified Spoke: voting_records
+-- roll_call_id is a STABLE, source-namespaced id for a single roll call
+-- ('openstates:<vote_event_id>' / 'govtrack:<vote_id>') shared by every legislator who
+-- voted on it — it makes co-voting an exact, collision-free self-join (see
+-- migrations/0003). jurisdiction is informational (state name / NULL for federal).
 CREATE TABLE IF NOT EXISTS voting_records (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     politician_id UUID REFERENCES politicians(id) ON DELETE CASCADE,
@@ -65,8 +74,12 @@ CREATE TABLE IF NOT EXISTS voting_records (
     bill_summary TEXT,
     vote_cast TEXT, -- e.g., Yea, Nay, Present
     vote_date DATE NOT NULL,
+    roll_call_id TEXT,
+    jurisdiction TEXT,
     UNIQUE(politician_id, bill_name, vote_date)
 );
+
+CREATE INDEX IF NOT EXISTS idx_voting_records_roll_call ON voting_records (roll_call_id);
 
 -- 6. Third-Party Spoke: unconfirmed_mentions
 CREATE TABLE IF NOT EXISTS unconfirmed_mentions (
@@ -79,3 +92,23 @@ CREATE TABLE IF NOT EXISTS unconfirmed_mentions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(politician_id, source_api, url)
 );
+
+-- 7. Third-Party Spoke: relationships (structured network ties, e.g. LittleSis)
+-- Powers the "Network Ties" group of the profile Connections view. related_politician_id
+-- is filled only on an EXACT name match to a tracked politician (never fuzzy), enabling
+-- an internal profile link; NULL for external entities. See migrations/0003, which also
+-- defines the live RPC functions (get_shared_donors / get_covoting / get_network_ties)
+-- the frontend calls — those are migration-only and not duplicated here.
+CREATE TABLE IF NOT EXISTS relationships (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    politician_id UUID REFERENCES politicians(id) ON DELETE CASCADE,
+    related_name TEXT NOT NULL,
+    related_politician_id UUID REFERENCES politicians(id) ON DELETE SET NULL,
+    relationship_type TEXT,
+    source_api TEXT NOT NULL DEFAULT 'LittleSis',
+    url TEXT,
+    last_updated TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(politician_id, related_name, relationship_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_relationships_politician ON relationships (politician_id);
