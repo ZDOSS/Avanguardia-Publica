@@ -28,8 +28,8 @@ export interface CoVoteConnection {
 export interface NetworkTie {
   related_name: string;
   related_politician_id: string | null; // set only on an exact match to a tracked profile
-  relationship_type: string | null;
-  source_api: string | null;
+  relationship_type: string; // NOT NULL in the schema (defaults to 'Connection')
+  source_api: string;        // NOT NULL in the schema (defaults to 'LittleSis')
   url: string | null;
 }
 
