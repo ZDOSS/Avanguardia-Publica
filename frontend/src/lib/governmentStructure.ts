@@ -157,7 +157,7 @@ export const GOV_STRUCTURE: GovNode[] = [
               { label: "Department of Housing and Urban Development (HUD)" },
               {
                 label: "Department of Transportation (DOT)",
-                children: [{ label: "FAA" }, { label: "NHTSA" }, { label: "FEMA" }],
+                children: [{ label: "FAA" }, { label: "NHTSA" }],
               },
               { label: "Department of Energy (DOE)" },
               { label: "Department of Education" },

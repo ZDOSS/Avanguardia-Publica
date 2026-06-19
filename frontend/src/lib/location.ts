@@ -25,19 +25,22 @@ const NAME_TO_CODE: Record<string, string> = Object.fromEntries(
   Object.entries(US_STATES).map(([code, name]) => [name.toLowerCase(), code])
 );
 
-// USPS 3-digit ZIP prefix ranges -> state code. Inclusive [low, high].
+// USPS 3-digit ZIP prefix ranges -> state code. Inclusive [low, high]. Ranges are
+// widened slightly past the core SCF blocks to absorb border/edge prefixes (e.g. WV
+// 269, KY 428-429, AR 715, MO 659, CO 817-819) so valid ZIPs don't fall in a gap
+// and return null.
 const ZIP_PREFIX_RANGES: [number, number, string][] = [
   [5, 5, "NY"], [6, 9, "PR"], [10, 27, "MA"], [28, 29, "RI"], [30, 38, "NH"],
   [39, 49, "ME"], [50, 59, "VT"], [60, 69, "CT"], [70, 89, "NJ"], [100, 149, "NY"],
   [150, 196, "PA"], [197, 199, "DE"], [200, 205, "DC"], [206, 219, "MD"],
-  [220, 246, "VA"], [247, 268, "WV"], [270, 289, "NC"], [290, 299, "SC"],
+  [220, 246, "VA"], [247, 269, "WV"], [270, 289, "NC"], [290, 299, "SC"],
   [300, 319, "GA"], [320, 349, "FL"], [350, 369, "AL"], [370, 385, "TN"],
-  [386, 397, "MS"], [398, 399, "GA"], [400, 427, "KY"], [430, 459, "OH"],
+  [386, 397, "MS"], [398, 399, "GA"], [400, 429, "KY"], [430, 459, "OH"],
   [460, 479, "IN"], [480, 499, "MI"], [500, 528, "IA"], [530, 549, "WI"],
   [550, 567, "MN"], [570, 577, "SD"], [580, 588, "ND"], [590, 599, "MT"],
-  [600, 629, "IL"], [630, 658, "MO"], [660, 679, "KS"], [680, 693, "NE"],
-  [700, 714, "LA"], [716, 729, "AR"], [730, 749, "OK"], [750, 799, "TX"],
-  [800, 816, "CO"], [820, 831, "WY"], [832, 838, "ID"], [840, 847, "UT"],
+  [600, 629, "IL"], [630, 659, "MO"], [660, 679, "KS"], [680, 693, "NE"],
+  [700, 714, "LA"], [715, 729, "AR"], [730, 749, "OK"], [750, 799, "TX"],
+  [800, 819, "CO"], [820, 831, "WY"], [832, 838, "ID"], [840, 847, "UT"],
   [850, 865, "AZ"], [870, 884, "NM"], [889, 898, "NV"], [900, 961, "CA"],
   [967, 968, "HI"], [969, 969, "GU"], [970, 979, "OR"], [980, 994, "WA"],
   [995, 999, "AK"],
@@ -64,4 +67,19 @@ export function resolveStateToken(token: string): string | null {
   const upper = t.toUpperCase();
   if (US_STATES[upper]) return upper;
   return NAME_TO_CODE[t.toLowerCase()] ?? null;
+}
+
+/**
+ * Does a politician's `current_office` belong to the given state? Used as a fallback
+ * only when the structured `state` column is null (e.g. before the backfill runs).
+ *
+ * Scraper offices embed the 2-letter USPS code ("US Senator from CA", "Governor of
+ * WV", "State Senator from WV District 3"), so we match the code as a standalone,
+ * case-sensitive token. This deliberately avoids full-name substring matching, which
+ * produced false positives — "Virginia" matching "West Virginia", or "Washington"
+ * matching the DC mayor.
+ */
+export function officeMatchesState(office: string, code: string): boolean {
+  if (!office || !code) return false;
+  return new RegExp(`\\b${code}\\b`).test(office);
 }

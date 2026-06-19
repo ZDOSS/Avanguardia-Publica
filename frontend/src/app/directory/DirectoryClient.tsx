@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { fetchAllPoliticians, type PoliticianSummary } from "@/lib/politicians";
 import { GOV_STRUCTURE, type GovNode, type GovPath } from "@/lib/governmentStructure";
-import { US_STATES, resolveStateToken } from "@/lib/location";
+import { US_STATES, resolveStateToken, zipToState, officeMatchesState } from "@/lib/location";
 
 type Politician = PoliticianSummary;
 
@@ -235,40 +235,87 @@ function PoliticianCard({ politician }: { politician: Politician }) {
 
 // ─── Smart search parsing ───────────────────────────────────────────────────
 // Pulls a state out of the query (full name, 2-letter code, or ZIP), leaving the
-// rest as free text matched against name / office / party.
-function parseSearch(raw: string): { stateCode: string | null; text: string } {
-  let text = raw.trim();
-  if (!text) return { stateCode: null, text: "" };
+// rest as free-text tokens matched against name / office / party.
+//
+// To avoid greedily eating personal names ("Georgia Brown", "Virginia Johnson"), a
+// full state name or 2-letter code is treated as a location ONLY when every other
+// token is itself a location-safe word (an office/branch/party term). A ZIP code is
+// always unambiguous, so it is always extracted.
+const LOCATION_SAFE_TOKENS = new Set([
+  // office / branch terms
+  "senate", "senator", "senators", "house", "representative", "representatives",
+  "rep", "reps", "congress", "congressional", "governor", "lieutenant", "lt",
+  "mayor", "council", "councilmember", "alderman", "aldermen", "sheriff",
+  "attorney", "general", "ag", "justice", "court", "courts", "supreme", "county",
+  "commissioner", "commissioners", "board", "school", "district", "districts",
+  "state", "federal", "local", "assembly", "delegate", "delegates", "treasurer",
+  "comptroller", "secretary", "president", "vice", "cabinet", "executive",
+  "legislative", "judicial", "branch", "office",
+  // party terms
+  "democrat", "democratic", "republican", "independent", "libertarian", "green", "party",
+  // connectives
+  "of", "from", "the", "for", "and",
+]);
 
+function parseSearch(raw: string): { stateCode: string | null; textTokens: string[] } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { stateCode: null, textTokens: [] };
+
+  let tokens = trimmed.split(/\s+/);
   let stateCode: string | null = null;
 
-  // Full state name anywhere (longest first so "West Virginia" beats "Virginia").
-  const lower = text.toLowerCase();
-  const names = Object.entries(US_STATES).sort((a, b) => b[1].length - a[1].length);
-  for (const [code, name] of names) {
-    const idx = lower.indexOf(name.toLowerCase());
-    if (idx !== -1) {
+  // Are all tokens NOT in `used` location-safe? (i.e. safe to read the rest as a location)
+  const remainderIsSafe = (used: Set<number>) =>
+    tokens.every((t, i) => used.has(i) || LOCATION_SAFE_TOKENS.has(t.toLowerCase()));
+
+  // 1) ZIP — always unambiguous, always extracted.
+  const zipIdx = tokens.findIndex((t) => /^\d{5}$/.test(t));
+  if (zipIdx !== -1) {
+    const code = zipToState(tokens[zipIdx]);
+    if (code) {
       stateCode = code;
-      text = (text.slice(0, idx) + text.slice(idx + name.length)).trim();
-      break;
+      tokens.splice(zipIdx, 1);
     }
   }
 
-  // ZIP or 2-letter code as a standalone token.
+  // 2) Full state name (possibly multi-word), only if the remainder is location-safe.
   if (!stateCode) {
-    const toks = text.split(/\s+/);
-    for (let i = 0; i < toks.length; i++) {
-      const code = resolveStateToken(toks[i]);
-      if (code) {
+    const lowerTokens = tokens.map((t) => t.toLowerCase());
+    // Longest names first so "West Virginia" wins over "Virginia".
+    const names = Object.entries(US_STATES).sort(
+      (a, b) => b[1].split(" ").length - a[1].split(" ").length
+    );
+    for (const [code, name] of names) {
+      const nameToks = name.toLowerCase().split(" ");
+      for (let i = 0; i + nameToks.length <= lowerTokens.length; i++) {
+        if (nameToks.every((nt, j) => lowerTokens[i + j] === nt)) {
+          const used = new Set<number>();
+          for (let j = 0; j < nameToks.length; j++) used.add(i + j);
+          if (remainderIsSafe(used)) {
+            stateCode = code;
+            tokens = tokens.filter((_, idx) => !used.has(idx));
+          }
+          break;
+        }
+      }
+      if (stateCode) break;
+    }
+  }
+
+  // 3) Standalone 2-letter code, only if the remainder is location-safe.
+  if (!stateCode) {
+    for (let i = 0; i < tokens.length; i++) {
+      if (tokens[i].length !== 2) continue;
+      const code = resolveStateToken(tokens[i]);
+      if (code && remainderIsSafe(new Set([i]))) {
         stateCode = code;
-        toks.splice(i, 1);
-        text = toks.join(" ");
+        tokens.splice(i, 1);
         break;
       }
     }
   }
 
-  return { stateCode, text: text.trim() };
+  return { stateCode, textTokens: tokens.filter(Boolean) };
 }
 
 // ─── Main component ─────────────────────────────────────────────────────────
@@ -310,20 +357,22 @@ export default function DirectoryClient() {
   const filtered = useMemo(() => {
     return politicians.filter((p) => {
       if (effectiveState) {
+        // Prefer the structured state column; fall back to a precise office-token
+        // match only while the column is still being backfilled.
         const ok = p.state
           ? p.state === effectiveState
-          : (p.current_office || "").toLowerCase().includes((US_STATES[effectiveState] || "").toLowerCase());
+          : officeMatchesState(p.current_office || "", effectiveState);
         if (!ok) return false;
       }
       if (party !== "All" && (p.party || "Unknown") !== party) return false;
       if (levelRoot && classifyToPath(p.current_office)[0] !== levelRoot) return false;
-      if (parsed.text) {
+      if (parsed.textTokens.length > 0) {
         const hay = `${p.full_name} ${p.current_office || ""} ${p.party || ""}`.toLowerCase();
-        if (!hay.includes(parsed.text.toLowerCase())) return false;
+        if (!parsed.textTokens.every((t) => hay.includes(t.toLowerCase()))) return false;
       }
       return true;
     });
-  }, [politicians, effectiveState, party, levelRoot, parsed.text]);
+  }, [politicians, effectiveState, party, levelRoot, parsed.textTokens]);
 
   const tree = useMemo(() => buildTree(filtered), [filtered]);
   const total = filtered.length;
