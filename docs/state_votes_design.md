@@ -113,7 +113,9 @@ the state-vote critical path.
 1. **`extractors/crosswalk.py`** — identity-bridge diagnostic from the tarball; used to
    measure pivot coverage (above). Retained, but off the state-vote critical path. *(done)*
 2. **`extractors/openstates_votes.py`** — bill/roll-call-centric vote ingestion via
-   OpenStates API v3, joined on `ocd-person`, landing in `voting_records`. Requires a
-   free `OPENSTATES_API_KEY` (gated/skipped when absent, like `FEC_API_KEY`) and a
-   request budget tuned to the 500/day quota (rolling window of recent roll-calls per
-   state). *(next — needs key + quota sign-off)*
+   OpenStates API v3, joined on `ocd-person`, landing in `voting_records`. Gated on a
+   free `OPENSTATES_API_KEY` (skipped when absent, like `FEC_API_KEY`); per-run request
+   budget + circuit breaker + 10 req/min pacing tuned to the 500/day quota, crawling a
+   rolling 30-day window of recently-updated bills per state (50 states + DC). Wired
+   into `main.py`: the state-people loop builds an `ocd-person → politician_id` map,
+   and votes are fanned out onto it. *(done)*
