@@ -251,22 +251,24 @@ class SupabaseLoader:
             print(f"  [Dry-run] Upserting {len(edges)} relationships")
             return
 
-        rows = []
-        for e in edges:
-            related_name = e.get("related_name")
-            if not related_name:
-                continue
-            rows.append({
+        names = {e.get("related_name") for e in edges if e.get("related_name")}
+        if not names:
+            return
+        # Resolve every related name to an internal id in ONE query, not one per edge.
+        name_to_id = self._resolve_exact_names(names)
+
+        rows = [
+            {
                 "politician_id": politician_id,
-                "related_name": related_name,
-                "related_politician_id": self._resolve_exact_name(related_name),
+                "related_name": e["related_name"],
+                "related_politician_id": name_to_id.get(e["related_name"]),
                 "relationship_type": e.get("relationship_type"),
                 "source_api": e.get("source_api", "LittleSis"),
                 "url": e.get("url"),
                 "last_updated": datetime.now(timezone.utc).isoformat(),
-            })
-        if not rows:
-            return
+            }
+            for e in edges if e.get("related_name")
+        ]
         try:
             self.supabase.table("relationships").upsert(
                 rows, on_conflict="politician_id,related_name,relationship_type"
@@ -275,26 +277,32 @@ class SupabaseLoader:
         except Exception as e:
             print(f"  [!] Error upserting relationships for {politician_id}: {e}")
 
-    def _resolve_exact_name(self, name: str):
+    def _resolve_exact_names(self, names) -> dict:
         """
-        Return the politician id whose full_name is an EXACT match to `name`, or None.
-        Deliberately exact-only (no fuzzy) per the entity-resolution rule; an ambiguous
-        or absent match resolves to None rather than guessing.
+        Map each name in `names` to the politician id whose full_name EXACTLY matches it,
+        in a single query. Deliberately exact-only (no fuzzy) per the entity-resolution
+        rule; a name that matches zero or MORE THAN ONE politician is omitted (resolves to
+        None at the call site) rather than guessing.
         """
-        if not self.supabase or not name:
-            return None
+        name_list = [n for n in names if n]
+        if not self.supabase or not name_list:
+            return {}
         try:
             resp = (
                 self.supabase.table("politicians")
-                .select("id")
-                .eq("full_name", name)
+                .select("id, full_name")
+                .in_("full_name", name_list)
                 .execute()
             )
-            if resp.data and len(resp.data) == 1:
-                return resp.data[0]["id"]
         except Exception as e:
-            logger.debug("Name resolve failed for %r: %s", name, e)
-        return None
+            logger.debug("Bulk name resolve failed for %d names: %s", len(name_list), e)
+            return {}
+
+        # Count matches per name so ambiguous names (>1 politician) are dropped.
+        ids_by_name: dict[str, list] = {}
+        for row in (resp.data or []):
+            ids_by_name.setdefault(row["full_name"], []).append(row["id"])
+        return {name: ids[0] for name, ids in ids_by_name.items() if len(ids) == 1}
 
     def process_mentions(self, politician_id: str, data_list: list, source_api: str):
         """

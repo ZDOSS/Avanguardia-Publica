@@ -97,7 +97,7 @@ function MiniGraph({ center, nodes }: { center: string; nodes: GraphNode[] }) {
 function PersonCardLink({ id, children }: { id: string | null; children: React.ReactNode }) {
   if (id) {
     return (
-      <Link href={`/${id}`} className="block premium-card p-4 hover:border-[var(--color-official-link)] transition-colors bg-[var(--color-official-bg)]">
+      <Link href={`/${id}`} className="group block premium-card p-4 hover:border-[var(--color-official-link)] transition-colors bg-[var(--color-official-bg)]">
         {children}
       </Link>
     );

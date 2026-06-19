@@ -29,19 +29,22 @@ _MAX_RELATIONSHIPS = 25
 
 def _parse_entity_slug(url: str):
     """
-    Pull (entity_id, display_name) out of a LittleSis entity path like
-    '/person/13503-Barack_Obama' or '/org/123-Acme_Inc'. Returns (None, None) if the
-    path doesn't match — the relationship endpoint exposes the related entity's name
-    only via these slugs (there is no name field on the relationship object).
+    Pull (entity_id, entity_type, display_name) out of a LittleSis entity path like
+    '/person/13503-Barack_Obama' or '/org/123-Acme_Inc'. entity_type is 'person' or
+    'org' — it must be preserved so the caller builds the correct /person/ vs /org/ link
+    (orgs 404 on a /person/ path). Returns (None, None, None) if the path doesn't match —
+    the relationship endpoint exposes the related entity's name only via these slugs
+    (there is no name field on the relationship object).
     """
     if not url:
-        return None, None
-    m = re.search(r"/(?:person|org)/(\d+)-([^/?#]+)", url)
+        return None, None, None
+    m = re.search(r"/(person|org)/(\d+)-([^/?#]+)", url)
     if not m:
-        return None, None
-    entity_id = m.group(1)
-    name = m.group(2).replace("_", " ").strip()
-    return entity_id, name
+        return None, None, None
+    entity_type = m.group(1)
+    entity_id = m.group(2)
+    name = m.group(3).replace("_", " ").strip()
+    return entity_id, entity_type, name
 
 
 def _top_entity_id(full_name: str):
@@ -95,14 +98,15 @@ def get_littlesis_relationships(full_name: str) -> list:
         links = rel.get("links") or {}
         # The "other" entity is whichever side isn't our own entity_id.
         candidates = [_parse_entity_slug(links.get("entity")), _parse_entity_slug(links.get("related"))]
-        other = next(((eid, name) for eid, name in candidates if eid and eid != str(entity_id)), (None, None))
-        other_id, related_name = other
+        other = next(((eid, etype, name) for eid, etype, name in candidates if eid and eid != str(entity_id)), (None, None, None))
+        other_id, other_type, related_name = other
         if not related_name or related_name in seen:
             continue
         seen.add(related_name)
 
         rel_type = _CATEGORY_LABELS.get(attrs.get("category_id")) or attrs.get("description1") or "Connection"
-        url = f"{_BASE}/person/{other_id}" if other_id else f"{_BASE}/entities/{entity_id}"
+        # Use the entity's real type (person/org) so org links don't 404 on /person/.
+        url = f"{_BASE}/{other_type}/{other_id}" if other_id else f"{_BASE}/entities/{entity_id}"
         edges.append({
             "related_name": related_name,
             "relationship_type": rel_type,
