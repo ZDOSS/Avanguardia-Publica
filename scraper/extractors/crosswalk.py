@@ -14,8 +14,10 @@ hop — no fuzzy name matching, matching the loader's identity rule. See
 docs/state_votes_design.md for the full rationale and the coverage caveat.
 
 This is keyless and quota-free: it walks the same ~5 MB tarball openstates.py already
-downloads. Pass an already-parsed `people` iterable to reuse a single download per run;
-otherwise it fetches the tarball itself.
+downloads — independently, since openstates.py returns *transformed* records, not the
+raw person dicts this needs. Pass a `people` iterable of RAW openstates person dicts
+(each with `id` + `other_identifiers`) to inject pre-parsed data, e.g. in tests;
+otherwise it fetches and parses the tarball itself.
 """
 
 import io
@@ -87,7 +89,7 @@ class Crosswalk:
         return {scheme: len(self._maps.get(scheme, {})) for scheme in _PIVOT_SCHEMES}
 
 
-def _index_person(person: dict, maps: dict, seen: dict) -> None:
+def _index_person(person: dict, maps: dict, dropped: dict, collisions: dict) -> None:
     """Record this person's pivot ids into `maps`, dropping cross-person collisions."""
     ocd = person.get("id")
     if not ocd:
@@ -99,13 +101,19 @@ def _index_person(person: dict, maps: dict, seen: dict) -> None:
         key = _norm(scheme, oi.get("identifier"))
         if key is None:
             continue
+        if key in dropped[scheme]:
+            # Already known ambiguous (≥2 distinct people) — never re-insert, so a
+            # third+ occurrence can't resurrect a dropped key as the last-seen person.
+            continue
         prior = maps[scheme].get(key)
         if prior is None:
             maps[scheme][key] = ocd
         elif prior != ocd:
-            # Same pivot id mapping to two different people — ambiguous, drop it.
+            # Same pivot id mapping to two different people — ambiguous, drop it and
+            # remember the key so later occurrences stay out.
             maps[scheme].pop(key, None)
-            seen[scheme] = seen.get(scheme, 0) + 1
+            dropped[scheme].add(key)
+            collisions[scheme] = collisions.get(scheme, 0) + 1
 
 
 def _iter_people(tarball_bytes: bytes):
@@ -133,8 +141,9 @@ def build_crosswalk(people=None) -> Crosswalk:
     """
     Build the pivot-id → ocd-person crosswalk.
 
-    `people` (optional): an iterable of already-parsed openstates person dicts, to
-    reuse a single tarball download per run. If omitted, the tarball is fetched here.
+    `people` (optional): an iterable of RAW openstates person dicts (each with `id` +
+    `other_identifiers`) to inject pre-parsed data, e.g. in tests. If omitted, the
+    tarball is fetched and parsed here.
     """
     if people is None:
         print("Building state identity crosswalk from openstates/people...")
@@ -143,9 +152,10 @@ def build_crosswalk(people=None) -> Crosswalk:
         people = _iter_people(resp.content)
 
     maps: dict[str, dict[str, str]] = {scheme: {} for scheme in _PIVOT_SCHEMES}
+    dropped: dict[str, set] = {scheme: set() for scheme in _PIVOT_SCHEMES}
     collisions: dict[str, int] = {}
     for person in people:
-        _index_person(person, maps, collisions)
+        _index_person(person, maps, dropped, collisions)
 
     xwalk = Crosswalk(maps, collisions)
     cov = xwalk.coverage()
