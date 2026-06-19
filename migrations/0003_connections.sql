@@ -116,19 +116,24 @@ RETURNS TABLE (
     agreement_rate numeric
 )
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+    -- BOTH sides are deduplicated to one row per (politician, roll_call_id). roll_call_id
+    -- is NOT unique per politician under the UNIQUE (politician_id, bill_name, vote_date)
+    -- key, so a re-scrape that changes bill_name for the same event could leave two rows
+    -- sharing a roll_call_id; without DISTINCT ON, the join would double-count and inflate
+    -- agree/disagree/shared on every affected pair. Excluding NULL vote_cast on both sides
+    -- keeps the counters consistent: shared_total = agree_count + disagree_count exactly
+    -- (a NULL vote_cast satisfies neither the '=' nor the '<>' filter).
     WITH mine AS (
-        -- DISTINCT ON guarantees one row per roll_call_id: were a politician to carry two
-        -- voting_records rows sharing a roll_call_id (the UNIQUE key is on
-        -- (bill_name, vote_date), not roll_call_id), a plain select would join twice and
-        -- inflate the counts.
-        -- Only roll calls where THIS person actually cast a recorded vote. Excluding NULL
-        -- vote_cast here (and on the joined side below) keeps the three displayed counters
-        -- consistent: shared_total = agree_count + disagree_count exactly, since a NULL
-        -- vote_cast satisfies neither the '=' nor the '<>' filter.
         SELECT DISTINCT ON (roll_call_id) roll_call_id, vote_cast
         FROM voting_records
         WHERE politician_id = p_id AND roll_call_id IS NOT NULL AND vote_cast IS NOT NULL
         ORDER BY roll_call_id
+    ),
+    theirs AS (
+        SELECT DISTINCT ON (politician_id, roll_call_id) politician_id, roll_call_id, vote_cast
+        FROM voting_records
+        WHERE politician_id <> p_id AND roll_call_id IS NOT NULL AND vote_cast IS NOT NULL
+        ORDER BY politician_id, roll_call_id
     )
     SELECT p.id, p.full_name, p.current_office, p.party,
            COUNT(*) FILTER (WHERE vr.vote_cast = mine.vote_cast) AS agree_count,
@@ -138,10 +143,9 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
                COUNT(*) FILTER (WHERE vr.vote_cast = mine.vote_cast)::numeric
                / NULLIF(COUNT(*), 0), 3
            ) AS agreement_rate
-    FROM voting_records vr
+    FROM theirs vr
     JOIN mine ON mine.roll_call_id = vr.roll_call_id
     JOIN politicians p ON p.id = vr.politician_id
-    WHERE vr.politician_id <> p_id AND vr.roll_call_id IS NOT NULL AND vr.vote_cast IS NOT NULL
     GROUP BY p.id, p.full_name, p.current_office, p.party
     ORDER BY shared_total DESC, agreement_rate DESC
     LIMIT 30;
