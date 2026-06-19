@@ -13,11 +13,18 @@ CREATE TABLE IF NOT EXISTS politicians (
     full_name TEXT NOT NULL,
     current_office TEXT,
     party TEXT,
+    -- 2-letter USPS state code (e.g. 'CA'); NULL for national offices (President,
+    -- VP, Supreme Court). `district` is the House / state-legislative district label
+    -- ('12', 'At-Large', ...) where applicable. See migrations/0002.
+    state TEXT,
+    district TEXT,
     bioguide_id TEXT UNIQUE,
     external_ids JSONB NOT NULL DEFAULT '{}'::jsonb,
     aliases TEXT[] NOT NULL DEFAULT '{}',
     last_updated TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_politicians_state ON politicians (state);
 
 -- 2. Verified Spoke: contact_info
 CREATE TABLE IF NOT EXISTS contact_info (

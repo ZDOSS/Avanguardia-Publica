@@ -53,6 +53,10 @@ class SupabaseLoader:
             "full_name": member_data.get("full_name"),
             "current_office": member_data.get("current_office"),
             "party": member_data.get("party"),
+            # 2-letter USPS state code + district label (both optional; national
+            # offices leave them NULL). Powers the directory's location filter.
+            "state": member_data.get("state"),
+            "district": member_data.get("district"),
             "external_ids": member_data.get("external_ids") or {},
             "aliases": member_data.get("aliases") or [],
             # DEFAULT NOW() only fires on INSERT, so set it explicitly to keep the

@@ -5,7 +5,11 @@ export interface PoliticianSummary {
   full_name: string;
   current_office: string;
   party: string;
+  state: string | null;
+  district: string | null;
 }
+
+const SUMMARY_COLUMNS = "id, full_name, current_office, party, state, district";
 
 // Supabase/PostgREST caps every response at `max-rows` (1,000 by default).
 // Crucially, `.limit(n)` does NOT raise that cap — a `.limit(10000)` request is
@@ -25,7 +29,7 @@ export async function fetchAllPoliticians(): Promise<PoliticianSummary[]> {
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await supabase
       .from('politicians')
-      .select('id, full_name, current_office, party')
+      .select(SUMMARY_COLUMNS)
       .order('full_name')
       .range(from, from + PAGE_SIZE - 1);
 

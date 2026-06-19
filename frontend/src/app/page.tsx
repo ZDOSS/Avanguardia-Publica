@@ -14,9 +14,9 @@ export default function Home() {
   useEffect(() => {
     async function fetchDirectory() {
       // Mock fallback if supabase isn't connected
-      const mockData = [
-        { id: 'biden-joe', full_name: 'Joe Biden', current_office: 'President of the United States', party: 'Democratic' },
-        { id: 'harris-kamala', full_name: 'Kamala Harris', current_office: 'Vice President of the United States', party: 'Democratic' },
+      const mockData: Politician[] = [
+        { id: 'biden-joe', full_name: 'Joe Biden', current_office: 'President of the United States', party: 'Democratic', state: null, district: null },
+        { id: 'harris-kamala', full_name: 'Kamala Harris', current_office: 'Vice President of the United States', party: 'Democratic', state: null, district: null },
       ];
       
       try {
