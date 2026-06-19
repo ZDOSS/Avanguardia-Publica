@@ -122,10 +122,14 @@ def _map_person(person: dict, state: str) -> dict | None:
     name = person.get("name")
     if not office or not name:
         return None
+    district = role.get("district")
     return {
         "full_name": name,
         "current_office": office,
         "party": _party(person),
+        # 2-letter USPS state code + district for the directory location filter.
+        "state": (state or "").upper() or None,
+        "district": str(district) if district is not None else None,
         "bioguide_id": None,
         "external_ids": _external_ids(person),
         "aliases": _aliases(person),

@@ -1,205 +1,193 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { fetchAllPoliticians, type PoliticianSummary } from "@/lib/politicians";
+import { GOV_STRUCTURE, type GovNode, type GovPath } from "@/lib/governmentStructure";
+import { US_STATES, resolveStateToken } from "@/lib/location";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 type Politician = PoliticianSummary;
 
-interface CategoryNode {
-  label: string;
-  icon: string;
-  children?: CategoryNode[];
-  politicians: Politician[];
-}
+// ─── Office → taxonomy path ─────────────────────────────────────────────────
+// Rules are checked in order; first match wins. Each `path` is a list of node
+// labels into GOV_STRUCTURE (root → leaf) that the politician attaches to. State
+// & Federal rules MUST sit above generic Local rules to avoid substring capture.
+const FED = "Federal Government";
+const STATE = "State Government (General Model for 50 States)";
+const LOCAL = "Local Government";
 
-// ─── Office → Category Mapping ────────────────────────────────────────────────
-// Rules are checked in order; first match wins.
-type Rule = { keywords: string[]; path: string[] };
+type Rule = { keywords: string[]; path: GovPath };
 
 const RULES: Rule[] = [
   // State – Executive
-  { keywords: ["lieutenant governor"],
-    path: ["State & Territorial Governments", "State Executive", "Lieutenant Governor"] },
-  { keywords: ["governor of", "governor,", "governor"],
-    path: ["State & Territorial Governments", "State Executive", "Governor"] },
-  { keywords: ["state attorney general"],
-    path: ["State & Territorial Governments", "State Executive", "State AG & Cabinet"] },
-  { keywords: ["secretary of state of", "state treasurer", "state comptroller", "state auditor"],
-    path: ["State & Territorial Governments", "State Executive", "State AG & Cabinet"] },
+  { keywords: ["lieutenant governor"], path: [STATE, "State Executive Branch", "Lieutenant Governor"] },
+  { keywords: ["governor of", "governor,", "governor"], path: [STATE, "State Executive Branch", "The Governor (Chief Executive)"] },
+  { keywords: ["state attorney general"], path: [STATE, "State Executive Branch", "Elected Executive Officers (Varies by State)", "Attorney General (Chief Legal Officer)"] },
+  { keywords: ["secretary of state of"], path: [STATE, "State Executive Branch", "Elected Executive Officers (Varies by State)", "Secretary of State (Elections, Business Registry)"] },
+  { keywords: ["state treasurer", "state comptroller"], path: [STATE, "State Executive Branch", "Elected Executive Officers (Varies by State)", "State Treasurer / Comptroller"] },
+  { keywords: ["superintendent of public instruction"], path: [STATE, "State Executive Branch", "Elected Executive Officers (Varies by State)", "Superintendent of Public Instruction / Education"] },
 
   // State – Legislative
-  { keywords: ["state senator", "state senate"],
-    path: ["State & Territorial Governments", "State Legislature", "State Senate"] },
-  { keywords: ["state representative", "state assembly", "state house"],
-    path: ["State & Territorial Governments", "State Legislature", "State House / Assembly"] },
+  { keywords: ["state senator", "state senate"], path: [STATE, "State Legislative Branch", "State Senate (Upper Chamber)"] },
+  { keywords: ["state representative", "state assembly", "state house", "house of delegates", "assembly member"], path: [STATE, "State Legislative Branch", "State House of Representatives / Assembly / House of Delegates (Lower Chamber)"] },
 
   // Federal – Executive
-  { keywords: ["president of the united states"], path: ["Federal Government", "Executive Branch", "Office of the President"] },
-  { keywords: ["vice president"], path: ["Federal Government", "Executive Branch", "Office of the President"] },
-  { keywords: ["secretary of state", "secretary of the treasury", "secretary of defense",
-      "attorney general", "secretary of", "administrator of", "director of national"],
-    path: ["Federal Government", "Executive Branch", "Cabinet & Agencies"] },
+  { keywords: ["president of the united states"], path: [FED, "Executive Branch", "The President"] },
+  { keywords: ["vice president"], path: [FED, "Executive Branch", "The Vice President"] },
+  { keywords: ["secretary of", "attorney general", "administrator of", "director of national"], path: [FED, "Executive Branch", "The Cabinet (15 Executive Departments)"] },
 
   // Federal – Legislative
-  { keywords: ["u.s. senator", "united states senator", "senator from"],
-    path: ["Federal Government", "Legislative Branch", "Senate"] },
-  { keywords: ["u.s. representative", "representative from", "member of the u.s. house",
-      "member of congress", "house of representatives"],
-    path: ["Federal Government", "Legislative Branch", "House of Representatives"] },
+  { keywords: ["u.s. senator", "us senator", "united states senator", "senator from"], path: [FED, "Legislative Branch (Congress)", "Senate (100 Members)"] },
+  { keywords: ["u.s. representative", "us representative", "representative from", "member of the u.s. house", "member of congress", "house of representatives"], path: [FED, "Legislative Branch (Congress)", "House of Representatives (435 Members)"] },
 
   // Federal – Judicial
-  { keywords: ["supreme court", "chief justice", "associate justice"],
-    path: ["Federal Government", "Judicial Branch", "Supreme Court"] },
-  { keywords: ["circuit court", "district court", "federal judge", "u.s. judge"],
-    path: ["Federal Government", "Judicial Branch", "Federal Courts"] },
+  { keywords: ["chief justice"], path: [FED, "Judicial Branch", "Supreme Court of the United States", "Chief Justice"] },
+  { keywords: ["associate justice", "supreme court"], path: [FED, "Judicial Branch", "Supreme Court of the United States", "8 Associate Justices"] },
 
   // Local
-  { keywords: ["mayor of", "mayor,", "mayor"],
-    path: ["Local Government", "Municipal", "Mayor"] },
-  { keywords: ["city council", "alderman", "alderperson"],
-    path: ["Local Government", "Municipal", "City Council"] },
-  { keywords: ["county", "county commissioner", "county executive", "county supervisor"],
-    path: ["Local Government", "County", "County Officials"] },
-  { keywords: ["school board", "school district"],
-    path: ["Local Government", "Special Districts", "School Board"] },
+  { keywords: ["mayor of", "mayor,", "mayor"], path: [LOCAL, "Municipal Government (Cities, Towns, Villages)", "Executive Branch", "Mayor (Chief Executive)"] },
+  { keywords: ["city manager", "town administrator"], path: [LOCAL, "Municipal Government (Cities, Towns, Villages)", "Executive Branch", "City Manager / Town Administrator (Appointed Professional)"] },
+  { keywords: ["city council", "alderman", "alderperson", "town board"], path: [LOCAL, "Municipal Government (Cities, Towns, Villages)", "Legislative Branch", "City Council / Board of Aldermen / Town Board"] },
+  { keywords: ["sheriff"], path: [LOCAL, "County Government", "Elected County Officials", "County Sheriff (Law Enforcement & Jails)"] },
+  { keywords: ["district attorney", "county prosecutor"], path: [LOCAL, "County Government", "Elected County Officials", "District Attorney / County Prosecutor"] },
+  { keywords: ["county commissioner", "county executive", "county supervisor", "board of supervisors"], path: [LOCAL, "County Government", "Legislative / Executive Authority", "Board of County Commissioners / Supervisors"] },
+  { keywords: ["county"], path: [LOCAL, "County Government"] },
+  { keywords: ["school board", "board of education", "school district"], path: [LOCAL, "Special Districts (Independent Entities)", "School Districts (Over 13,000 nationwide)", "Board of Education / School Board (Elected Legislative Body)"] },
 ];
 
-function classifyPolitician(office: string): string[] {
-  const lower = office.toLowerCase();
+const UNCATEGORIZED = "Uncategorized";
+
+function classifyToPath(office: string): GovPath {
+  const lower = (office || "").toLowerCase();
   for (const rule of RULES) {
-    if (rule.keywords.some((kw) => lower.includes(kw))) {
-      return rule.path;
-    }
+    if (rule.keywords.some((kw) => lower.includes(kw))) return rule.path;
   }
-  return ["Uncategorized"];
+  return [UNCATEGORIZED];
 }
 
-// ─── Build nested tree ────────────────────────────────────────────────────────
-function buildTree(politicians: Politician[]): CategoryNode[] {
-  // Three-level nested structure: branch → section → sub
-  const branchMap = new Map<string, { node: CategoryNode; sections: Map<string, { node: CategoryNode; subs: Map<string, CategoryNode> }> }>();
+const LEVEL_ROOT: Record<string, string> = {
+  Federal: FED,
+  State: STATE,
+  Local: LOCAL,
+};
 
-  const ICONS: Record<string, string> = {
-    "Federal Government": "🏛️",
-    "State & Territorial Governments": "🗺️",
-    "Local Government": "🏙️",
-    "Uncategorized": "📋",
-    "Executive Branch": "🤝",
-    "Legislative Branch": "⚖️",
-    "Judicial Branch": "🔨",
-    "State Executive": "🏷️",
-    "State Legislature": "📜",
-    "Municipal": "🏠",
-    "County": "🌾",
-    "Special Districts": "🏫",
-  };
+// ─── Runtime tree (taxonomy skeleton + attached politicians) ────────────────
+interface RuntimeNode {
+  label: string;
+  icon?: string;
+  children: RuntimeNode[];
+  politicians: Politician[];
+}
+
+function cloneStructure(nodes: GovNode[]): RuntimeNode[] {
+  return nodes.map((n) => ({
+    label: n.label,
+    icon: n.icon,
+    children: n.children ? cloneStructure(n.children) : [],
+    politicians: [],
+  }));
+}
+
+function findOrCreate(children: RuntimeNode[], label: string): RuntimeNode {
+  let node = children.find((c) => c.label === label);
+  if (!node) {
+    node = { label, children: [], politicians: [] };
+    children.push(node);
+  }
+  return node;
+}
+
+function buildTree(politicians: Politician[]): RuntimeNode[] {
+  const roots = cloneStructure(GOV_STRUCTURE);
 
   for (const pol of politicians) {
-    const path = classifyPolitician(pol.current_office || "");
-    const [branch, section, sub] = path;
-
-    if (!branchMap.has(branch)) {
-      branchMap.set(branch, {
-        node: { label: branch, icon: ICONS[branch] || "📁", politicians: [] },
-        sections: new Map(),
-      });
-    }
-    const branchEntry = branchMap.get(branch)!;
-
-    if (!section) {
-      branchEntry.node.politicians.push(pol);
-      continue;
-    }
-
-    if (!branchEntry.sections.has(section)) {
-      branchEntry.sections.set(section, {
-        node: { label: section, icon: ICONS[section] || "📂", politicians: [] },
-        subs: new Map(),
-      });
-    }
-    const sectionEntry = branchEntry.sections.get(section)!;
-
-    if (!sub) {
-      sectionEntry.node.politicians.push(pol);
-      continue;
-    }
-
-    if (!sectionEntry.subs.has(sub)) {
-      sectionEntry.subs.set(sub, { label: sub, icon: "👤", politicians: [] });
-    }
-    sectionEntry.subs.get(sub)!.politicians.push(pol);
+    const path = classifyToPath(pol.current_office || "");
+    let node = findOrCreate(roots, path[0]);
+    for (let i = 1; i < path.length; i++) node = findOrCreate(node.children, path[i]);
+    node.politicians.push(pol);
   }
-
-  // Convert to array structure
-  const BRANCH_ORDER = [
-    "Federal Government",
-    "State & Territorial Governments",
-    "Local Government",
-    "Uncategorized",
-  ];
-
-  const result: CategoryNode[] = [];
-  for (const branch of BRANCH_ORDER) {
-    if (!branchMap.has(branch)) continue;
-    const bEntry = branchMap.get(branch)!;
-
-    const sectionNodes: CategoryNode[] = [];
-    for (const [, sEntry] of bEntry.sections) {
-      const subNodes: CategoryNode[] = [];
-      for (const [, sub] of sEntry.subs) {
-        if (sub.politicians.length > 0) subNodes.push(sub);
-      }
-      const sNode: CategoryNode = { ...sEntry.node, children: subNodes };
-      sectionNodes.push(sNode);
-    }
-    const bNode: CategoryNode = { ...bEntry.node, children: sectionNodes };
-    result.push(bNode);
-  }
-
-  return result;
+  return roots;
 }
 
-// ─── Sub-category accordion ───────────────────────────────────────────────────
-function SubCategoryAccordion({ node, depth = 0 }: { node: CategoryNode; depth?: number }) {
-  const [open, setOpen] = useState(depth === 0);
-  const totalPols = countPoliticians(node);
+function countPoliticians(node: RuntimeNode): number {
+  let count = node.politicians.length;
+  for (const child of node.children) count += countPoliticians(child);
+  return count;
+}
+
+// ─── Accordion node (renders the nested links) ──────────────────────────────
+function TreeNode({
+  node,
+  depth,
+  searching,
+}: {
+  node: RuntimeNode;
+  depth: number;
+  searching: boolean;
+}) {
+  const total = useMemo(() => countPoliticians(node), [node]);
+
+  // Default open state: top level when browsing, or any node with matches while
+  // searching. `manual` lets the user override. The whole tree is remounted (via a
+  // key on the search/browse context) when that context flips, so this override
+  // resets there and auto-expansion tracks the latest results.
+  const [manual, setManual] = useState<boolean | null>(null);
+
+  const defaultOpen = searching ? total > 0 : depth === 0;
+  const open = manual ?? defaultOpen;
+
+  const hasChildrenWithContent = node.children.length > 0;
 
   return (
-    <div className={`${depth === 0 ? "mb-4" : "mt-2"}`}>
+    <div className={depth === 0 ? "mb-4" : "mt-2"}>
       <button
-        onClick={() => setOpen((p) => !p)}
+        onClick={() => setManual(!open)}
         className={`w-full flex items-center gap-3 text-left transition-all group cursor-pointer
-          ${depth === 0
-            ? "p-5 premium-card bg-[var(--color-official-bg)] hover:bg-[var(--color-official-bg-alt)]"
-            : depth === 1
-            ? "px-4 py-3 rounded-lg bg-[var(--color-official-bg-alt)]/60 hover:bg-[var(--color-official-bg-alt)] border border-[var(--color-official-border)]"
-            : "px-3 py-2 rounded bg-[var(--color-official-bg)]/50 hover:bg-[var(--color-official-bg-alt)]/50"
+          ${
+            depth === 0
+              ? "p-5 premium-card bg-[var(--color-official-bg)] hover:bg-[var(--color-official-bg-alt)]"
+              : depth === 1
+              ? "px-4 py-3 rounded-lg bg-[var(--color-official-bg-alt)]/60 hover:bg-[var(--color-official-bg-alt)] border border-[var(--color-official-border)]"
+              : "px-3 py-2 rounded bg-[var(--color-official-bg)]/50 hover:bg-[var(--color-official-bg-alt)]/50"
           }`}
       >
-        <span className="text-2xl shrink-0">{node.icon}</span>
+        {node.icon && <span className="text-2xl shrink-0">{node.icon}</span>}
         <div className="flex-1 min-w-0">
-          <span className={`font-bold ${depth === 0 ? "text-xl" : depth === 1 ? "text-base" : "text-sm"} text-[var(--color-official-text)] group-hover:text-[var(--color-official-link)] transition-colors`}>
+          <span
+            className={`font-bold ${
+              depth === 0 ? "text-xl" : depth === 1 ? "text-base" : "text-sm"
+            } text-[var(--color-official-text)] group-hover:text-[var(--color-official-link)] transition-colors`}
+          >
             {node.label}
           </span>
-          <span className="ml-2 text-xs font-mono text-[var(--color-official-text-muted)] bg-[var(--color-official-bg)] border border-[var(--color-official-border)] px-2 py-0.5 rounded-full">
-            {totalPols}
+          <span
+            className={`ml-2 text-xs font-mono px-2 py-0.5 rounded-full border
+              ${
+                total > 0
+                  ? "text-[var(--color-official-text-muted)] bg-[var(--color-official-bg)] border-[var(--color-official-border)]"
+                  : "text-[var(--color-official-text-muted)]/50 border-[var(--color-official-border)]/40"
+              }`}
+          >
+            {total}
           </span>
         </div>
-        <span className={`text-[var(--color-official-text-muted)] transition-transform duration-200 shrink-0 ${open ? "rotate-90" : ""}`}>
-          ▶
-        </span>
+        {(hasChildrenWithContent || node.politicians.length > 0) && (
+          <span
+            className={`text-[var(--color-official-text-muted)] transition-transform duration-200 shrink-0 ${
+              open ? "rotate-90" : ""
+            }`}
+          >
+            ▶
+          </span>
+        )}
       </button>
 
       {open && (
-        <div className={`${depth === 0 ? "mt-3 ml-4 space-y-2" : "mt-2 ml-4 space-y-1"}`}>
-          {/* Nested children */}
-          {node.children?.map((child) => (
-            <SubCategoryAccordion key={child.label} node={child} depth={depth + 1} />
+        <div className={depth === 0 ? "mt-3 ml-4 space-y-2" : "mt-2 ml-4 space-y-1"}>
+          {node.children.map((child) => (
+            <TreeNode key={child.label} node={child} depth={depth + 1} searching={searching} />
           ))}
 
-          {/* Direct politician cards */}
           {node.politicians.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-2">
               {node.politicians.map((p) => (
@@ -213,13 +201,7 @@ function SubCategoryAccordion({ node, depth = 0 }: { node: CategoryNode; depth?:
   );
 }
 
-function countPoliticians(node: CategoryNode): number {
-  let count = node.politicians.length;
-  for (const child of node.children || []) count += countPoliticians(child);
-  return count;
-}
-
-// ─── Politician card ──────────────────────────────────────────────────────────
+// ─── Politician card ────────────────────────────────────────────────────────
 const PARTY_COLORS: Record<string, string> = {
   republican: "text-red-400",
   democrat: "text-blue-400",
@@ -251,19 +233,59 @@ function PoliticianCard({ politician }: { politician: Politician }) {
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ─── Smart search parsing ───────────────────────────────────────────────────
+// Pulls a state out of the query (full name, 2-letter code, or ZIP), leaving the
+// rest as free text matched against name / office / party.
+function parseSearch(raw: string): { stateCode: string | null; text: string } {
+  let text = raw.trim();
+  if (!text) return { stateCode: null, text: "" };
+
+  let stateCode: string | null = null;
+
+  // Full state name anywhere (longest first so "West Virginia" beats "Virginia").
+  const lower = text.toLowerCase();
+  const names = Object.entries(US_STATES).sort((a, b) => b[1].length - a[1].length);
+  for (const [code, name] of names) {
+    const idx = lower.indexOf(name.toLowerCase());
+    if (idx !== -1) {
+      stateCode = code;
+      text = (text.slice(0, idx) + text.slice(idx + name.length)).trim();
+      break;
+    }
+  }
+
+  // ZIP or 2-letter code as a standalone token.
+  if (!stateCode) {
+    const toks = text.split(/\s+/);
+    for (let i = 0; i < toks.length; i++) {
+      const code = resolveStateToken(toks[i]);
+      if (code) {
+        stateCode = code;
+        toks.splice(i, 1);
+        text = toks.join(" ");
+        break;
+      }
+    }
+  }
+
+  return { stateCode, text: text.trim() };
+}
+
+// ─── Main component ─────────────────────────────────────────────────────────
 export default function DirectoryClient() {
   const [politicians, setPoliticians] = useState<Politician[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
   const [search, setSearch] = useState("");
-  const [activeFilter, setActiveFilter] = useState<string>("All");
+  const [showFilters, setShowFilters] = useState(false);
+  const [party, setParty] = useState("All");
+  const [stateFilter, setStateFilter] = useState("");
+  const [level, setLevel] = useState("All");
 
   useEffect(() => {
     async function load() {
       try {
-        // Pages past Supabase's per-response row cap so the full directory loads
-        // (a plain `.limit()` is silently truncated to 1,000 rows).
         const data = await fetchAllPoliticians();
         setPoliticians(data);
       } catch (e) {
@@ -276,23 +298,42 @@ export default function DirectoryClient() {
     load();
   }, []);
 
-  const parties = ["All", ...Array.from(new Set(politicians.map((p) => p.party || "Unknown").filter(Boolean))).sort()];
+  const parties = useMemo(
+    () => ["All", ...Array.from(new Set(politicians.map((p) => p.party || "Unknown").filter(Boolean))).sort()],
+    [politicians]
+  );
 
-  const filtered = politicians.filter((p) => {
-    const matchSearch =
-      !search ||
-      p.full_name.toLowerCase().includes(search.toLowerCase()) ||
-      (p.current_office || "").toLowerCase().includes(search.toLowerCase());
-    const matchParty = activeFilter === "All" || (p.party || "Unknown") === activeFilter;
-    return matchSearch && matchParty;
-  });
+  const parsed = useMemo(() => parseSearch(search), [search]);
+  const effectiveState = stateFilter || parsed.stateCode;
+  const levelRoot = level === "All" ? null : LEVEL_ROOT[level];
 
-  const tree = buildTree(filtered);
+  const filtered = useMemo(() => {
+    return politicians.filter((p) => {
+      if (effectiveState) {
+        const ok = p.state
+          ? p.state === effectiveState
+          : (p.current_office || "").toLowerCase().includes((US_STATES[effectiveState] || "").toLowerCase());
+        if (!ok) return false;
+      }
+      if (party !== "All" && (p.party || "Unknown") !== party) return false;
+      if (levelRoot && classifyToPath(p.current_office)[0] !== levelRoot) return false;
+      if (parsed.text) {
+        const hay = `${p.full_name} ${p.current_office || ""} ${p.party || ""}`.toLowerCase();
+        if (!hay.includes(parsed.text.toLowerCase())) return false;
+      }
+      return true;
+    });
+  }, [politicians, effectiveState, party, levelRoot, parsed.text]);
+
+  const tree = useMemo(() => buildTree(filtered), [filtered]);
   const total = filtered.length;
+
+  const searching = Boolean(search.trim() || party !== "All" || stateFilter || level !== "All");
+  const activeFilterCount =
+    (party !== "All" ? 1 : 0) + (stateFilter ? 1 : 0) + (level !== "All" ? 1 : 0);
 
   return (
     <div className="min-h-screen bg-[var(--color-official-bg)] text-[var(--color-official-text)]">
-      {/* Navigation */}
       <nav className="glass-header sticky top-0 z-50 p-4">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
           <Link href="/" className="text-[var(--color-official-link)] hover:underline font-bold transition-all hover:tracking-wide">
@@ -305,44 +346,95 @@ export default function DirectoryClient() {
       </nav>
 
       <main className="max-w-6xl mx-auto p-4 py-8 md:py-12">
-        {/* Header */}
         <div className="mb-10">
           <h1 className="text-4xl md:text-5xl font-extrabold mb-3 bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-500 dark:from-blue-400 dark:to-indigo-300">
             Government Directory
           </h1>
           <p className="text-[var(--color-official-text-muted)] text-lg">
-            U.S. politicians organized by branch, chamber, and office.
+            The full structure of U.S. government — federal, state, and local — as a browsable map.
           </p>
         </div>
 
-        {/* Filter + Search bar */}
-        <div className="mb-8 premium-card p-4 flex flex-col sm:flex-row gap-3">
-          <input
-            type="text"
-            placeholder="Filter by name or office…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="flex-1 bg-transparent border-b border-[var(--color-official-border)] focus:border-[var(--color-official-link)] px-2 py-2 text-base focus:outline-none transition-colors"
-          />
-          <div className="flex flex-wrap gap-2 items-center">
-            {/* Show all parties — no cap — so no party is silently hidden */}
-            {parties.map((party) => (
-              <button
-                key={party}
-                onClick={() => setActiveFilter(party)}
-                className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border transition-all cursor-pointer
-                  ${activeFilter === party
+        {/* Search + toggleable filters */}
+        <div className="mb-8 premium-card p-4 space-y-3">
+          <div className="flex gap-3 items-center">
+            <input
+              type="text"
+              placeholder="Search by name, office, party, state, or ZIP code…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="flex-1 bg-transparent border-b border-[var(--color-official-border)] focus:border-[var(--color-official-link)] px-2 py-2 text-base focus:outline-none transition-colors"
+            />
+            <button
+              onClick={() => setShowFilters((s) => !s)}
+              className={`px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wider border transition-all cursor-pointer shrink-0
+                ${
+                  showFilters || activeFilterCount > 0
                     ? "bg-[var(--color-official-link)] text-white border-[var(--color-official-link)]"
                     : "border-[var(--color-official-border)] text-[var(--color-official-text-muted)] hover:border-[var(--color-official-link)]"
-                  }`}
-              >
-                {party}
-              </button>
-            ))}
+                }`}
+            >
+              Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
+            </button>
           </div>
+
+          {/* Detected-state hint from the smart search */}
+          {parsed.stateCode && !stateFilter && (
+            <p className="text-xs text-[var(--color-official-text-muted)]">
+              Matched location: <strong className="text-[var(--color-official-text)]">{US_STATES[parsed.stateCode]}</strong>
+            </p>
+          )}
+
+          {showFilters && (
+            <div className="pt-3 border-t border-[var(--color-official-border)] space-y-4">
+              {/* Level */}
+              <div className="flex flex-wrap gap-2 items-center">
+                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-official-text-muted)] w-16">Level</span>
+                {["All", "Federal", "State", "Local"].map((lv) => (
+                  <FilterChip key={lv} label={lv} active={level === lv} onClick={() => setLevel(lv)} />
+                ))}
+              </div>
+
+              {/* Party */}
+              <div className="flex flex-wrap gap-2 items-center">
+                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-official-text-muted)] w-16">Party</span>
+                {parties.map((p) => (
+                  <FilterChip key={p} label={p} active={party === p} onClick={() => setParty(p)} />
+                ))}
+              </div>
+
+              {/* State */}
+              <div className="flex flex-wrap gap-2 items-center">
+                <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-official-text-muted)] w-16">State</span>
+                <select
+                  value={stateFilter}
+                  onChange={(e) => setStateFilter(e.target.value)}
+                  className="bg-[var(--color-official-bg)] border border-[var(--color-official-border)] rounded-full px-3 py-1 text-xs focus:border-[var(--color-official-link)] focus:outline-none cursor-pointer"
+                >
+                  <option value="">All states</option>
+                  {Object.entries(US_STATES).map(([code, name]) => (
+                    <option key={code} value={code}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                {activeFilterCount > 0 && (
+                  <button
+                    onClick={() => {
+                      setParty("All");
+                      setStateFilter("");
+                      setLevel("All");
+                    }}
+                    className="text-xs text-[var(--color-official-link)] hover:underline ml-2"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* State */}
         {loading && (
           <div className="space-y-4">
             {[...Array(4)].map((_, i) => (
@@ -361,23 +453,33 @@ export default function DirectoryClient() {
           <>
             <p className="text-sm text-[var(--color-official-text-muted)] mb-6">
               Showing <strong className="text-[var(--color-official-text)]">{total.toLocaleString()}</strong> politicians
-              {search && <> matching <em>&quot;{search}&quot;</em></>}
+              {searching && <> matching your search</>}
             </p>
 
-            {tree.length === 0 ? (
-              <div className="p-12 text-center text-[var(--color-official-text-muted)] premium-card">
-                No politicians match your current filters.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {tree.map((branch) => (
-                  <SubCategoryAccordion key={branch.label} node={branch} depth={0} />
-                ))}
-              </div>
-            )}
+            <div className="space-y-3" key={searching ? "searching" : "browsing"}>
+              {tree.map((branch) => (
+                <TreeNode key={branch.label} node={branch} depth={0} searching={searching} />
+              ))}
+            </div>
           </>
         )}
       </main>
     </div>
+  );
+}
+
+function FilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border transition-all cursor-pointer
+        ${
+          active
+            ? "bg-[var(--color-official-link)] text-white border-[var(--color-official-link)]"
+            : "border-[var(--color-official-border)] text-[var(--color-official-text-muted)] hover:border-[var(--color-official-link)]"
+        }`}
+    >
+      {label}
+    </button>
   );
 }
