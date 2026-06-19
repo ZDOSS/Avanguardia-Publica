@@ -155,7 +155,7 @@ def _vote_rows_from_bill(bill: dict, jurisdiction: str | None, known_ocd: set | 
         # it can never collide with a GovTrack vote id. May be absent on older events —
         # then the row simply won't participate in co-voting.
         event_id = event.get("id")
-        roll_call_id = f"openstates:{event_id}" if event_id else None
+        roll_call_id = f"openstates:{event_id}" if event_id is not None else None
 
         summary_parts = [p for p in (title, event.get("result")) if p]
         summary = " · ".join(summary_parts)

@@ -168,11 +168,18 @@ def _relationships_for_entity(entity_id) -> list:
             (None, None, None, None),
         )
         other_id, other_type, related_name, other_slug = other
-        if not related_name or related_name in seen:
+        if not related_name:
             continue
-        seen.add(related_name)
 
         rel_type = _CATEGORY_LABELS.get(attrs.get("category_id")) or attrs.get("description1") or "Connection"
+        # Dedupe on (name, type), matching the relationships UNIQUE key — so a second
+        # DISTINCT relationship type to the same entity (e.g. both a Position and a
+        # Donation tie to one org) is kept, while exact duplicates are dropped.
+        dedup_key = (related_name, rel_type)
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+
         # other_type/other_slug are always set here (a failed slug parse yields
         # related_name = None, which `continue`s above). Rebuild the full canonical URL
         # (type + name slug) so it doesn't rely on LittleSis redirecting a bare-id path,

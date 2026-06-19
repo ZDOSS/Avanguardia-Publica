@@ -98,7 +98,7 @@ def _map_vote(obj: dict) -> dict | None:
     # co-voting self-join (get_covoting). Namespaced 'govtrack:' so it can never collide
     # with an OpenStates ocd-vote id. jurisdiction is NULL: these are federal votes.
     vote_id = vote.get("id")
-    roll_call_id = f"govtrack:{vote_id}" if vote_id else None
+    roll_call_id = f"govtrack:{vote_id}" if vote_id is not None else None
 
     return {
         "bill_name": bill_name,

@@ -99,13 +99,10 @@ CREATE TABLE IF NOT EXISTS unconfirmed_mentions (
 -- 7. Third-Party Spoke: relationships (structured network ties, e.g. LittleSis)
 -- Powers the "Network Ties" group of the profile Connections view. related_politician_id
 -- is filled only on an EXACT name match to a tracked politician (never fuzzy), enabling
--- an internal profile link; NULL for external entities.
---
--- This file is pure table DDL (no RLS/grants on ANY table here — they aren't managed in
--- schema.sql). The anon-SELECT RLS policy + GRANT that let the frontend read this table,
--- and the live RPC functions (get_shared_donors / get_covoting / get_network_ties), live
--- in migrations/0003_connections.sql. A fresh bootstrap must run that migration after this
--- file for the Connections feature to be readable.
+-- an internal profile link; NULL for external entities. The anon-SELECT RLS policy + GRANT
+-- are in the "Row-Level Security" section below; only the live RPC functions
+-- (get_shared_donors / get_covoting / get_network_ties) are migration-only (see
+-- migrations/0003_connections.sql) since they don't fit a table-DDL blueprint.
 CREATE TABLE IF NOT EXISTS relationships (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     -- NOT NULL: a tie is meaningless without its owning politician (the loader always
@@ -123,3 +120,32 @@ CREATE TABLE IF NOT EXISTS relationships (
 );
 
 CREATE INDEX IF NOT EXISTS idx_relationships_politician ON relationships (politician_id);
+
+-- ---------------------------------------------------------------------------------------
+-- Row-Level Security & grants (self-contained bootstrap)
+-- ---------------------------------------------------------------------------------------
+-- The frontend is read-only and talks to Supabase with the public `anon` key, so every
+-- table needs RLS ENABLED with a permissive SELECT policy plus a SELECT grant for the
+-- anon/authenticated roles. Writes come exclusively from the scraper's service-role key,
+-- which bypasses RLS — so there are deliberately NO insert/update/delete policies.
+--
+-- Running this file alone now yields a fully working read-only API (the migrations remain
+-- the incremental source of truth for an already-provisioned DB). Idempotent: ENABLE RLS
+-- is a no-op when already on, and DROP POLICY IF EXISTS makes the policies safe to re-run.
+DO $$
+DECLARE
+    t text;
+BEGIN
+    FOREACH t IN ARRAY ARRAY[
+        'politicians', 'contact_info', 'financial_disclosures', 'campaign_donors',
+        'voting_records', 'unconfirmed_mentions', 'relationships'
+    ] LOOP
+        EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY;', t);
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I;', t || ' read', t);
+        EXECUTE format(
+            'CREATE POLICY %I ON %I FOR SELECT TO anon, authenticated USING (true);',
+            t || ' read', t
+        );
+        EXECUTE format('GRANT SELECT ON %I TO anon, authenticated;', t);
+    END LOOP;
+END $$;

@@ -332,7 +332,10 @@ class SupabaseLoader:
                 .execute()
             )
         except Exception as e:
-            logger.debug("Bulk name resolve failed for %d names: %s", len(name_list), e)
+            # WARNING, not DEBUG: a resolve failure means this run skips internal-link
+            # resolution for these relationships (to avoid clobbering existing links), so
+            # it should be visible in production logs rather than silently swallowed.
+            logger.warning("Bulk name resolve failed for %d names: %s", len(name_list), e)
             return None
 
         # Count matches per name so ambiguous names (>1 politician) are dropped.
