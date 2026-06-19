@@ -111,27 +111,43 @@ def _parse_entity_slug(url: str):
     return entity_id, entity_type, name, slug
 
 
-def _top_entity_id(full_name: str):
-    """Best-match LittleSis entity id for a name, or None. Same search the mention
-    flow uses; the top hit is good enough for the unverified lane."""
+def get_littlesis(full_name: str) -> tuple[list, list]:
+    """
+    Single LittleSis pass for a politician: ONE entity search, reused for both the
+    unconfirmed mentions (top matches) and the structured network ties (top entity's
+    relationships). Returns (mentions, relationships). This is the entry point main.py
+    uses — it avoids the two redundant searches that calling get_littlesis_data and
+    get_littlesis_relationships separately would issue for the same name.
+    """
     payload = _get("/api/entities/search", {"q": full_name})
-    if not payload:
-        return None
-    data = payload.get("data") or []
-    return data[0].get("id") if data else None
+    data = (payload or {}).get("data") or []
+    if not data:
+        return [], []
+    mentions = _mentions_from_search(data)
+    relationships = _relationships_for_entity(data[0].get("id"))
+    return mentions, relationships
 
 
 def get_littlesis_relationships(full_name: str) -> list:
     """
-    Return structured network ties for a politician as a list of edge dicts:
-        {related_name, relationship_type, url, source_api}
-
-    Resolves the person's LittleSis entity, then walks /api/entities/{id}/relationships.
-    The related entity's name is parsed from the link slug (the relationship object
-    carries only numeric ids). Returns [] on any failure — this is a best-effort,
-    unverified-lane enrichment.
+    Structured network ties for a politician (see _relationships_for_entity). Standalone
+    helper that does its own search; main.py uses get_littlesis() to share one search
+    across both lanes. Returns [] on any failure.
     """
-    entity_id = _top_entity_id(full_name)
+    payload = _get("/api/entities/search", {"q": full_name})
+    data = (payload or {}).get("data") or []
+    if not data:
+        return []
+    return _relationships_for_entity(data[0].get("id"))
+
+
+def _relationships_for_entity(entity_id) -> list:
+    """
+    Walk /api/entities/{id}/relationships for one entity and return edge dicts:
+        {related_name, relationship_type, url, source_api}
+    The related entity's name is parsed from the link slug (the relationship object
+    carries only numeric ids). Returns [] on any failure / missing id.
+    """
     if not entity_id:
         return []
 
@@ -175,16 +191,17 @@ def get_littlesis_relationships(full_name: str) -> list:
 
 def get_littlesis_data(full_name: str) -> list:
     """
-    Queries the LittleSis entity-search endpoint for a name and returns up to the top 5
-    matches as unconfirmed mentions. Shares the budgeted, breaker-guarded _get with the
-    relationships flow.
+    Unconfirmed mentions for a politician. Standalone helper that does its own search;
+    main.py uses get_littlesis() to share one search across both lanes.
     """
     payload = _get("/api/entities/search", {"q": full_name})
-    if not payload:
-        return []
+    return _mentions_from_search((payload or {}).get("data") or [])
 
+
+def _mentions_from_search(data: list) -> list:
+    """Build up to the top-5 unconfirmed-mention dicts from entity-search results."""
     results = []
-    for entity in (payload.get("data") or [])[:5]:  # Get top 5 matches
+    for entity in data[:5]:  # Get top 5 matches
         attr = entity.get("attributes", {})
         summary = attr.get("summary", "")
         if not summary:

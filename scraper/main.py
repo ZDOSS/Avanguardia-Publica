@@ -5,7 +5,7 @@ import logging
 from dotenv import load_dotenv
 from loader import SupabaseLoader
 from extractors.gov_api import get_congress_members
-from extractors.littlesis import get_littlesis_data, get_littlesis_relationships
+from extractors.littlesis import get_littlesis
 from extractors.news_aggregator import get_news_data
 from extractors.fec import get_campaign_donors
 from extractors.govtrack import get_voting_records
@@ -77,12 +77,12 @@ def main():
                     votes = get_voting_records(govtrack_id)
                     loader.upsert_voting_records(politician_id, votes)
 
-                # Scrape LittleSis: name-matched mentions (unverified text) plus
-                # structured relationships (network ties for the Connections view).
+                # Scrape LittleSis in a single pass: name-matched mentions (unverified
+                # text) plus structured relationships (network ties for the Connections
+                # view) share one entity search.
                 print("  [*] Fetching LittleSis data...")
-                ls_data = get_littlesis_data(member['full_name'])
+                ls_data, ls_rels = get_littlesis(member['full_name'])
                 loader.process_mentions(politician_id, ls_data, 'LittleSis')
-                ls_rels = get_littlesis_relationships(member['full_name'])
                 loader.upsert_relationships(politician_id, ls_rels)
                 
                 # Fetch news via multi-tier aggregator (Currents → NewsData → TheNewsAPI → GDELT)
