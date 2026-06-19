@@ -1,9 +1,69 @@
-import os
+import logging
 import re
 import requests
 
+logger = logging.getLogger(__name__)
+
 _BASE = "https://littlesis.org"
 _TIMEOUT = 20
+
+# Bounded, resilient access — mirrors fec.py / govtrack.py. LittleSis is a free public API
+# with no key, hit a few times per Congress member, so a per-run request budget plus a
+# consecutive-failure / 429 circuit breaker keeps a LittleSis outage from hanging or
+# hammering the pipeline. State legislators + exec/judicial don't call LittleSis, so the
+# Congress loop is the only consumer; ~3 calls/member keeps us well under the budget.
+_MAX_REQUESTS = 2500
+_MAX_CONSECUTIVE_FAILURES = 5
+_request_count = 0
+_consecutive_failures = 0
+_breaker_tripped = False
+
+
+def reset_budget() -> None:
+    """
+    Reset the per-run request budget and circuit breaker. GitHub Actions uses one process
+    per run so this is implicit there; tests or long-lived reuse should call it between
+    runs so the budget doesn't accumulate or the breaker stay tripped.
+    """
+    global _request_count, _consecutive_failures, _breaker_tripped
+    _request_count = 0
+    _consecutive_failures = 0
+    _breaker_tripped = False
+
+
+def _get(path: str, params: dict | None = None):
+    """Single budgeted GET against LittleSis. Returns parsed JSON or None on failure /
+    once the breaker has tripped (so the rest of the run skips LittleSis cheaply)."""
+    global _request_count, _breaker_tripped, _consecutive_failures
+
+    if _breaker_tripped or _request_count >= _MAX_REQUESTS:
+        _breaker_tripped = True
+        return None
+
+    # Count before issuing so timeouts/connection errors also draw down the budget.
+    _request_count += 1
+    try:
+        resp = requests.get(
+            f"{_BASE}{path}", params=params, headers={"Accept": "application/json"}, timeout=_TIMEOUT
+        )
+        if resp.status_code == 429:
+            logger.warning("[LittleSis] Rate limit (429) hit — tripping breaker for this run.")
+            _breaker_tripped = True
+            return None
+        resp.raise_for_status()
+        _consecutive_failures = 0
+        return resp.json()
+    except Exception as exc:
+        logger.warning("[LittleSis] Request failed for %s: %s", path, exc)
+        _consecutive_failures += 1
+        if _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+            logger.warning(
+                "[LittleSis] %d consecutive failures — tripping breaker for this run.",
+                _consecutive_failures,
+            )
+            _breaker_tripped = True
+        return None
+
 
 # LittleSis relationship category_id → readable label. Mirrors the public category list;
 # unknown/missing ids fall back to the relationship's own description text.
@@ -54,19 +114,11 @@ def _parse_entity_slug(url: str):
 def _top_entity_id(full_name: str):
     """Best-match LittleSis entity id for a name, or None. Same search the mention
     flow uses; the top hit is good enough for the unverified lane."""
-    try:
-        resp = requests.get(
-            f"{_BASE}/api/entities/search",
-            params={"q": full_name},
-            headers={"Accept": "application/json"},
-            timeout=_TIMEOUT,
-        )
-        resp.raise_for_status()
-        data = resp.json().get("data") or []
-        return data[0].get("id") if data else None
-    except Exception as e:
-        print(f"Error searching LittleSis entity for {full_name}: {e}")
+    payload = _get("/api/entities/search", {"q": full_name})
+    if not payload:
         return None
+    data = payload.get("data") or []
+    return data[0].get("id") if data else None
 
 
 def get_littlesis_relationships(full_name: str) -> list:
@@ -83,17 +135,10 @@ def get_littlesis_relationships(full_name: str) -> list:
     if not entity_id:
         return []
 
-    try:
-        resp = requests.get(
-            f"{_BASE}/api/entities/{entity_id}/relationships",
-            headers={"Accept": "application/json"},
-            timeout=_TIMEOUT,
-        )
-        resp.raise_for_status()
-        rels = resp.json().get("data") or []
-    except Exception as e:
-        print(f"Error fetching LittleSis relationships for {full_name}: {e}")
+    payload = _get(f"/api/entities/{entity_id}/relationships")
+    if not payload:
         return []
+    rels = payload.get("data") or []
 
     edges = []
     seen = set()
@@ -130,33 +175,24 @@ def get_littlesis_relationships(full_name: str) -> list:
 
 def get_littlesis_data(full_name: str) -> list:
     """
-    Queries LittleSis API for a given politician's name.
-    Returns a list of unconfirmed mentions/relationships.
+    Queries the LittleSis entity-search endpoint for a name and returns up to the top 5
+    matches as unconfirmed mentions. Shares the budgeted, breaker-guarded _get with the
+    relationships flow.
     """
-    # LittleSis Entities Search Endpoint
-    # Format: https://littlesis.org/api/entities/search?q=NAME
-    
-    url = f"https://littlesis.org/api/entities/search?q={full_name}"
-    headers = {"Accept": "application/json"}
-    
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        data = response.json()
-        
-        results = []
-        for entity in data.get('data', [])[:5]: # Get top 5 matches
-            attr = entity.get('attributes', {})
-            summary = attr.get('summary', '')
-            if not summary:
-                summary = f"Found entity {attr.get('name')} with LittleSis ID {entity.get('id')}"
-            
-            results.append({
-                "content_summary": summary,
-                "url": attr.get('uri', f"https://littlesis.org/entities/{entity.get('id')}"),
-                "sentiment_score": None # LittleSis doesn't natively provide sentiment
-            })
-        return results
-    except Exception as e:
-        print(f"Error fetching LittleSis data for {full_name}: {e}")
+    payload = _get("/api/entities/search", {"q": full_name})
+    if not payload:
         return []
+
+    results = []
+    for entity in (payload.get("data") or [])[:5]:  # Get top 5 matches
+        attr = entity.get("attributes", {})
+        summary = attr.get("summary", "")
+        if not summary:
+            summary = f"Found entity {attr.get('name')} with LittleSis ID {entity.get('id')}"
+
+        results.append({
+            "content_summary": summary,
+            "url": attr.get("uri", f"{_BASE}/entities/{entity.get('id')}"),
+            "sentiment_score": None,  # LittleSis doesn't natively provide sentiment
+        })
+    return results
