@@ -212,20 +212,25 @@ class SupabaseLoader:
             print(f"  [Dry-run] Upserting {len(records)} voting records")
             return
 
-        rows = [
-            {
+        rows = []
+        for r in records:
+            row = {
                 "politician_id": politician_id,
                 "bill_name": r.get("bill_name"),
                 "bill_summary": r.get("bill_summary"),
                 "vote_cast": r.get("vote_cast"),
                 "vote_date": r.get("vote_date"),
-                # Stable per-roll-call id + jurisdiction (see migrations/0003). Both
-                # optional — older extractor output without them upserts as NULL.
-                "roll_call_id": r.get("roll_call_id"),
-                "jurisdiction": r.get("jurisdiction"),
             }
-            for r in records
-        ]
+            # Stable per-roll-call id + jurisdiction (see migrations/0003). Only written
+            # when present: if a source run omits them, leaving the keys OUT means the
+            # on-conflict UPDATE won't touch those columns, so a previously-stored
+            # roll_call_id is never clobbered back to NULL. (Omitted keys also fall back to
+            # the column default — NULL — on a fresh INSERT.)
+            if r.get("roll_call_id") is not None:
+                row["roll_call_id"] = r["roll_call_id"]
+            if r.get("jurisdiction") is not None:
+                row["jurisdiction"] = r["jurisdiction"]
+            rows.append(row)
         try:
             self.supabase.table("voting_records").upsert(
                 rows, on_conflict="politician_id,bill_name,vote_date"

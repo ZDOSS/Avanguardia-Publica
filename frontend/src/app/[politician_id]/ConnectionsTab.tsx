@@ -166,7 +166,10 @@ export default function ConnectionsTab({ politicianId, politicianName }: { polit
     return <div className="p-8 premium-card text-center text-[var(--color-warning-badge)]">Could not load connections. Please try again later.</div>;
   }
 
-  const bundle = data!;
+  // After the loading/error guards above, data is set; this explicit check avoids a
+  // non-null assertion and is a safe no-op render if it somehow isn't.
+  if (!data) return null;
+  const bundle = data;
   const allies = bundle.coVotes.filter((c) => c.agreement_rate >= 0.5).sort((a, b) => b.agree_count - a.agree_count);
   const opponents = bundle.coVotes.filter((c) => c.agreement_rate < 0.5).sort((a, b) => b.disagree_count - a.disagree_count);
   const graphNodes = buildGraphNodes(bundle);
