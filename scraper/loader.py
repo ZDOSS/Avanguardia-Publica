@@ -1,4 +1,5 @@
 import logging
+from collections import defaultdict
 from datetime import datetime, timezone
 from supabase import create_client, Client
 
@@ -212,23 +213,136 @@ class SupabaseLoader:
             print(f"  [Dry-run] Upserting {len(records)} voting records")
             return
 
-        rows = [
-            {
+        rows = []
+        for r in records:
+            row = {
                 "politician_id": politician_id,
                 "bill_name": r.get("bill_name"),
                 "bill_summary": r.get("bill_summary"),
                 "vote_cast": r.get("vote_cast"),
                 "vote_date": r.get("vote_date"),
             }
-            for r in records
-        ]
+            # Stable per-roll-call id + jurisdiction (see migrations/0003). Only added when
+            # present, so a row that lacks them leaves the columns untouched on conflict
+            # rather than clobbering a previously-stored roll_call_id back to NULL.
+            if r.get("roll_call_id") is not None:
+                row["roll_call_id"] = r["roll_call_id"]
+            if r.get("jurisdiction") is not None:
+                row["jurisdiction"] = r["jurisdiction"]
+            rows.append(row)
+
+        # Upsert in homogeneous sub-batches grouped by exact key set. PostgREST normalises a
+        # mixed batch to the UNION of all keys and writes NULL for any key absent from a
+        # given row's DO UPDATE SET — so a batch mixing rows that carry roll_call_id with
+        # rows that don't would still null out the latter's stored value. Grouping by key
+        # signature guarantees every batch is uniform, so an absent column is genuinely
+        # omitted from that batch's UPDATE rather than set to NULL.
+        groups: dict = defaultdict(list)
+        for row in rows:
+            groups[frozenset(row.keys())].append(row)
+
+        # Each group upserts independently so a failure in one (e.g. a transient error on
+        # the id-less group) doesn't silently skip the others.
+        upserted = 0
+        for group in groups.values():
+            try:
+                self.supabase.table("voting_records").upsert(
+                    group, on_conflict="politician_id,bill_name,vote_date"
+                ).execute()
+                upserted += len(group)
+            except Exception as e:
+                print(f"  [!] Error upserting {len(group)} voting records for {politician_id}: {e}")
+        if upserted:
+            print(f"  [+] Upserted {upserted} voting records")
+
+    def upsert_relationships(self, politician_id: str, edges: list):
+        """
+        Upserts structured network ties (e.g. LittleSis board/affiliation edges) for a
+        politician. UNIQUE(politician_id, related_name, relationship_type) keeps the
+        nightly job idempotent.
+
+        related_politician_id is resolved here by an EXACT full_name match to a tracked
+        politician (never fuzzy — the loader's identity rule, same as upsert_politician).
+        When the related entity isn't someone we track, it stays NULL and the frontend
+        renders an external link instead of an internal profile link.
+        """
+        if not edges:
+            return
+        if not self.supabase:
+            print(f"  [Dry-run] Upserting {len(edges)} relationships")
+            return
+
+        names = {e.get("related_name") for e in edges if e.get("related_name")}
+        if not names:
+            return
+        # Resolve every related name to an internal id in ONE query, not one per edge.
+        # None signals the resolve query FAILED (vs an empty dict = ran fine, no matches).
+        name_to_id = self._resolve_exact_names(names)
+        # On a resolve failure we must NOT write related_politician_id: doing so would set
+        # it NULL for every existing tie and clobber valid internal profile links until the
+        # next clean run. Omitting the key leaves the column untouched on conflict (the
+        # presence is uniform across all rows, so PostgREST won't union-NULL it either).
+        resolved = name_to_id is not None
+
+        rows = []
+        for e in edges:
+            related_name = e.get("related_name")
+            if not related_name:
+                continue
+            row = {
+                "politician_id": politician_id,
+                "related_name": related_name,
+                # Never NULL: relationship_type is part of the UNIQUE/ON CONFLICT key, and
+                # a NULL would break upsert idempotency (NULL <> NULL in Postgres).
+                "relationship_type": e.get("relationship_type") or "Connection",
+                "source_api": e.get("source_api", "LittleSis"),
+                "url": e.get("url"),
+                "last_updated": datetime.now(timezone.utc).isoformat(),
+            }
+            if resolved:
+                row["related_politician_id"] = name_to_id.get(related_name)
+            rows.append(row)
         try:
-            self.supabase.table("voting_records").upsert(
-                rows, on_conflict="politician_id,bill_name,vote_date"
+            self.supabase.table("relationships").upsert(
+                rows, on_conflict="politician_id,related_name,relationship_type"
             ).execute()
-            print(f"  [+] Upserted {len(rows)} voting records")
+            print(f"  [+] Upserted {len(rows)} relationships")
         except Exception as e:
-            print(f"  [!] Error upserting voting records for {politician_id}: {e}")
+            print(f"  [!] Error upserting relationships for {politician_id}: {e}")
+
+    def _resolve_exact_names(self, names):
+        """
+        Map each name in `names` to the politician id whose full_name EXACTLY matches it,
+        in a single query. Deliberately exact-only (no fuzzy) per the entity-resolution
+        rule; a name that matches zero or MORE THAN ONE politician is omitted (resolves to
+        None at the call site) rather than guessing.
+
+        Returns a dict on success (possibly empty — ran fine, no matches), or None if the
+        query FAILED. Callers must treat None differently from {}: a failure must not be
+        read as "nothing matched" and used to overwrite previously-resolved links.
+        """
+        name_list = [n for n in names if n]
+        if not self.supabase or not name_list:
+            return {}
+        try:
+            resp = (
+                self.supabase.table("politicians")
+                .select("id, full_name")
+                .in_("full_name", name_list)
+                .execute()
+            )
+        except Exception as e:
+            # WARNING, not DEBUG: a resolve failure means this run skips internal-link
+            # resolution for these relationships (to avoid clobbering existing links), so
+            # it should be visible in production logs rather than silently swallowed.
+            logger.warning("Bulk name resolve failed for %d names: %s", len(name_list), e)
+            return None
+
+        # Count matches per name so ambiguous names (>1 politician) are dropped.
+        ids_by_name: dict[str, list] = {}
+        for row in (resp.data or []):
+            ids_by_name.setdefault(row["full_name"], []).append(row["id"])
+        return {name: ids[0] for name, ids in ids_by_name.items() if len(ids) == 1}
 
     def process_mentions(self, politician_id: str, data_list: list, source_api: str):
         """

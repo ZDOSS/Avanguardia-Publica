@@ -12,6 +12,29 @@ Avanguardia-Publica is an application designed to aggregate, classify, and displ
   - The pipeline uses a robust, highly-resilient multi-tier strategy for pulling news data.
   - Tiers: Currents API → NewsData.io → TheNewsAPI → GDELT (via `newspaper3k`).
 
+### 🔑 Data flow: Supabase is read LIVE in the browser — data is NOT baked into the build
+This is the single most-misread part of the architecture, so read it before touching any
+page or data-fetching code:
+
+- `output: "export"` (in `next.config.ts`) makes the build emit **static page shells +
+  routes** for GitHub Pages hosting. **It does NOT mean the data is frozen at build time.**
+  The export is *hosting*, not a data snapshot.
+- The **data is fetched live from Supabase in the user's browser at runtime**, via the
+  `@supabase/supabase-js` anon client (`frontend/src/lib/supabase.ts`) — exactly like the
+  directory (`fetchAllPoliticians` in `lib/politicians.ts`, called from `page.tsx`) and the
+  profile **Connections** tab (`supabase.rpc(...)` in `lib/connections.ts`). New data views
+  should follow this same client-side pattern, or call a Postgres RPC, so the page always
+  reflects the current database without a rebuild.
+- **Do not** "solve" data display by baking query results into the static output or by
+  precomputing tables just to avoid a live query. If you need server-side aggregation,
+  add a Supabase **RPC function** (`SECURITY DEFINER`, `GRANT EXECUTE ... TO anon`) and call
+  it live with `supabase.rpc()` — see `migrations/0003_connections.sql` for the pattern.
+- The one build-time exception today: `[politician_id]/page.tsx` pre-renders the static
+  route list (`generateStaticParams`) and the profile **hub header** fields. Everything
+  dynamic on the profile (connections, and anything you add) is fetched live client-side.
+  Treat live client-side reads as the default; build-time fetching is only for enumerating
+  routes, not for freezing displayed data.
+
 ## ✅ Recent Milestones (PR #20 merged)
 The most recent major feature update was the completion of the Directory and News Aggregator overhaul. The following is now live on `main`:
 1. **Interactive Directory (`/directory`)**
