@@ -47,7 +47,10 @@ CREATE INDEX IF NOT EXISTS idx_campaign_donors_donor_name_lower
 -- external entity we just name + link out to).
 CREATE TABLE IF NOT EXISTS relationships (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    politician_id UUID REFERENCES politicians(id) ON DELETE CASCADE,
+    -- NOT NULL: a network tie is meaningless without its owning politician, and the
+    -- loader always supplies it. Also keeps the UNIQUE key below well-defined (a NULL
+    -- politician_id would make every row distinct under it).
+    politician_id UUID NOT NULL REFERENCES politicians(id) ON DELETE CASCADE,
     related_name TEXT NOT NULL,
     related_politician_id UUID REFERENCES politicians(id) ON DELETE SET NULL,
     -- NOT NULL (default 'Connection') is load-bearing: relationship_type is part of the
@@ -60,6 +63,11 @@ CREATE TABLE IF NOT EXISTS relationships (
     last_updated TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(politician_id, related_name, relationship_type)
 );
+-- Enforce the constraint on a relationships table created by an earlier run of this
+-- migration too (CREATE TABLE IF NOT EXISTS above is skipped when the table predates the
+-- NOT NULL). Idempotent: a no-op once the column is already NOT NULL; safe because the
+-- table carries no NULL politician_id rows (the loader always supplies it).
+ALTER TABLE relationships ALTER COLUMN politician_id SET NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_relationships_politician ON relationships (politician_id);
 
 -- Mirror the read-only public exposure the existing spokes rely on: the browser uses

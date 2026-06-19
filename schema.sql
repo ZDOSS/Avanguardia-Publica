@@ -104,7 +104,9 @@ CREATE TABLE IF NOT EXISTS unconfirmed_mentions (
 -- the frontend calls — those are migration-only and not duplicated here.
 CREATE TABLE IF NOT EXISTS relationships (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    politician_id UUID REFERENCES politicians(id) ON DELETE CASCADE,
+    -- NOT NULL: a tie is meaningless without its owning politician (the loader always
+    -- supplies it) and it keeps the UNIQUE key below well-defined.
+    politician_id UUID NOT NULL REFERENCES politicians(id) ON DELETE CASCADE,
     related_name TEXT NOT NULL,
     related_politician_id UUID REFERENCES politicians(id) ON DELETE SET NULL,
     -- NOT NULL: relationship_type is part of the UNIQUE key, and Postgres treats NULL as

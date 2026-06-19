@@ -1,4 +1,5 @@
 import logging
+from collections import defaultdict
 from datetime import datetime, timezone
 from supabase import create_client, Client
 
@@ -221,20 +222,29 @@ class SupabaseLoader:
                 "vote_cast": r.get("vote_cast"),
                 "vote_date": r.get("vote_date"),
             }
-            # Stable per-roll-call id + jurisdiction (see migrations/0003). Only written
-            # when present: if a source run omits them, leaving the keys OUT means the
-            # on-conflict UPDATE won't touch those columns, so a previously-stored
-            # roll_call_id is never clobbered back to NULL. (Omitted keys also fall back to
-            # the column default — NULL — on a fresh INSERT.)
+            # Stable per-roll-call id + jurisdiction (see migrations/0003). Only added when
+            # present, so a row that lacks them leaves the columns untouched on conflict
+            # rather than clobbering a previously-stored roll_call_id back to NULL.
             if r.get("roll_call_id") is not None:
                 row["roll_call_id"] = r["roll_call_id"]
             if r.get("jurisdiction") is not None:
                 row["jurisdiction"] = r["jurisdiction"]
             rows.append(row)
+
+        # Upsert in homogeneous sub-batches grouped by exact key set. PostgREST normalises a
+        # mixed batch to the UNION of all keys and writes NULL for any key absent from a
+        # given row's DO UPDATE SET — so a batch mixing rows that carry roll_call_id with
+        # rows that don't would still null out the latter's stored value. Grouping by key
+        # signature guarantees every batch is uniform, so an absent column is genuinely
+        # omitted from that batch's UPDATE rather than set to NULL.
+        groups: dict = defaultdict(list)
+        for row in rows:
+            groups[frozenset(row.keys())].append(row)
         try:
-            self.supabase.table("voting_records").upsert(
-                rows, on_conflict="politician_id,bill_name,vote_date"
-            ).execute()
+            for group in groups.values():
+                self.supabase.table("voting_records").upsert(
+                    group, on_conflict="politician_id,bill_name,vote_date"
+                ).execute()
             print(f"  [+] Upserted {len(rows)} voting records")
         except Exception as e:
             print(f"  [!] Error upserting voting records for {politician_id}: {e}")
