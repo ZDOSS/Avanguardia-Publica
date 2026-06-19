@@ -104,7 +104,9 @@ CREATE TABLE IF NOT EXISTS relationships (
     politician_id UUID REFERENCES politicians(id) ON DELETE CASCADE,
     related_name TEXT NOT NULL,
     related_politician_id UUID REFERENCES politicians(id) ON DELETE SET NULL,
-    relationship_type TEXT,
+    -- NOT NULL: relationship_type is part of the UNIQUE key, and Postgres treats NULL as
+    -- distinct in unique/ON CONFLICT, so a NULL would break upsert idempotency.
+    relationship_type TEXT NOT NULL DEFAULT 'Connection',
     source_api TEXT NOT NULL DEFAULT 'LittleSis',
     url TEXT,
     last_updated TIMESTAMP WITH TIME ZONE DEFAULT NOW(),

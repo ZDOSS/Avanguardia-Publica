@@ -46,7 +46,11 @@ CREATE TABLE IF NOT EXISTS relationships (
     politician_id UUID REFERENCES politicians(id) ON DELETE CASCADE,
     related_name TEXT NOT NULL,
     related_politician_id UUID REFERENCES politicians(id) ON DELETE SET NULL,
-    relationship_type TEXT,
+    -- NOT NULL (default 'Connection') is load-bearing: relationship_type is part of the
+    -- UNIQUE key below, and under Postgres NULL <> NULL, so a NULL here would defeat the
+    -- ON CONFLICT upsert and insert a duplicate every nightly run. The extractor always
+    -- supplies a value, so the default is just a safety net.
+    relationship_type TEXT NOT NULL DEFAULT 'Connection',
     source_api TEXT NOT NULL DEFAULT 'LittleSis',
     url TEXT,
     last_updated TIMESTAMP WITH TIME ZONE DEFAULT NOW(),

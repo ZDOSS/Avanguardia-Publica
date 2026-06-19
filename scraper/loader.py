@@ -262,7 +262,9 @@ class SupabaseLoader:
                 "politician_id": politician_id,
                 "related_name": e["related_name"],
                 "related_politician_id": name_to_id.get(e["related_name"]),
-                "relationship_type": e.get("relationship_type"),
+                # Never NULL: relationship_type is part of the UNIQUE/ON CONFLICT key, and
+                # a NULL would break upsert idempotency (NULL <> NULL in Postgres).
+                "relationship_type": e.get("relationship_type") or "Connection",
                 "source_api": e.get("source_api", "LittleSis"),
                 "url": e.get("url"),
                 "last_updated": datetime.now(timezone.utc).isoformat(),
