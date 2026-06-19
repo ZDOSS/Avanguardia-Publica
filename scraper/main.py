@@ -10,6 +10,7 @@ from extractors.news_aggregator import get_news_data
 from extractors.fec import get_campaign_donors
 from extractors.govtrack import get_voting_records
 from extractors.openstates import get_state_politicians
+from extractors.openstates_votes import get_state_voting_records
 from extractors.federal import get_federal_exec_judicial
 
 logging.basicConfig(
@@ -103,6 +104,9 @@ def main():
         state_people = []
 
     state_total = len(state_people)
+    # ocd-person id -> politician_id, built as we upsert so state roll-call votes
+    # (joined on the OpenStates ocd-person id) can be attached without re-querying.
+    ocd_to_pid = {}
     for index, person in enumerate(state_people, start=1):
         try:
             if index % 500 == 0:
@@ -110,6 +114,9 @@ def main():
             politician_id = loader.upsert_politician(person)
             if politician_id and politician_id != "dummy-uuid":
                 loader.upsert_contact_info(politician_id, person.get('contact', {}))
+                ocd = (person.get('external_ids') or {}).get('openstates')
+                if ocd:
+                    ocd_to_pid[ocd] = politician_id
         except Exception as e:
             print(f"  [!] Error upserting state politician {person.get('full_name')}: {e}")
             errors_caught += 1
@@ -118,6 +125,22 @@ def main():
             # saturate the Supabase connection pool / free-tier request limits.
             if index % 100 == 0:
                 time.sleep(0.1)
+
+    # Verified spoke: state-legislature roll-call votes from the OpenStates API,
+    # joined on the ocd-person id (no fuzzy names). Gated on OPENSTATES_API_KEY — with
+    # no key the call is a no-op. Roll-call-centric, so one bounded crawl fans out to
+    # many legislators at once (see extractors/openstates_votes.py).
+    if not os.environ.get("OPENSTATES_API_KEY"):
+        print("Note: OPENSTATES_API_KEY not set — skipping state voting records.")
+    elif ocd_to_pid:
+        print("\n=== State voting records (OpenStates API) ===")
+        try:
+            votes_by_ocd = get_state_voting_records(known_ocd_ids=set(ocd_to_pid))
+            for ocd, records in votes_by_ocd.items():
+                loader.upsert_voting_records(ocd_to_pid[ocd], records)
+        except Exception as e:
+            print(f"[!] Failed to fetch/store state voting records: {e}")
+            errors_caught += 1
 
     # 4. Federal executive (President, VP) + judicial (Supreme Court). Hub + official
     # contact only; identified by Wikidata QID.
