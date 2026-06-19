@@ -128,16 +128,19 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
     -- keeps the counters consistent: shared_total = agree_count + disagree_count exactly
     -- (a NULL vote_cast satisfies neither the '=' nor the '<>' filter).
     WITH mine AS (
+        -- The trailing `vote_cast` in ORDER BY makes the DISTINCT ON pick deterministic
+        -- if a politician somehow has two rows for one roll call (they should agree, so
+        -- this only matters for reproducibility, not correctness).
         SELECT DISTINCT ON (roll_call_id) roll_call_id, vote_cast
         FROM voting_records
         WHERE politician_id = p_id AND roll_call_id IS NOT NULL AND vote_cast IS NOT NULL
-        ORDER BY roll_call_id
+        ORDER BY roll_call_id, vote_cast
     ),
     theirs AS (
         SELECT DISTINCT ON (politician_id, roll_call_id) politician_id, roll_call_id, vote_cast
         FROM voting_records
         WHERE politician_id <> p_id AND roll_call_id IS NOT NULL AND vote_cast IS NOT NULL
-        ORDER BY politician_id, roll_call_id
+        ORDER BY politician_id, roll_call_id, vote_cast
     )
     SELECT p.id, p.full_name, p.current_office, p.party,
            COUNT(*) FILTER (WHERE vr.vote_cast = mine.vote_cast) AS agree_count,

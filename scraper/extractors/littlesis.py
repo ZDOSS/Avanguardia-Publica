@@ -105,8 +105,10 @@ def get_littlesis_relationships(full_name: str) -> list:
         seen.add(related_name)
 
         rel_type = _CATEGORY_LABELS.get(attrs.get("category_id")) or attrs.get("description1") or "Connection"
-        # Use the entity's real type (person/org) so org links don't 404 on /person/.
-        url = f"{_BASE}/{other_type}/{other_id}" if other_id else f"{_BASE}/entities/{entity_id}"
+        # other_id/other_type are always set here (a failed slug parse yields related_name
+        # = None, which `continue`s above). Use the entity's real type (person/org) so org
+        # links don't 404 on a /person/ path.
+        url = f"{_BASE}/{other_type}/{other_id}"
         edges.append({
             "related_name": related_name,
             "relationship_type": rel_type,
