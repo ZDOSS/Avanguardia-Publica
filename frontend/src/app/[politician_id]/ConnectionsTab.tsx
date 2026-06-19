@@ -53,15 +53,18 @@ function buildGraphNodes(data: ConnectionsBundle): GraphNode[] {
     weight: 1,
     kind: 'tie',
   }));
-  // Dedupe across lanes: the same person can be both a shared donor and a co-voting ally,
-  // which would otherwise draw two overlapping nodes. Keep the first (highest-priority)
-  // occurrence, keyed by politician id when present, else by label.
-  const seen = new Set<string>();
+  // Dedupe across lanes only by politician id: the same tracked person can appear as both
+  // a shared donor and a co-voting ally, which would otherwise draw two overlapping nodes.
+  // id-less nodes (external network-tie entities) are kept as-is — they're already unique
+  // by name within networkTies, and keying them by their shortened label could silently
+  // drop a distinct entity whose label collides (e.g. two "John S.").
+  const seenIds = new Set<string>();
   const unique: GraphNode[] = [];
   for (const n of [...donors, ...allies, ...opponents, ...ties]) {
-    const key = n.id ?? `label:${n.label}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (n.id) {
+      if (seenIds.has(n.id)) continue;
+      seenIds.add(n.id);
+    }
     unique.push(n);
   }
   return unique.slice(0, 8);

@@ -99,9 +99,13 @@ CREATE TABLE IF NOT EXISTS unconfirmed_mentions (
 -- 7. Third-Party Spoke: relationships (structured network ties, e.g. LittleSis)
 -- Powers the "Network Ties" group of the profile Connections view. related_politician_id
 -- is filled only on an EXACT name match to a tracked politician (never fuzzy), enabling
--- an internal profile link; NULL for external entities. See migrations/0003, which also
--- defines the live RPC functions (get_shared_donors / get_covoting / get_network_ties)
--- the frontend calls — those are migration-only and not duplicated here.
+-- an internal profile link; NULL for external entities.
+--
+-- This file is pure table DDL (no RLS/grants on ANY table here — they aren't managed in
+-- schema.sql). The anon-SELECT RLS policy + GRANT that let the frontend read this table,
+-- and the live RPC functions (get_shared_donors / get_covoting / get_network_ties), live
+-- in migrations/0003_connections.sql. A fresh bootstrap must run that migration after this
+-- file for the Connections feature to be readable.
 CREATE TABLE IF NOT EXISTS relationships (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     -- NOT NULL: a tie is meaningless without its owning politician (the loader always
