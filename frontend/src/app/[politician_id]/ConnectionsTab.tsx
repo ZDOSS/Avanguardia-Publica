@@ -205,7 +205,10 @@ export default function ConnectionsTab({ politicianId, politicianName }: { polit
                 <div className="font-bold">{d.full_name}</div>
                 <div className="text-xs text-[var(--color-official-text-muted)]">{d.current_office}</div>
                 <div className="mt-2 text-xs font-mono text-[var(--color-official-text-muted)]">
-                  {d.shared_donor_count} shared donor{d.shared_donor_count === 1 ? '' : 's'} · ${Math.round(d.shared_total_amount).toLocaleString()}
+                  {d.shared_donor_count} shared donor{d.shared_donor_count === 1 ? '' : 's'}
+                  {/* Only show a dollar figure when we actually have one — FEC rows can
+                      carry NULL/0 amounts, and a bare "$0" reads as a real total. */}
+                  {d.shared_total_amount > 0 && <> · ${Math.round(d.shared_total_amount).toLocaleString()}</>}
                 </div>
               </PersonCardLink>
             ))}

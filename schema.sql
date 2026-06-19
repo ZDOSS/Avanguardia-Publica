@@ -79,7 +79,10 @@ CREATE TABLE IF NOT EXISTS voting_records (
     UNIQUE(politician_id, bill_name, vote_date)
 );
 
-CREATE INDEX IF NOT EXISTS idx_voting_records_roll_call ON voting_records (roll_call_id);
+-- Composite + covering for the co-voting self-join (see get_covoting in migrations/0003):
+-- roll_call_id leads the join; politician_id + vote_cast make the dedup/aggregation index-only.
+CREATE INDEX IF NOT EXISTS idx_voting_records_roll_call
+    ON voting_records (roll_call_id, politician_id, vote_cast);
 
 -- 6. Third-Party Spoke: unconfirmed_mentions
 CREATE TABLE IF NOT EXISTS unconfirmed_mentions (

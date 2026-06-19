@@ -27,7 +27,11 @@
 -- unchanged, so upserts stay idempotent.
 ALTER TABLE voting_records ADD COLUMN IF NOT EXISTS roll_call_id TEXT;
 ALTER TABLE voting_records ADD COLUMN IF NOT EXISTS jurisdiction TEXT;
-CREATE INDEX IF NOT EXISTS idx_voting_records_roll_call ON voting_records (roll_call_id);
+-- Composite + covering: the leading roll_call_id serves the co-voting self-join
+-- (mine.roll_call_id = vr.roll_call_id); trailing politician_id + vote_cast let the
+-- `theirs` dedup/aggregation run index-only without heap fetches as coverage grows.
+CREATE INDEX IF NOT EXISTS idx_voting_records_roll_call
+    ON voting_records (roll_call_id, politician_id, vote_cast);
 
 -- 2. Shared-donor lookup index ------------------------------------------------------
 -- The shared-donor self-join matches on a normalized donor name; index the same
@@ -147,7 +151,14 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
     JOIN mine ON mine.roll_call_id = vr.roll_call_id
     JOIN politicians p ON p.id = vr.politician_id
     GROUP BY p.id, p.full_name, p.current_office, p.party
-    ORDER BY shared_total DESC, agreement_rate DESC
+    -- Tiebreaker is symmetric: GREATEST(agree, disagree) ranks the most DECISIVE
+    -- relationships first regardless of direction, so a strong opponent isn't dropped at
+    -- the LIMIT boundary in favour of a lukewarm ally (which `agreement_rate DESC` would
+    -- have done). The client buckets the result into allies vs opponents.
+    ORDER BY shared_total DESC, GREATEST(
+        COUNT(*) FILTER (WHERE vr.vote_cast = mine.vote_cast),
+        COUNT(*) FILTER (WHERE vr.vote_cast <> mine.vote_cast)
+    ) DESC
     LIMIT 30;
 $$;
 
