@@ -6,8 +6,9 @@ The strategy enforces Radical Simplification. We are decoupling the data ingesti
 2. The Tech Stack (AI-Optimized)
 Database & Backend API: Supabase (PostgreSQL). Provides a visual, spreadsheet-like interface for the database and automatically generates the APIs the frontend needs.
 Data Ingestion (ETL Scraping): Python + GitHub Actions. GitHub Actions will run Python scraping scripts on a daily schedule, pushing data directly into Supabase.
-Frontend Framework: Next.js (React) + Tailwind CSS. Configured strictly for static export (output: 'export').
+Frontend Framework: Next.js (React) + Tailwind CSS. Configured for static export (output: 'export').
 Hosting/Deployment: GitHub Pages for the frontend (zero-cost, static hosting) and GitHub Actions for the backend Python scripts.
+IMPORTANT — static hosting, LIVE data: `output: 'export'` exports static page shells/routes for GitHub Pages; it does NOT bake the database into the build. Page data is read LIVE from Supabase in the browser at runtime via the supabase-js anon client (and Postgres RPC functions for computed views like Connections). Do not freeze query results into the static output — fetch live client-side, or add an RPC and call it with `supabase.rpc()`. See AGENTS.md → "Data flow" for the authoritative explanation.
 3. Data Storage Logic & Schema Blueprint
 To prevent data duplication and ensure accurate entity resolution, the database will strictly follow a "Hub-and-Spoke" model.
 A. Strict Entity Resolution Rule
@@ -49,7 +50,7 @@ Layout: Left-aligned official portrait. Right-aligned biographical data (Full Na
 Action Center: A clearly visible "Contact" section displaying official D.C./Local office addresses, phone numbers, and official websites.
 D. View 3: The Data Spokes (Tabbed Navigation)
 Directly beneath the Hub, dense data is categorized into horizontal, clickable tabs. Only one tab's data is rendered at a time.
-Tabs: "Voting Record" (List view), "Financial Disclosures" (Paginated table), "Campaign Donors" (Paginated table), and "Network & Media" (News feed format triggering the Visual Firewall).
+Tabs: "Financial Disclosures" (Paginated table), "Campaign Donors" (Paginated table), "Voting Record" (List view), "Connections" (cross-referenced individuals — shared donors, co-voting allies/opponents, and network ties — rendered as a hub-and-spoke mini-graph over ranked, clickable relationship cards; fetched live via Postgres RPC), and "Media" (third-party news feed triggering the Visual Firewall). The verified connection types use the official palette; network ties sit behind the Visual Firewall. See docs/connections_design.md.
 5. The Phased Rollout Plan
 Development is strictly paced by data milestones to protect AI agents from generating conflicting code.
 Phase 0.1: The Executive Branch Database Pipeline (Current Focus).

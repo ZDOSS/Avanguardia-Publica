@@ -21,12 +21,15 @@ When a user clicks a politician from the search results, they land here. This vi
 ### D. View 3: The Data Spokes (Tabbed Navigation)
 Directly beneath the Hub, the dense data is categorized into horizontal, clickable tabs. Only one tab's data is rendered at a time to prevent endless scrolling and browser lag.
 
+**Data is fetched LIVE from Supabase in the browser** (supabase-js anon client / Postgres RPC) when a tab renders — it is *not* baked into the static export. See AGENTS.md → "Data flow".
+
 | Tab Name | Data Rendered | UI Component Rules |
 | :--- | :--- | :--- |
 | **Financial Disclosures** | Official assets and stock trades. | Paginated data table. Sortable by Date or Value. |
 | **Campaign Donors** | FEC contribution data. | Paginated data table. Must highlight PAC vs. Individual donations. |
 | **Voting Record** | Roll-call votes. | List view. Each item shows the Bill Name, Date, and a clear "Yea/Nay" badge. |
-| **Network & Media** | LittleSis board memberships and World News sentiment. | **Must trigger the Visual Firewall.** Renders as a news feed or timeline format. |
+| **Connections** | Cross-referenced individuals: shared donors, co-voting allies/opponents (verified), and LittleSis network ties (unverified). | Fetched live via Postgres RPC (`get_shared_donors` / `get_covoting` / `get_network_ties`). Hub-and-spoke SVG mini-graph over ranked, clickable relationship cards. Verified types use the official palette; **network ties must trigger the Visual Firewall.** |
+| **Media** | World News sentiment and other third-party mentions. | **Must trigger the Visual Firewall.** Renders as a news feed or timeline format. |
 
 ### E. User Flow Summary
 1. User lands on `index.html` (Landing Page).

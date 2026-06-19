@@ -7,7 +7,9 @@ classifies, and displays publicly available information about U.S. politicians a
 Federal, State, and Local levels, presenting it as a clean, read-only encyclopedia.
 
 The project follows a **decoupled, zero-cost architecture**: a Python ETL pipeline pushes
-data into Supabase on a schedule, and a statically-exported Next.js frontend reads from it.
+data into Supabase on a schedule, and a statically-exported Next.js frontend reads from it
+**live in the browser** at runtime (the static export is the page shells/hosting — the data
+is not baked into the build). See [`AGENTS.md`](AGENTS.md) → "Data flow".
 
 ---
 
@@ -25,7 +27,7 @@ data into Supabase on a schedule, and a statically-exported Next.js frontend rea
 | ------------ | ------------------------------------------------ | -------------------------------------------------- |
 | Database/API | Supabase (PostgreSQL)                            | Auto-generated REST API; "Hub-and-Spoke" schema    |
 | Ingestion    | Python + GitHub Actions                          | Free-tier / open-source data sources only          |
-| Frontend     | Next.js (App Router) + React 19 + Tailwind CSS 4 | `output: 'export'` — fully static                  |
+| Frontend     | Next.js (App Router) + React 19 + Tailwind CSS 4 | `output: 'export'` — static shells; data read live from Supabase in the browser |
 | Hosting      | GitHub Pages (frontend) + GitHub Actions (ETL)   | Zero-cost                                           |
 
 See [`spec.md`](spec.md) for the full product/technical spec and [`AGENTS.md`](AGENTS.md)
@@ -135,7 +137,11 @@ Both pipelines run from GitHub Actions:
 
 - **`.github/workflows/nextjs.yml`** — builds the static frontend and deploys it to GitHub
   Pages. Set `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` as repository
-  secrets so build-time data fetching works.
+  secrets. These `NEXT_PUBLIC_*` values are embedded in the client bundle, so the exported
+  pages read data **live from Supabase in the browser** (the anon key is public by design,
+  protected by Supabase RLS); the build also uses them to enumerate static routes. The
+  deploy ships the UI, not a data snapshot — content refreshes without a rebuild as the
+  nightly ETL updates Supabase.
 - **`.github/workflows/scraper.yml`** — runs the Python ETL on a nightly schedule, writing
   fresh data into Supabase.
 
