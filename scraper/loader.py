@@ -276,13 +276,22 @@ class SupabaseLoader:
         if not names:
             return
         # Resolve every related name to an internal id in ONE query, not one per edge.
+        # None signals the resolve query FAILED (vs an empty dict = ran fine, no matches).
         name_to_id = self._resolve_exact_names(names)
+        # On a resolve failure we must NOT write related_politician_id: doing so would set
+        # it NULL for every existing tie and clobber valid internal profile links until the
+        # next clean run. Omitting the key leaves the column untouched on conflict (the
+        # presence is uniform across all rows, so PostgREST won't union-NULL it either).
+        resolved = name_to_id is not None
 
-        rows = [
-            {
+        rows = []
+        for e in edges:
+            related_name = e.get("related_name")
+            if not related_name:
+                continue
+            row = {
                 "politician_id": politician_id,
-                "related_name": e["related_name"],
-                "related_politician_id": name_to_id.get(e["related_name"]),
+                "related_name": related_name,
                 # Never NULL: relationship_type is part of the UNIQUE/ON CONFLICT key, and
                 # a NULL would break upsert idempotency (NULL <> NULL in Postgres).
                 "relationship_type": e.get("relationship_type") or "Connection",
@@ -290,8 +299,9 @@ class SupabaseLoader:
                 "url": e.get("url"),
                 "last_updated": datetime.now(timezone.utc).isoformat(),
             }
-            for e in edges if e.get("related_name")
-        ]
+            if resolved:
+                row["related_politician_id"] = name_to_id.get(related_name)
+            rows.append(row)
         try:
             self.supabase.table("relationships").upsert(
                 rows, on_conflict="politician_id,related_name,relationship_type"
@@ -300,12 +310,16 @@ class SupabaseLoader:
         except Exception as e:
             print(f"  [!] Error upserting relationships for {politician_id}: {e}")
 
-    def _resolve_exact_names(self, names) -> dict:
+    def _resolve_exact_names(self, names):
         """
         Map each name in `names` to the politician id whose full_name EXACTLY matches it,
         in a single query. Deliberately exact-only (no fuzzy) per the entity-resolution
         rule; a name that matches zero or MORE THAN ONE politician is omitted (resolves to
         None at the call site) rather than guessing.
+
+        Returns a dict on success (possibly empty — ran fine, no matches), or None if the
+        query FAILED. Callers must treat None differently from {}: a failure must not be
+        read as "nothing matched" and used to overwrite previously-resolved links.
         """
         name_list = [n for n in names if n]
         if not self.supabase or not name_list:
@@ -319,7 +333,7 @@ class SupabaseLoader:
             )
         except Exception as e:
             logger.debug("Bulk name resolve failed for %d names: %s", len(name_list), e)
-            return {}
+            return None
 
         # Count matches per name so ambiguous names (>1 politician) are dropped.
         ids_by_name: dict[str, list] = {}
