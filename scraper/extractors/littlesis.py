@@ -29,22 +29,26 @@ _MAX_RELATIONSHIPS = 25
 
 def _parse_entity_slug(url: str):
     """
-    Pull (entity_id, entity_type, display_name) out of a LittleSis entity path like
-    '/person/13503-Barack_Obama' or '/org/123-Acme_Inc'. entity_type is 'person' or
-    'org' — it must be preserved so the caller builds the correct /person/ vs /org/ link
-    (orgs 404 on a /person/ path). Returns (None, None, None) if the path doesn't match —
-    the relationship endpoint exposes the related entity's name only via these slugs
-    (there is no name field on the relationship object).
+    Pull (entity_id, entity_type, display_name, slug) out of a LittleSis entity path like
+    '/person/13503-Barack_Obama' or '/org/123-Acme_Inc'.
+      * entity_type ('person'/'org') must be preserved so the caller builds the correct
+        /person/ vs /org/ link (orgs 404 on a /person/ path).
+      * slug is the raw '13503-Barack_Obama' segment, so the caller can rebuild the full
+        canonical URL rather than a bare-id path that only works while LittleSis redirects.
+    Returns (None, None, None, None) if the path doesn't match — the relationship endpoint
+    exposes the related entity's name only via these slugs (there is no name field on the
+    relationship object).
     """
     if not url:
-        return None, None, None
-    m = re.search(r"/(person|org)/(\d+)-([^/?#]+)", url)
+        return None, None, None, None
+    m = re.search(r"/(person|org)/((\d+)-[^/?#]+)", url)
     if not m:
-        return None, None, None
+        return None, None, None, None
     entity_type = m.group(1)
-    entity_id = m.group(2)
-    name = m.group(3).replace("_", " ").strip()
-    return entity_id, entity_type, name
+    slug = m.group(2)
+    entity_id = m.group(3)
+    name = slug.split("-", 1)[1].replace("_", " ").strip()
+    return entity_id, entity_type, name, slug
 
 
 def _top_entity_id(full_name: str):
@@ -98,17 +102,21 @@ def get_littlesis_relationships(full_name: str) -> list:
         links = rel.get("links") or {}
         # The "other" entity is whichever side isn't our own entity_id.
         candidates = [_parse_entity_slug(links.get("entity")), _parse_entity_slug(links.get("related"))]
-        other = next(((eid, etype, name) for eid, etype, name in candidates if eid and eid != str(entity_id)), (None, None, None))
-        other_id, other_type, related_name = other
+        other = next(
+            ((eid, etype, name, slug) for eid, etype, name, slug in candidates if eid and eid != str(entity_id)),
+            (None, None, None, None),
+        )
+        other_id, other_type, related_name, other_slug = other
         if not related_name or related_name in seen:
             continue
         seen.add(related_name)
 
         rel_type = _CATEGORY_LABELS.get(attrs.get("category_id")) or attrs.get("description1") or "Connection"
-        # other_id/other_type are always set here (a failed slug parse yields related_name
-        # = None, which `continue`s above). Use the entity's real type (person/org) so org
-        # links don't 404 on a /person/ path.
-        url = f"{_BASE}/{other_type}/{other_id}"
+        # other_type/other_slug are always set here (a failed slug parse yields
+        # related_name = None, which `continue`s above). Rebuild the full canonical URL
+        # (type + name slug) so it doesn't rely on LittleSis redirecting a bare-id path,
+        # and orgs don't 404 on a /person/ path.
+        url = f"{_BASE}/{other_type}/{other_slug}"
         edges.append({
             "related_name": related_name,
             "relationship_type": rel_type,

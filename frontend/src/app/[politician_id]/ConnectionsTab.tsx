@@ -251,15 +251,21 @@ export default function ConnectionsTab({ politicianId, politicianName }: { polit
                   </div>
                 </>
               );
+              const cardClass = "block p-4 bg-[var(--color-official-bg)] border border-[var(--color-official-border)] rounded-xl transition-colors";
               if (t.related_politician_id) {
-                return <Link key={`${t.related_name}-${i}`} href={`/${t.related_politician_id}`} className="block p-4 bg-[var(--color-official-bg)] border border-[var(--color-official-border)] rounded-xl hover:border-[var(--color-official-link)] transition-colors">{inner}</Link>;
+                return <Link key={`${t.related_name}-${i}`} href={`/${t.related_politician_id}`} className={`${cardClass} hover:border-[var(--color-official-link)]`}>{inner}</Link>;
               }
-              return (
-                <a key={`${t.related_name}-${i}`} href={t.url ?? '#'} target="_blank" rel="noreferrer" className="block p-4 bg-[var(--color-official-bg)] border border-[var(--color-official-border)] rounded-xl hover:border-[var(--color-official-link)] transition-colors">
-                  {inner}
-                  <div className="mt-2 text-xs text-[var(--color-official-link)] font-bold uppercase tracking-wider">LittleSis &rarr;</div>
-                </a>
-              );
+              if (t.url) {
+                return (
+                  <a key={`${t.related_name}-${i}`} href={t.url} target="_blank" rel="noreferrer" className={`${cardClass} hover:border-[var(--color-official-link)]`}>
+                    {inner}
+                    <div className="mt-2 text-xs text-[var(--color-official-link)] font-bold uppercase tracking-wider">LittleSis &rarr;</div>
+                  </a>
+                );
+              }
+              // No internal profile and no source URL — render a non-interactive card
+              // rather than a dead href="#" anchor.
+              return <div key={`${t.related_name}-${i}`} className={cardClass}>{inner}</div>;
             })}
           </div>
         </section>
