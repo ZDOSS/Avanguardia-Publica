@@ -240,14 +240,20 @@ class SupabaseLoader:
         groups: dict = defaultdict(list)
         for row in rows:
             groups[frozenset(row.keys())].append(row)
-        try:
-            for group in groups.values():
+
+        # Each group upserts independently so a failure in one (e.g. a transient error on
+        # the id-less group) doesn't silently skip the others.
+        upserted = 0
+        for group in groups.values():
+            try:
                 self.supabase.table("voting_records").upsert(
                     group, on_conflict="politician_id,bill_name,vote_date"
                 ).execute()
-            print(f"  [+] Upserted {len(rows)} voting records")
-        except Exception as e:
-            print(f"  [!] Error upserting voting records for {politician_id}: {e}")
+                upserted += len(group)
+            except Exception as e:
+                print(f"  [!] Error upserting {len(group)} voting records for {politician_id}: {e}")
+        if upserted:
+            print(f"  [+] Upserted {upserted} voting records")
 
     def upsert_relationships(self, politician_id: str, edges: list):
         """

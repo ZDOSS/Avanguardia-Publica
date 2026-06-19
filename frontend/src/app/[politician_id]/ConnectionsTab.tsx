@@ -53,7 +53,18 @@ function buildGraphNodes(data: ConnectionsBundle): GraphNode[] {
     weight: 1,
     kind: 'tie',
   }));
-  return [...donors, ...allies, ...opponents, ...ties].slice(0, 8);
+  // Dedupe across lanes: the same person can be both a shared donor and a co-voting ally,
+  // which would otherwise draw two overlapping nodes. Keep the first (highest-priority)
+  // occurrence, keyed by politician id when present, else by label.
+  const seen = new Set<string>();
+  const unique: GraphNode[] = [];
+  for (const n of [...donors, ...allies, ...opponents, ...ties]) {
+    const key = n.id ?? `label:${n.label}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(n);
+  }
+  return unique.slice(0, 8);
 }
 
 function MiniGraph({ center, nodes }: { center: string; nodes: GraphNode[] }) {
