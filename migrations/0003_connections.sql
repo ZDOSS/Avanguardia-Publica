@@ -119,7 +119,11 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
     WITH mine AS (
         SELECT roll_call_id, vote_cast
         FROM voting_records
-        WHERE politician_id = p_id AND roll_call_id IS NOT NULL
+        -- Only roll calls where THIS person actually cast a recorded vote. Excluding NULL
+        -- vote_cast here (and on the joined side below) keeps the three displayed counters
+        -- consistent: shared_total = agree_count + disagree_count exactly, since a NULL
+        -- vote_cast satisfies neither the '=' nor the '<>' filter.
+        WHERE politician_id = p_id AND roll_call_id IS NOT NULL AND vote_cast IS NOT NULL
     )
     SELECT p.id, p.full_name, p.current_office, p.party,
            COUNT(*) FILTER (WHERE vr.vote_cast = mine.vote_cast) AS agree_count,
@@ -132,7 +136,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
     FROM voting_records vr
     JOIN mine ON mine.roll_call_id = vr.roll_call_id
     JOIN politicians p ON p.id = vr.politician_id
-    WHERE vr.politician_id <> p_id AND vr.roll_call_id IS NOT NULL
+    WHERE vr.politician_id <> p_id AND vr.roll_call_id IS NOT NULL AND vr.vote_cast IS NOT NULL
     GROUP BY p.id, p.full_name, p.current_office, p.party
     ORDER BY shared_total DESC, agreement_rate DESC
     LIMIT 30;
