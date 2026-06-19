@@ -117,13 +117,18 @@ RETURNS TABLE (
 )
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
     WITH mine AS (
-        SELECT roll_call_id, vote_cast
-        FROM voting_records
+        -- DISTINCT ON guarantees one row per roll_call_id: were a politician to carry two
+        -- voting_records rows sharing a roll_call_id (the UNIQUE key is on
+        -- (bill_name, vote_date), not roll_call_id), a plain select would join twice and
+        -- inflate the counts.
         -- Only roll calls where THIS person actually cast a recorded vote. Excluding NULL
         -- vote_cast here (and on the joined side below) keeps the three displayed counters
         -- consistent: shared_total = agree_count + disagree_count exactly, since a NULL
         -- vote_cast satisfies neither the '=' nor the '<>' filter.
+        SELECT DISTINCT ON (roll_call_id) roll_call_id, vote_cast
+        FROM voting_records
         WHERE politician_id = p_id AND roll_call_id IS NOT NULL AND vote_cast IS NOT NULL
+        ORDER BY roll_call_id
     )
     SELECT p.id, p.full_name, p.current_office, p.party,
            COUNT(*) FILTER (WHERE vr.vote_cast = mine.vote_cast) AS agree_count,

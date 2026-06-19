@@ -46,14 +46,37 @@ async function rpc<T>(fn: string, politicianId: string): Promise<T[]> {
 }
 
 /**
- * Fetch all three connection types for a politician in parallel. Throws if any RPC
- * errors so the caller can show an error state rather than a misleadingly empty view.
+ * Fetch all three connection types for a politician in parallel.
+ *
+ * Each lane fails independently: a failure of one RPC — most likely the unverified
+ * `get_network_ties` (third-party LittleSis) lane — must NOT hide the verified
+ * shared-donor and co-voting lanes. We log per-lane failures and render whatever
+ * succeeded, and only throw when *every* lane fails (a real outage worth surfacing as an
+ * error state instead of a misleadingly empty view).
  */
 export async function fetchConnections(politicianId: string): Promise<ConnectionsBundle> {
-  const [sharedDonors, coVotes, networkTies] = await Promise.all([
+  const [donors, votes, ties] = await Promise.allSettled([
     rpc<SharedDonorConnection>('get_shared_donors', politicianId),
     rpc<CoVoteConnection>('get_covoting', politicianId),
     rpc<NetworkTie>('get_network_ties', politicianId),
   ]);
-  return { sharedDonors, coVotes, networkTies };
+
+  const lanes = [
+    ['get_shared_donors', donors],
+    ['get_covoting', votes],
+    ['get_network_ties', ties],
+  ] as const;
+
+  if (lanes.every(([, r]) => r.status === 'rejected')) {
+    throw (donors as PromiseRejectedResult).reason;
+  }
+  for (const [name, r] of lanes) {
+    if (r.status === 'rejected') console.error(`Connections RPC ${name} failed:`, r.reason);
+  }
+
+  return {
+    sharedDonors: donors.status === 'fulfilled' ? donors.value : [],
+    coVotes: votes.status === 'fulfilled' ? votes.value : [],
+    networkTies: ties.status === 'fulfilled' ? ties.value : [],
+  };
 }
