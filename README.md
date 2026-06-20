@@ -110,6 +110,13 @@ All scraper data sources are **free-tier or open-source** (no paid APIs). The ne
 aggregator uses a multi-tier circuit-breaker strategy (Currents → NewsData.io →
 TheNewsAPI → GDELT) so it degrades gracefully under rate limits.
 
+Financial disclosures are sourced from the official **U.S. House Clerk** bulk feed
+(`disclosures-clerk.house.gov`, keyless). That feed publishes the filing *index* — who filed
+which disclosure (Periodic Transaction Report / Annual) on what date, plus a link to the
+official PDF — but not the per-transaction asset/value rows, which live inside the PDF. The
+profile tab therefore lists filings with a link to each official document. Senate and state
+financial disclosures are not yet covered.
+
 ---
 
 ## Environment variables

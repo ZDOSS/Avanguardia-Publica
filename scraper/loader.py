@@ -178,6 +178,45 @@ class SupabaseLoader:
         except Exception as e:
             print(f"  [!] Error upserting contact info for {politician_id}: {e}")
 
+    def upsert_financial_disclosures(self, politician_id: str, filings: list):
+        """
+        Upserts FILING-LEVEL House financial-disclosure records (verified spoke). Each filing
+        is one official document (a Periodic Transaction Report or Annual disclosure) linked by
+        DocID; the itemized transactions live in the linked PDF, not here (see
+        migrations/0005). doc_id is UNIQUE, so we conflict-resolve on it to keep the nightly
+        job idempotent.
+        """
+        if not filings:
+            return
+        if not self.supabase:
+            print(f"  [Dry-run] Upserting {len(filings)} financial disclosures")
+            return
+
+        # Dedup on doc_id within the batch: PostgREST rejects a batch that touches the same
+        # ON CONFLICT key twice ("cannot affect row a second time").
+        by_doc = {}
+        for f in filings:
+            doc_id = f.get("doc_id")
+            if not doc_id:
+                continue
+            by_doc[doc_id] = {
+                "politician_id": politician_id,
+                "filing_type": f.get("filing_type"),
+                "filing_date": f.get("filing_date"),
+                "doc_id": doc_id,
+                "doc_url": f.get("doc_url"),
+            }
+        rows = list(by_doc.values())
+        if not rows:
+            return
+        try:
+            self.supabase.table("financial_disclosures").upsert(
+                rows, on_conflict="doc_id"
+            ).execute()
+            print(f"  [+] Upserted {len(rows)} financial disclosures")
+        except Exception as e:
+            print(f"  [!] Error upserting financial disclosures for {politician_id}: {e}")
+
     def upsert_campaign_donors(self, politician_id: str, donors: list):
         """
         Upserts verified FEC campaign donors. fec_transaction_id is UNIQUE, so we

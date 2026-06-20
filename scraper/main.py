@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import logging
+from datetime import date
 from dotenv import load_dotenv
 from loader import SupabaseLoader
 from extractors.gov_api import get_congress_members
@@ -12,6 +13,7 @@ from extractors.govtrack import get_voting_records
 from extractors.openstates import get_state_politicians
 from extractors.openstates_votes import get_state_voting_records
 from extractors.federal import get_federal_exec_judicial
+from extractors.financial_disclosures import get_house_disclosure_index, lookup_disclosures
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,6 +40,15 @@ def main():
     # 1. Fetch active Congress members
     members = get_congress_members()
     print(f"Found {len(members)} Congress members.")
+
+    # House financial-disclosure filings (verified spoke) from the official House Clerk bulk
+    # feed — filing-level only (member/type/date + official PDF link), keyless. Built ONCE for
+    # the current + previous year and matched per-member by name below. Never fatal: an outage
+    # just yields an empty index (House members only — senators/state are not in this feed).
+    fd_years = [date.today().year, date.today().year - 1]
+    print(f"Building House financial-disclosure index for {fd_years}...")
+    house_fd_index = get_house_disclosure_index(fd_years)
+    print(f"  House FD index: {len(house_fd_index)} name keys.")
     
     # 2. Iterate through each member and scrape third-party data sequentially
     total = len(members)
@@ -68,6 +79,15 @@ def main():
                         print("  [*] Fetching FEC campaign donors...")
                         donors = get_campaign_donors(fec_ids)
                         loader.upsert_campaign_donors(politician_id, donors)
+
+                # Verified spoke: House financial-disclosure filings, matched by name against
+                # the pre-built House Clerk index (House members only; the feed has no
+                # senators). Exact name match only — never fuzzy.
+                fd_filings = lookup_disclosures(
+                    house_fd_index, [member['full_name']] + (member.get('aliases') or [])
+                )
+                if fd_filings:
+                    loader.upsert_financial_disclosures(politician_id, fd_filings)
 
                 # Verified spoke: roll-call votes from GovTrack, joined by the
                 # govtrack person id in the crosswalk (free, no key).
