@@ -215,7 +215,13 @@ class SupabaseLoader:
             ).execute()
             print(f"  [+] Upserted {len(rows)} financial disclosures")
         except Exception as e:
+            # Re-raise (like upsert_politician) rather than swallowing. This spoke depends on
+            # the doc_id/doc_url/filing_type columns from migration 0005; if 0005 isn't applied
+            # this fails with PGRST204 for every House member. Swallowing it would let the run
+            # exit 0 and deploy with no disclosures written — the exact silent-drift failure
+            # this PR exists to eliminate. main.py counts the raised error and exits non-zero.
             print(f"  [!] Error upserting financial disclosures for {politician_id}: {e}")
+            raise
 
     def upsert_campaign_donors(self, politician_id: str, donors: list):
         """
