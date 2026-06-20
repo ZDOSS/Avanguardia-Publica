@@ -167,10 +167,20 @@ EXISTS`, `DROP POLICY IF EXISTS`), so re-running the full set is safe.
 
 > **Symptom of un-applied migrations:** the scraper log fills with PGRST204 errors like
 > `Could not find the 'district' column of 'politicians' in the schema cache`, and profile
-> pages show stale/empty data. The fix is to run the pending migrations (e.g. `0002`–`0004`)
-> against the live database, then re-run the **Deploy Next.js to GitHub Pages** workflow so
-> the profile pages re-bake. If a freshly-added column still isn't found right after applying,
-> reload PostgREST's schema cache (`NOTIFY pgrst, 'reload schema';`).
+> pages show stale/empty data. Recover in this order:
+>
+> 1. Apply the pending migrations (e.g. `0002`–`0005`) against the live database. If a
+>    freshly-added column still isn't found right after, reload PostgREST's schema cache:
+>    `NOTIFY pgrst, 'reload schema';`
+> 2. **Run the Nightly ETL Scraper and confirm it succeeds** — look for `[+] Updated/Inserted
+>    Hub` lines and **no** PGRST204 errors. This is the step that actually writes data; a
+>    drifted run writes *nothing*.
+> 3. Re-run **Deploy Next.js to GitHub Pages** so the profile pages re-bake. A successful
+>    scraper run triggers this automatically, but you can run it manually too.
+>
+> Do **not** skip straight from step 1 to step 3: the deploy only bakes whatever is already
+> in the database, so redeploying before a successful scrape just re-freezes the same
+> stale/empty data.
 
 ---
 
