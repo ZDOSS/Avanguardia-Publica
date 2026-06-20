@@ -139,7 +139,14 @@ class SupabaseLoader:
                 print(f"  [+] Inserted new Hub for {member_data['full_name']}")
                 return p_id
         except Exception as e:
+            # Re-raise instead of swallowing. The Hub upsert is the root of every spoke
+            # write, so a failure here (e.g. a schema-drift PGRST204 when the live DB is
+            # missing a migrated column) must NOT be hidden behind a None return — that
+            # let the whole pipeline report success while writing nothing. The per-record
+            # try/except in main.py counts the raised error and exits non-zero, which turns
+            # a broken run red and blocks the auto-deploy of stale data. See main.py.
             print(f"  [!] Error upserting politician {member_data['full_name']}: {e}")
+            raise
 
         return None
 

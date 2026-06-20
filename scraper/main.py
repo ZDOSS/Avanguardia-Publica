@@ -167,6 +167,12 @@ def main():
         print("\nPipeline finished successfully.")
     else:
         print(f"\nPipeline finished with {errors_caught} errors.")
+        # A run where (nearly) every record errors almost always means the live database
+        # schema has drifted from migrations/ — e.g. a column the loader writes doesn't
+        # exist yet, so every upsert raises PGRST204 ("Could not find the 'X' column ...
+        # in the schema cache"). Migrations are applied MANUALLY (there is no runner); see
+        # README "Applying migrations". Exiting non-zero fails the run so the deploy gate
+        # (nextjs.yml workflow_run) does not ship a stale site.
         sys.exit(1)
 
 if __name__ == "__main__":

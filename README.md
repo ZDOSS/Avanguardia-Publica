@@ -7,9 +7,12 @@ classifies, and displays publicly available information about U.S. politicians a
 Federal, State, and Local levels, presenting it as a clean, read-only encyclopedia.
 
 The project follows a **decoupled, zero-cost architecture**: a Python ETL pipeline pushes
-data into Supabase on a schedule, and a statically-exported Next.js frontend reads from it
-**live in the browser** at runtime (the static export is the page shells/hosting — the data
-is not baked into the build). See [`AGENTS.md`](AGENTS.md) → "Data flow".
+data into Supabase on a schedule, and a statically-exported Next.js frontend reads from it.
+The render model is **hybrid** — the home/search and `/directory` pages query Supabase
+**live in the browser**, while the `/[politician_id]` profile pages are **baked at build
+time** (their contact / financial / donor / voting / media tabs only refresh when the
+frontend is redeployed; the profile's Connections tab is the one live exception). Read
+[`AGENTS.md`](AGENTS.md) → "Render model" before touching any data-fetching code.
 
 ---
 
@@ -27,7 +30,7 @@ is not baked into the build). See [`AGENTS.md`](AGENTS.md) → "Data flow".
 | ------------ | ------------------------------------------------ | -------------------------------------------------- |
 | Database/API | Supabase (PostgreSQL)                            | Auto-generated REST API; "Hub-and-Spoke" schema    |
 | Ingestion    | Python + GitHub Actions                          | Free-tier / open-source data sources only          |
-| Frontend     | Next.js (App Router) + React 19 + Tailwind CSS 4 | `output: 'export'` — static shells; data read live from Supabase in the browser |
+| Frontend     | Next.js (App Router) + React 19 + Tailwind CSS 4 | `output: 'export'` — hybrid: home/search + `/directory` read live; profile pages baked at build time |
 | Hosting      | GitHub Pages (frontend) + GitHub Actions (ETL)   | Zero-cost                                           |
 
 See [`spec.md`](spec.md) for the full product/technical spec and [`AGENTS.md`](AGENTS.md)
@@ -137,13 +140,30 @@ Both pipelines run from GitHub Actions:
 
 - **`.github/workflows/nextjs.yml`** — builds the static frontend and deploys it to GitHub
   Pages. Set `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` as repository
-  secrets. These `NEXT_PUBLIC_*` values are embedded in the client bundle, so the exported
-  pages read data **live from Supabase in the browser** (the anon key is public by design,
-  protected by Supabase RLS); the build also uses them to enumerate static routes. The
-  deploy ships the UI, not a data snapshot — content refreshes without a rebuild as the
-  nightly ETL updates Supabase.
+  secrets (embedded in the client bundle; the anon key is public by design, protected by
+  Supabase RLS). The home/search and `/directory` pages read Supabase **live in the
+  browser**, but the **`/[politician_id]` profile pages are baked at build time** — their
+  contact / financial / donor / voting / media tabs only refresh when this deploy re-runs.
+  It is wired to re-run automatically after a *successful* nightly ETL via a `workflow_run`
+  trigger, so profiles re-bake after each scrape. (A failed scraper run does **not** trigger
+  the deploy, so the live site keeps the last good build rather than shipping nothing.)
 - **`.github/workflows/scraper.yml`** — runs the Python ETL on a nightly schedule, writing
   fresh data into Supabase.
+
+### Applying migrations
+
+There is **no migration runner**. Neither workflow applies SQL to Supabase — `scraper.yml`
+only runs the ETL and `nextjs.yml` only builds. After adding or changing anything in
+[`migrations/`](migrations/), apply it manually in the **Supabase SQL editor** (or via `psql`),
+in filename order. All migrations are idempotent (`ADD COLUMN IF NOT EXISTS`, `CREATE … IF NOT
+EXISTS`, `DROP POLICY IF EXISTS`), so re-running the full set is safe.
+
+> **Symptom of un-applied migrations:** the scraper log fills with PGRST204 errors like
+> `Could not find the 'district' column of 'politicians' in the schema cache`, and profile
+> pages show stale/empty data. The fix is to run the pending migrations (e.g. `0002`–`0004`)
+> against the live database, then re-run the **Deploy Next.js to GitHub Pages** workflow so
+> the profile pages re-bake. If a freshly-added column still isn't found right after applying,
+> reload PostgREST's schema cache (`NOTIFY pgrst, 'reload schema';`).
 
 ---
 
