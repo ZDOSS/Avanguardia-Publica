@@ -29,6 +29,18 @@ def main():
     supabase_key = os.environ.get("SUPABASE_KEY")
     loader = SupabaseLoader(supabase_url, supabase_key)
 
+    # Fail loud if running in CI without credentials. Without a key the loader drops into
+    # dry-run mode, which writes nothing and would otherwise exit 0 and trigger the Pages
+    # deploy over stale/empty data — the same silent zero-write "success" the fail-loud upsert
+    # changes exist to prevent. Local runs without creds still use dry-run mode as before.
+    if loader.supabase is None and (
+        os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+    ):
+        sys.exit(
+            "FATAL: SUPABASE_URL/SUPABASE_KEY not set in CI — refusing to run a no-op "
+            "pipeline that would deploy empty data. Configure the repository secrets."
+        )
+
     # FEC donor enrichment only runs with a real api.data.gov key — DEMO_KEY's tiny
     # hourly limit would 429 almost immediately across all members, so it is treated
     # the same as "not configured".

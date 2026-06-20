@@ -27,18 +27,32 @@ _FILING_TYPE_LABELS = {
 _WS_RE = re.compile(r"\s+")
 _PUNCT_RE = re.compile(r"[.,]")
 
+# Honorifics/suffixes that the House Clerk feed embeds in the First/Last name fields (real
+# example: First="Marjorie Taylor Mrs", Last="Greene"). Left in, they inflate the token count
+# and break the first+last fallback key. Stripped from every name on BOTH the index and lookup
+# side so matching stays symmetric. (Bare single-letter suffixes like "V" are deliberately
+# excluded — they're indistinguishable from a middle initial.)
+_NAME_NOISE = {"mr", "mrs", "ms", "miss", "dr", "hon", "jr", "sr", "ii", "iii", "iv"}
+
 
 def _normalize_name(name: str) -> str:
-    """Lowercased, punctuation-stripped, whitespace-collapsed name for exact matching."""
+    """Lowercased, punctuation-stripped, honorific/suffix-free, whitespace-collapsed name."""
     if not name:
         return ""
-    return _WS_RE.sub(" ", _PUNCT_RE.sub(" ", name.lower())).strip()
+    cleaned = _WS_RE.sub(" ", _PUNCT_RE.sub(" ", name.lower())).strip()
+    return " ".join(t for t in cleaned.split(" ") if t and t not in _NAME_NOISE)
 
 
 def _no_middle(norm: str) -> str:
-    """'richard w allen' -> 'richard allen' (drop a single middle name/initial token)."""
+    """
+    'richard w allen' -> 'richard allen' (drop a single middle name/initial token).
+
+    Honorifics/suffixes are already removed by _normalize_name, so a 3-token name here is a
+    genuine first/middle/last. With 4+ real tokens the structure is ambiguous (e.g. a compound
+    first name), so we leave matching to the full normalized key rather than emit a wrong one.
+    """
     parts = norm.split(" ")
-    return f"{parts[0]} {parts[-1]}" if len(parts) >= 3 else norm
+    return f"{parts[0]} {parts[-1]}" if len(parts) == 3 else norm
 
 
 def _parse_date(raw: str):
