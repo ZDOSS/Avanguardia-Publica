@@ -21,7 +21,7 @@ When a user clicks a politician from the search results, they land here. This vi
 ### D. View 3: The Data Spokes (Tabbed Navigation)
 Directly beneath the Hub, the dense data is categorized into horizontal, clickable tabs. Only one tab's data is rendered at a time to prevent endless scrolling and browser lag.
 
-**Data is fetched LIVE from Supabase in the browser** (supabase-js anon client / Postgres RPC) when a tab renders — it is *not* baked into the static export. See AGENTS.md → "Data flow".
+**Render model (hybrid):** these profile tabs (Financial Disclosures, Campaign Donors, Voting Record, Media) are **baked at build time** — `[politician_id]/page.tsx` is an `async` server component that fetches them during `npm run build`, so they refresh only on redeploy. The **Connections** tab is the exception: it is fetched LIVE in the browser via Postgres RPC. See AGENTS.md → "Render model".
 
 | Tab Name | Data Rendered | UI Component Rules |
 | :--- | :--- | :--- |

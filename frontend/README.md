@@ -2,18 +2,22 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Data architecture (read this first)
 
-This app is built with `output: "export"` and hosted on **GitHub Pages**, but that only
-makes the **page shells / routes** static — **the data is NOT baked into the build.**
-Politician data is read **live from Supabase in the browser at runtime** via the
-`@supabase/supabase-js` anon client (`src/lib/supabase.ts`):
+This app is built with `output: "export"` and hosted on **GitHub Pages**, so there is **no
+server at runtime.** The render model is **hybrid** — whether data is live or frozen depends
+on where the fetch runs:
 
-- Directory/search → `fetchAllPoliticians` (`src/lib/politicians.ts`), called from `page.tsx`.
-- Profile **Connections** → Postgres RPC functions via `supabase.rpc()` (`src/lib/connections.ts`).
+- **LIVE (client-fetched in the browser; reflects the DB with no rebuild):** home/search
+  (`app/page.tsx`, `"use client"` → `fetchAllPoliticians` in `src/lib/politicians.ts`),
+  `/directory` (`DirectoryClient.tsx`), and the profile **Connections** tab
+  (`ConnectionsTab.tsx` → `supabase.rpc()`, `src/lib/connections.ts`).
+- **BAKED at build time (frozen into static HTML; only changes on redeploy):** the
+  `/[politician_id]` profile payload *except* Connections — `app/[politician_id]/page.tsx` is
+  an `async` server component that bakes the hub header plus the contact / financial / donor /
+  voting / media tabs during `npm run build`.
 
-When adding a data view, fetch it live client-side (or add a Supabase RPC and call it with
-`supabase.rpc()`) so it reflects the current database without a rebuild. **Do not** freeze
-query results into the static export. See `../AGENTS.md` → "Data flow" and
-`../docs/connections_design.md`.
+When adding a profile data view that must reflect the DB without a rebuild, make it a
+`"use client"` component or a Supabase RPC called with `supabase.rpc()` (copy the Connections
+pattern). See `../AGENTS.md` → "Render model" (authoritative) and `../docs/connections_design.md`.
 
 ## Getting Started
 
@@ -48,5 +52,6 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 
 This project deploys as a **static export to GitHub Pages** (not Vercel). `next build`
 with `output: "export"` emits the static `out/` directory; CI publishes it to GitHub Pages.
-The exported pages then read live data from Supabase in the browser (see "Data architecture"
-above), so a deploy ships the UI, not a data snapshot.
+The home/search and `/directory` pages then read live from Supabase in the browser, but the
+`/[politician_id]` profile pages are **baked at build time** and only refresh on redeploy
+(see "Data architecture" above).

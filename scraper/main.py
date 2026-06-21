@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import logging
+from datetime import date
 from dotenv import load_dotenv
 from loader import SupabaseLoader
 from extractors.gov_api import get_congress_members
@@ -12,6 +13,7 @@ from extractors.govtrack import get_voting_records
 from extractors.openstates import get_state_politicians
 from extractors.openstates_votes import get_state_voting_records
 from extractors.federal import get_federal_exec_judicial
+from extractors.financial_disclosures import get_house_disclosure_index, lookup_disclosures
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,6 +29,18 @@ def main():
     supabase_key = os.environ.get("SUPABASE_KEY")
     loader = SupabaseLoader(supabase_url, supabase_key)
 
+    # Fail loud if running in CI without credentials. Without a key the loader drops into
+    # dry-run mode, which writes nothing and would otherwise exit 0 and trigger the Pages
+    # deploy over stale/empty data — the same silent zero-write "success" the fail-loud upsert
+    # changes exist to prevent. Local runs without creds still use dry-run mode as before.
+    if loader.supabase is None and (
+        os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+    ):
+        sys.exit(
+            "FATAL: SUPABASE_URL/SUPABASE_KEY not set in CI — refusing to run a no-op "
+            "pipeline that would deploy empty data. Configure the repository secrets."
+        )
+
     # FEC donor enrichment only runs with a real api.data.gov key — DEMO_KEY's tiny
     # hourly limit would 429 almost immediately across all members, so it is treated
     # the same as "not configured".
@@ -38,6 +52,15 @@ def main():
     # 1. Fetch active Congress members
     members = get_congress_members()
     print(f"Found {len(members)} Congress members.")
+
+    # House financial-disclosure filings (verified spoke) from the official House Clerk bulk
+    # feed — filing-level only (member/type/date + official PDF link), keyless. Built ONCE for
+    # the current + previous year and matched per-member by name below. Never fatal: an outage
+    # just yields an empty index (House members only — senators/state are not in this feed).
+    fd_years = [date.today().year, date.today().year - 1]
+    print(f"Building House financial-disclosure index for {fd_years}...")
+    house_fd_index = get_house_disclosure_index(fd_years)
+    print(f"  House FD index: {len(house_fd_index)} name keys.")
     
     # 2. Iterate through each member and scrape third-party data sequentially
     total = len(members)
@@ -89,6 +112,22 @@ def main():
                 print("  [*] Fetching news data (multi-tier aggregator)...")
                 news_data = get_news_data(member['full_name'])
                 loader.process_mentions(politician_id, news_data, 'NewsAggregator')
+
+                # Verified spoke: House financial-disclosure filings, matched by name against
+                # the pre-built House Clerk index. Explicit House-only guard: the feed contains
+                # only Representatives, so without it a Senator who shares a normalized name
+                # with a Representative could be mis-attributed that member's filings — rather
+                # than relying implicitly on senators being absent from the index. Exact name
+                # match only — never fuzzy. Kept LAST of the spokes: it is the only one that
+                # depends on migration 0005, so if 0005 is unapplied its raise (which fails the
+                # run, as intended) still lets the older spokes above write first.
+                is_house_member = (member.get('current_office') or '').startswith('US Representative')
+                if is_house_member:
+                    fd_filings = lookup_disclosures(
+                        house_fd_index, [member['full_name']] + (member.get('aliases') or [])
+                    )
+                    if fd_filings:
+                        loader.upsert_financial_disclosures(politician_id, fd_filings)
         except Exception as e:
             print(f"  [!] Error scraping {member['full_name']}: {e}")
             errors_caught += 1
@@ -167,6 +206,12 @@ def main():
         print("\nPipeline finished successfully.")
     else:
         print(f"\nPipeline finished with {errors_caught} errors.")
+        # A run where (nearly) every record errors almost always means the live database
+        # schema has drifted from migrations/ — e.g. a column the loader writes doesn't
+        # exist yet, so every upsert raises PGRST204 ("Could not find the 'X' column ...
+        # in the schema cache"). Migrations are applied MANUALLY (there is no runner); see
+        # README "Applying migrations". Exiting non-zero fails the run so the deploy gate
+        # (nextjs.yml workflow_run) does not ship a stale site.
         sys.exit(1)
 
 if __name__ == "__main__":

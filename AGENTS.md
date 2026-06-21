@@ -12,28 +12,43 @@ Avanguardia-Publica is an application designed to aggregate, classify, and displ
   - The pipeline uses a robust, highly-resilient multi-tier strategy for pulling news data.
   - Tiers: Currents API → NewsData.io → TheNewsAPI → GDELT (via `newspaper3k`).
 
-### 🔑 Data flow: Supabase is read LIVE in the browser — data is NOT baked into the build
-This is the single most-misread part of the architecture, so read it before touching any
-page or data-fetching code:
+### 🔑 Render model: HYBRID — `/directory` & search are LIVE, profile pages are BUILD-TIME BAKED
+This is the single most-misread part of the architecture and it has burned multiple sessions.
+Read it before touching any page or data-fetching code, and DO NOT "correct" it from intuition —
+verify against the actual component (`"use client"` vs `async` server component).
 
-- `output: "export"` (in `next.config.ts`) makes the build emit **static page shells +
-  routes** for GitHub Pages hosting. **It does NOT mean the data is frozen at build time.**
-  The export is *hosting*, not a data snapshot.
-- The **data is fetched live from Supabase in the user's browser at runtime**, via the
-  `@supabase/supabase-js` anon client (`frontend/src/lib/supabase.ts`) — exactly like the
-  directory (`fetchAllPoliticians` in `lib/politicians.ts`, called from `page.tsx`) and the
-  profile **Connections** tab (`supabase.rpc(...)` in `lib/connections.ts`). New data views
-  should follow this same client-side pattern, or call a Postgres RPC, so the page always
-  reflects the current database without a rebuild.
-- **Do not** "solve" data display by baking query results into the static output or by
-  precomputing tables just to avoid a live query. If you need server-side aggregation,
-  add a Supabase **RPC function** (`SECURITY DEFINER`, `GRANT EXECUTE ... TO anon`) and call
-  it live with `supabase.rpc()` — see `migrations/0003_connections.sql` for the pattern.
-- The one build-time exception today: `[politician_id]/page.tsx` pre-renders the static
-  route list (`generateStaticParams`) and the profile **hub header** fields. Everything
-  dynamic on the profile (connections, and anything you add) is fetched live client-side.
-  Treat live client-side reads as the default; build-time fetching is only for enumerating
-  routes, not for freezing displayed data.
+`output: "export"` (in `next.config.ts`) emits a fully static site for GitHub Pages — **there is
+no server at runtime.** Whether a given piece of data is live or frozen depends entirely on
+*where the fetch runs*:
+
+**LIVE — fetched in the user's browser at runtime; reflects the database with no rebuild:**
+- `/` (home + search) — `app/page.tsx` is a `"use client"` component; calls `fetchAllPoliticians`
+  (`lib/politicians.ts`) from a `useEffect`.
+- `/directory` — `app/directory/DirectoryClient.tsx` is `"use client"`.
+- The profile **Connections** tab — `app/[politician_id]/ConnectionsTab.tsx` is `"use client"`;
+  calls `supabase.rpc(...)` (`lib/connections.ts`).
+
+**BAKED — fetched once during `npm run build` and frozen into static HTML; changes ONLY when the
+frontend is rebuilt/redeployed, NOT when the database changes:**
+- The **entire `/[politician_id]` profile payload EXCEPT the Connections tab.**
+  `app/[politician_id]/page.tsx` is an `async` **server component**; under `output: "export"` it
+  runs at build time and bakes in the hub header (name/office/party), the **Official Contact**
+  card, **Financial Disclosures**, **Campaign Donors**, **Voting Record**, AND the **Media** tab
+  (`unconfirmed_mentions`). It also enumerates the static route list via `generateStaticParams`.
+
+**The consequence people keep tripping over:** after the nightly scraper writes new data, the
+directory and search show it immediately, but the **profile tabs (contact, financial, donors,
+voting, media) stay stale until the frontend is redeployed.** `nextjs.yml` re-runs automatically
+after a *successful* scraper run (`workflow_run` trigger), so profiles normally re-bake nightly —
+but a scraper run that fails or writes nothing means the profiles never refresh. Re-running the
+scraper alone does **not** update these tabs; re-running the `nextjs.yml` deploy is what re-bakes
+them.
+
+**If you want a profile data view to update live without a rebuild,** make it a `"use client"`
+component that queries Supabase directly, or add a Postgres **RPC** (`SECURITY DEFINER`,
+`GRANT EXECUTE ... TO anon`) and call it with `supabase.rpc()` — copy the Connections pattern
+(`lib/connections.ts`, `migrations/0003_connections.sql`). Do not assume the server-component
+fetch in `page.tsx` is live; it is not.
 
 ## ✅ Recent Milestones (PR #20 merged)
 The most recent major feature update was the completion of the Directory and News Aggregator overhaul. The following is now live on `main`:
@@ -56,7 +71,15 @@ When contributing to this project, you must adhere strictly to these rules:
 2. **Data Integrity & Labeling:** You are permitted to use unconfirmed data sources (e.g. for politician headers) *only* if the frontend explicitly and visibly labels them as "unconfirmed".
 3. **Classification Order:** When modifying the keyword classifiers in `DirectoryClient.tsx`, remember that Javascript evaluates array rules sequentially. State & Federal rules must always sit above generic Local rules to avoid substring capturing errors.
 4. **DCO Compliance:** Every single commit requires a Developer Certificate of Origin. You **must** append `--signoff` or `-s` to every `git commit` command (e.g., `git commit --signoff -m "message"`).
-5. **Agent Configuration:** If you require additional capabilities to parse data, generate code, or analyze specific schemas, you must explicitly look up and add the appropriate agent skills or rules. We use non-frontier models for some tasks which need an extra push, so always configure the required skills before executing complex workflows.
+5. **Migrations are applied MANUALLY — there is no runner.** Nothing in CI applies
+   `schema.sql` or `migrations/*.sql` to Supabase; `scraper.yml` only runs the ETL and
+   `nextjs.yml` only builds. When you add a column/table/RPC in a migration, you (or the
+   maintainer) must run it in the Supabase SQL editor, or the live DB silently drifts from
+   the code. Drift is the #1 cause of "no data" outages here: the loader writes a column the
+   live table lacks, **every** upsert fails with PGRST204, and (until this was fixed) the
+   pipeline still reported success. All migrations are idempotent — safe to re-run in order.
+   See README → "Applying migrations".
+6. **Agent Configuration:** If you require additional capabilities to parse data, generate code, or analyze specific schemas, you must explicitly look up and add the appropriate agent skills or rules. We use non-frontier models for some tasks which need an extra push, so always configure the required skills before executing complex workflows.
 
 ## 🚀 Next Steps & Outstanding Work
 - The groundwork is incredibly solid. The new agent should feel free to start building out any further visual analytics, user-authenticated features, or new scraper modules on top of this reliable foundation.

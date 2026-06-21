@@ -36,15 +36,31 @@ CREATE TABLE IF NOT EXISTS contact_info (
 );
 
 -- 3. Verified Spoke: financial_disclosures
+-- FILING-LEVEL records from the official House Clerk bulk feed (see migrations/0005): one row
+-- per disclosure document (Periodic Transaction Report / Annual), identified by the stable
+-- House DocID and linked to its official PDF. The itemized asset/value/transaction rows live
+-- inside that PDF, not here — the community transaction feed that populated those columns is
+-- offline — so asset_name/asset_value_range/transaction_type are nullable and dedup is on
+-- doc_id. (The legacy transaction columns are retained for any pre-0005 rows.)
 CREATE TABLE IF NOT EXISTS financial_disclosures (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     politician_id UUID REFERENCES politicians(id) ON DELETE CASCADE,
-    asset_name TEXT NOT NULL,
+    -- Filing-level metadata (House Clerk).
+    doc_id TEXT,
+    doc_url TEXT,
+    filing_type TEXT,
+    -- Legacy per-transaction columns (nullable; only set by a parsed-transaction source).
+    asset_name TEXT,
     asset_value_range TEXT,
     transaction_type TEXT,
     filing_date DATE NOT NULL,
     UNIQUE(politician_id, asset_name, transaction_type, filing_date)
 );
+
+-- Stable per-filing key for idempotent upserts (NULLs stay distinct, so legacy rows are
+-- unaffected). Mirrors migrations/0005.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_financial_disclosures_doc_id
+    ON financial_disclosures (doc_id);
 
 -- 4. Verified Spoke: campaign_donors
 CREATE TABLE IF NOT EXISTS campaign_donors (

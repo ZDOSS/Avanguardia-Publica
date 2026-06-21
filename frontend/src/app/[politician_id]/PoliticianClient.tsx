@@ -4,12 +4,13 @@ import { useState } from 'react';
 import Link from 'next/link';
 import ConnectionsTab from './ConnectionsTab';
 
+// Filing-level record from the official House Clerk feed. The per-transaction asset/value
+// detail lives in the linked PDF (doc_url), not in our DB — see migrations/0005.
 export interface FinancialDisclosure {
   id: string;
   filing_date: string;
-  transaction_type: string;
-  asset_name: string;
-  asset_value_range: string;
+  filing_type: string;
+  doc_url: string | null;
 }
 
 export interface CampaignDonor {
@@ -135,28 +136,39 @@ export default function PoliticianClient({ politician, unconfirmed }: Props) {
 
         {/* The Spokes (Data Views) */}
         <div className="min-h-[400px]">
-          {/* Financial Disclosures */}
+          {/* Financial Disclosures — filing-level records from the official U.S. House Clerk
+              feed. Each row links to the official PDF, which itemizes the transactions
+              (the bulk feed does not expose them as structured data). */}
           {activeTab === 'financial' && (
             <div className="overflow-x-auto premium-card">
+              <p className="p-4 text-sm text-[var(--color-official-text-muted)] border-b border-[var(--color-official-border)]">
+                Official financial-disclosure filings from the U.S. House Clerk. Open a filing to view its itemized transactions and asset values.
+              </p>
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-[var(--color-official-bg-alt)] border-b border-[var(--color-official-border)]">
-                    <th className="p-4 font-semibold text-sm tracking-wide text-[var(--color-official-text-muted)] uppercase">Date</th>
-                    <th className="p-4 font-semibold text-sm tracking-wide text-[var(--color-official-text-muted)] uppercase">Transaction</th>
-                    <th className="p-4 font-semibold text-sm tracking-wide text-[var(--color-official-text-muted)] uppercase">Asset Name</th>
-                    <th className="p-4 font-semibold text-sm tracking-wide text-[var(--color-official-text-muted)] uppercase">Value Range</th>
+                    <th className="p-4 font-semibold text-sm tracking-wide text-[var(--color-official-text-muted)] uppercase">Filed</th>
+                    <th className="p-4 font-semibold text-sm tracking-wide text-[var(--color-official-text-muted)] uppercase">Filing Type</th>
+                    <th className="p-4 font-semibold text-sm tracking-wide text-[var(--color-official-text-muted)] uppercase">Document</th>
                   </tr>
                 </thead>
                 <tbody>
                   {politician.financial_disclosures?.length ? politician.financial_disclosures.map((item: FinancialDisclosure) => (
                     <tr key={item.id} className="border-b border-[var(--color-official-border)] hover:bg-[var(--color-official-bg-alt)]/50 transition-colors">
                       <td className="p-4 whitespace-nowrap text-sm">{item.filing_date}</td>
-                      <td className="p-4"><span className="px-2 py-1 bg-[var(--color-official-bg-alt)] text-[var(--color-official-text)] border border-[var(--color-official-border)] rounded text-xs font-bold uppercase tracking-wider">{item.transaction_type}</span></td>
-                      <td className="p-4 font-medium">{item.asset_name}</td>
-                      <td className="p-4 text-[var(--color-official-text-muted)]">{item.asset_value_range}</td>
+                      <td className="p-4 font-medium">{item.filing_type}</td>
+                      <td className="p-4">
+                        {item.doc_url ? (
+                          <a href={item.doc_url} target="_blank" rel="noreferrer" className="text-[var(--color-official-link)] hover:underline text-sm font-bold inline-flex items-center">
+                            View filing <span className="ml-1">&rarr;</span>
+                          </a>
+                        ) : (
+                          <span className="text-[var(--color-official-text-muted)]">&mdash;</span>
+                        )}
+                      </td>
                     </tr>
                   )) : (
-                    <tr><td colSpan={4} className="p-8 text-center text-[var(--color-official-text-muted)]">No financial disclosures on record.</td></tr>
+                    <tr><td colSpan={3} className="p-8 text-center text-[var(--color-official-text-muted)]">No financial disclosures on record.</td></tr>
                   )}
                 </tbody>
               </table>
