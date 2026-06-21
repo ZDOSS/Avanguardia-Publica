@@ -114,16 +114,20 @@ def main():
                 loader.process_mentions(politician_id, news_data, 'NewsAggregator')
 
                 # Verified spoke: House financial-disclosure filings, matched by name against
-                # the pre-built House Clerk index (House members only; the feed has no
-                # senators). Exact name match only — never fuzzy. Kept LAST of the spokes: it
-                # is the only one that depends on migration 0005, so if 0005 is unapplied its
-                # raise (which fails the run, as intended) still lets the older, working spokes
-                # above write first for this member.
-                fd_filings = lookup_disclosures(
-                    house_fd_index, [member['full_name']] + (member.get('aliases') or [])
-                )
-                if fd_filings:
-                    loader.upsert_financial_disclosures(politician_id, fd_filings)
+                # the pre-built House Clerk index. Explicit House-only guard: the feed contains
+                # only Representatives, so without it a Senator who shares a normalized name
+                # with a Representative could be mis-attributed that member's filings — rather
+                # than relying implicitly on senators being absent from the index. Exact name
+                # match only — never fuzzy. Kept LAST of the spokes: it is the only one that
+                # depends on migration 0005, so if 0005 is unapplied its raise (which fails the
+                # run, as intended) still lets the older spokes above write first.
+                is_house_member = (member.get('current_office') or '').startswith('US Representative')
+                if is_house_member:
+                    fd_filings = lookup_disclosures(
+                        house_fd_index, [member['full_name']] + (member.get('aliases') or [])
+                    )
+                    if fd_filings:
+                        loader.upsert_financial_disclosures(politician_id, fd_filings)
         except Exception as e:
             print(f"  [!] Error scraping {member['full_name']}: {e}")
             errors_caught += 1
