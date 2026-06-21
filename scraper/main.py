@@ -92,15 +92,6 @@ def main():
                         donors = get_campaign_donors(fec_ids)
                         loader.upsert_campaign_donors(politician_id, donors)
 
-                # Verified spoke: House financial-disclosure filings, matched by name against
-                # the pre-built House Clerk index (House members only; the feed has no
-                # senators). Exact name match only — never fuzzy.
-                fd_filings = lookup_disclosures(
-                    house_fd_index, [member['full_name']] + (member.get('aliases') or [])
-                )
-                if fd_filings:
-                    loader.upsert_financial_disclosures(politician_id, fd_filings)
-
                 # Verified spoke: roll-call votes from GovTrack, joined by the
                 # govtrack person id in the crosswalk (free, no key).
                 govtrack_id = (member.get('external_ids') or {}).get('govtrack')
@@ -121,6 +112,18 @@ def main():
                 print("  [*] Fetching news data (multi-tier aggregator)...")
                 news_data = get_news_data(member['full_name'])
                 loader.process_mentions(politician_id, news_data, 'NewsAggregator')
+
+                # Verified spoke: House financial-disclosure filings, matched by name against
+                # the pre-built House Clerk index (House members only; the feed has no
+                # senators). Exact name match only — never fuzzy. Kept LAST of the spokes: it
+                # is the only one that depends on migration 0005, so if 0005 is unapplied its
+                # raise (which fails the run, as intended) still lets the older, working spokes
+                # above write first for this member.
+                fd_filings = lookup_disclosures(
+                    house_fd_index, [member['full_name']] + (member.get('aliases') or [])
+                )
+                if fd_filings:
+                    loader.upsert_financial_disclosures(politician_id, fd_filings)
         except Exception as e:
             print(f"  [!] Error scraping {member['full_name']}: {e}")
             errors_caught += 1
