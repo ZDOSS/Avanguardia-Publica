@@ -12,7 +12,7 @@ Avanguardia-Publica is an application designed to aggregate, classify, and displ
   - The pipeline uses a robust, highly-resilient multi-tier strategy for pulling news data.
   - Tiers: Currents API → NewsData.io → TheNewsAPI → GDELT (via `newspaper3k`).
 
-### 🔑 Render model: HYBRID — `/directory` & search are LIVE, profile pages are BUILD-TIME BAKED
+### 🔑 Render model: STATIC EXPORT with LIVE client data
 This is the single most-misread part of the architecture and it has burned multiple sessions.
 Read it before touching any page or data-fetching code, and DO NOT "correct" it from intuition —
 verify against the actual component (`"use client"` vs `async` server component).
@@ -25,30 +25,29 @@ no server at runtime.** Whether a given piece of data is live or frozen depends 
 - `/` (home + search) — `app/page.tsx` is a `"use client"` component; calls `fetchAllPoliticians`
   (`lib/politicians.ts`) from a `useEffect`.
 - `/directory` — `app/directory/DirectoryClient.tsx` is `"use client"`.
-- The profile **Connections** tab — `app/[politician_id]/ConnectionsTab.tsx` is `"use client"`;
-  calls `supabase.rpc(...)` (`lib/connections.ts`).
+- `/profile?id=<uuid>` — `app/profile/ProfilePageClient.tsx` is `"use client"` and fetches
+  the profile header from `lib/profile.ts`.
+- Profile data spokes under `app/[politician_id]/` are client-fetched independently:
+  **Official Contact**, **Financial Disclosures**, **Campaign Donors**, **Voting Record**,
+  **Connections**, and **Media**. Connections uses Postgres RPC (`lib/connections.ts`);
+  the other spokes use focused Supabase helpers in `frontend/src/lib/`.
 
 **BAKED — fetched once during `npm run build` and frozen into static HTML; changes ONLY when the
 frontend is rebuilt/redeployed, NOT when the database changes:**
-- The **entire `/[politician_id]` profile payload EXCEPT the Connections tab.**
-  `app/[politician_id]/page.tsx` is an `async` **server component**; under `output: "export"` it
-  runs at build time and bakes in the hub header (name/office/party), the **Official Contact**
-  card, **Financial Disclosures**, **Campaign Donors**, **Voting Record**, AND the **Media** tab
-  (`unconfirmed_mentions`). It also enumerates the static route list via `generateStaticParams`.
+- The legacy pretty `/[politician_id]` route list is still enumerated by
+  `generateStaticParams()` during `npm run build`, because GitHub Pages cannot create new
+  dynamic routes at runtime. Its server component now fetches only the minimal profile header
+  needed for the static shell; the contact card and profile tabs fetch live in the browser.
 
-**The consequence people keep tripping over:** after the nightly scraper writes new data, the
-directory and search show it immediately, but the **profile tabs (contact, financial, donors,
-voting, media) stay stale until the frontend is redeployed.** `nextjs.yml` re-runs automatically
-after a *successful* scraper run (`workflow_run` trigger), so profiles normally re-bake nightly —
-but a scraper run that fails or writes nothing means the profiles never refresh. Re-running the
-scraper alone does **not** update these tabs; re-running the `nextjs.yml` deploy is what re-bakes
-them.
+**The consequence:** after the nightly scraper writes new data, search and directory can link to
+`/profile?id=<uuid>` immediately, and that live route can show the row without a frontend
+rebuild. The legacy pretty `/[politician_id]` SEO route for a brand-new row still appears only
+after a deploy, but its data spokes are live once the page exists.
 
-**If you want a profile data view to update live without a rebuild,** make it a `"use client"`
+**If you add a profile data view that must update without a rebuild,** make it a `"use client"`
 component that queries Supabase directly, or add a Postgres **RPC** (`SECURITY DEFINER`,
-`GRANT EXECUTE ... TO anon`) and call it with `supabase.rpc()` — copy the Connections pattern
-(`lib/connections.ts`, `migrations/0003_connections.sql`). Do not assume the server-component
-fetch in `page.tsx` is live; it is not.
+`GRANT EXECUTE ... TO anon`) and call it with `supabase.rpc()` when computed server-side SQL is
+needed.
 
 ## ✅ Recent Milestones (PR #20 merged)
 The most recent major feature update was the completion of the Directory and News Aggregator overhaul. The following is now live on `main`:

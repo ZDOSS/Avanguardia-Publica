@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import PoliticianClient from './PoliticianClient';
+import type { PoliticianData } from './PoliticianClient';
 
 // This function runs at build time on GitHub Actions
 export async function generateStaticParams() {
@@ -43,8 +44,7 @@ export default async function Page(props: { params: Promise<{ politician_id: str
   const { politician_id } = params;
 
   // We fetch the data on the server side at build time for the static export
-  let politician = null;
-  let unconfirmed = [];
+  let politician: PoliticianData | null = null;
 
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(politician_id);
 
@@ -56,7 +56,7 @@ export default async function Page(props: { params: Promise<{ politician_id: str
       
       const { data: polData, error: polError } = await supabase
         .from('politicians')
-        .select('*, contact_info(*), financial_disclosures(*), campaign_donors(*), voting_records(*)')
+        .select('id, full_name, current_office, party, state, district, last_updated')
         .eq('id', politician_id)
         .maybeSingle();
         
@@ -65,16 +65,6 @@ export default async function Page(props: { params: Promise<{ politician_id: str
         politician = polData;
       }
 
-      const { data: mentions, error: mentionsError } = await supabase
-        .from('unconfirmed_mentions')
-        .select('*')
-        .eq('politician_id', politician_id)
-        .order('created_at', { ascending: false });
-
-      if (mentionsError) throw mentionsError;
-      if (mentions) {
-        unconfirmed = mentions;
-      }
     } else {
       // Safe logging of the non-UUID politician_id to prevent log injection
       console.warn(`Non-UUID politician ID detected: ${JSON.stringify(politician_id.slice(0, 100))}. Skipping database query.`);
@@ -95,10 +85,15 @@ export default async function Page(props: { params: Promise<{ politician_id: str
         full_name: politician_id === 'biden-joe' ? 'Joe Biden (Mock)' : 'Kamala Harris (Mock)',
         current_office: politician_id === 'biden-joe' ? 'President of the United States' : 'Vice President of the United States',
         party: 'Democratic',
-        contact_info: [{ office_address: '1600 Pennsylvania Ave NW', phone_number: '202-456-1111', official_website: 'https://www.whitehouse.gov' }],
-        financial_disclosures: [],
-        campaign_donors: [],
-        voting_records: []
+        state: null,
+        district: null,
+        last_updated: null,
+        contact_info: [{
+          office_address: '1600 Pennsylvania Ave NW',
+          phone_number: '202-456-1111',
+          official_website: 'https://www.whitehouse.gov',
+          last_updated: null,
+        }],
       };
     } else {
       // Trigger Next.js native 404 for invalid pages in production
@@ -107,5 +102,5 @@ export default async function Page(props: { params: Promise<{ politician_id: str
   }
 
   // Pass data to the interactive client component
-  return <PoliticianClient politician={politician} unconfirmed={unconfirmed} />;
+  return <PoliticianClient politician={politician} />;
 }

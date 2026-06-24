@@ -23,6 +23,23 @@ The current app is hybrid. Home/search, directory, and the profile Connections t
 browser reads. Most profile content is still baked into static profile pages during
 `npm run build`. This phase removes that mismatch.
 
+### Phase 1 Progress
+
+Implemented in the live-profile-spokes chunk:
+
+- `/profile?id=<uuid>` is the reliable live profile route used by search/directory links.
+- Profile header and official contact have focused live helpers in `frontend/src/lib/profile.ts`.
+- Financial disclosures, campaign donors, voting records, and media mentions have dedicated
+  ranged helpers in `frontend/src/lib/`.
+- Official Contact, Financial Disclosures, Campaign Donors, Voting Record, and Media now render
+  as client-fetched views with loading, error, empty, retry, pagination, and freshness cues.
+- The legacy `/[politician_id]` page no longer bakes profile spokes; it only generates the static
+  route shell/header for SEO compatibility.
+
+Remaining follow-up: decide whether legacy pretty profile headers should also re-fetch their hub
+fields client-side, or whether `/profile?id=<uuid>` should remain the canonical live route while
+pretty pages are SEO snapshots.
+
 ### 1.1 Add Live Profile Data Helpers
 
 Create focused frontend data helpers in `frontend/src/lib/` for profile spokes:

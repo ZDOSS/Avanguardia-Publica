@@ -1,6 +1,8 @@
 import { isUuid } from './ids';
 
-export function profilePath(id: string): string {
+export function profilePath(id: string, tab?: string): string {
   if (!isUuid(id)) return `/${encodeURIComponent(id)}`;
-  return `/profile?id=${encodeURIComponent(id)}`;
+  const params = new URLSearchParams({ id });
+  if (tab) params.set('tab', tab);
+  return `/profile?${params.toString()}`;
 }

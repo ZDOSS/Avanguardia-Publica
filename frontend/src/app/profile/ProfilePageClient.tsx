@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import PoliticianClient from '@/app/[politician_id]/PoliticianClient';
 import { isUuid } from '@/lib/ids';
-import { fetchLiveProfile, type LiveProfileBundle } from '@/lib/profile';
+import { fetchProfileHeader, type ProfileHeader } from '@/lib/profile';
 
 export default function ProfilePageClient() {
   const searchParams = useSearchParams();
@@ -23,17 +23,17 @@ export default function ProfilePageClient() {
 }
 
 function LiveProfile({ id }: { id: string }) {
-  const [bundle, setBundle] = useState<LiveProfileBundle | null>(null);
+  const [politician, setPolitician] = useState<ProfileHeader | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
-    fetchLiveProfile(id)
-      .then((nextBundle) => {
+    fetchProfileHeader(id)
+      .then((nextPolitician) => {
         if (cancelled) return;
-        if (nextBundle) {
-          setBundle(nextBundle);
+        if (nextPolitician) {
+          setPolitician(nextPolitician);
         } else {
           setError('No politician was found for this live profile link.');
         }
@@ -50,7 +50,7 @@ function LiveProfile({ id }: { id: string }) {
     };
   }, [id]);
 
-  if (!error && !bundle) {
+  if (!error && !politician) {
     return (
       <main className="min-h-screen bg-[var(--color-official-bg)] text-[var(--color-official-text)] p-4">
         <div className="max-w-6xl mx-auto py-12 space-y-6">
@@ -62,11 +62,11 @@ function LiveProfile({ id }: { id: string }) {
     );
   }
 
-  if (error || !bundle) {
+  if (error || !politician) {
     return <ProfileUnavailable message={error || 'No politician was found for this live profile link.'} />;
   }
 
-  return <PoliticianClient politician={bundle.politician} unconfirmed={bundle.unconfirmed} />;
+  return <PoliticianClient politician={politician} />;
 }
 
 function ProfileUnavailable({ message }: { message: string }) {
