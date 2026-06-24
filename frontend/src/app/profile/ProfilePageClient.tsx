@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import PoliticianClient from '@/app/[politician_id]/PoliticianClient';
-import { fetchLiveProfile, isUuid, type LiveProfileBundle } from '@/lib/profile';
+import { isUuid } from '@/lib/ids';
+import { fetchLiveProfile, type LiveProfileBundle } from '@/lib/profile';
 
 export default function ProfilePageClient() {
   const searchParams = useSearchParams();

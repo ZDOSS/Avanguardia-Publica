@@ -7,9 +7,8 @@ import {
   type ConnectionsBundle,
   type CoVoteConnection,
 } from '@/lib/connections';
+import { isUuid } from '@/lib/ids';
 import { profilePath } from '@/lib/routes';
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // A connection rendered as a node in the hub-and-spoke mini-graph.
 interface GraphNode {
@@ -154,19 +153,19 @@ export default function ConnectionsTab({ politicianId, politicianName }: { polit
   // Mock/non-UUID profiles have no DB row, so the RPCs would error — start them in a
   // resolved-empty state (initialized from props, so the effect never setStates
   // synchronously, which the react-hooks lint forbids).
-  const isUuid = UUID_RE.test(politicianId);
-  const [data, setData] = useState<ConnectionsBundle | null>(isUuid ? null : EMPTY_BUNDLE);
-  const [loading, setLoading] = useState(isUuid);
+  const hasLiveProfileId = isUuid(politicianId);
+  const [data, setData] = useState<ConnectionsBundle | null>(hasLiveProfileId ? null : EMPTY_BUNDLE);
+  const [loading, setLoading] = useState(hasLiveProfileId);
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    if (!isUuid) return;
+    if (!hasLiveProfileId) return;
     let cancelled = false;
     fetchConnections(politicianId)
       .then((d) => { if (!cancelled) { setData(d); setLoading(false); } })
       .catch((e) => { if (!cancelled) { console.error('Failed to load connections:', e); setError(true); setLoading(false); } });
     return () => { cancelled = true; };
-  }, [politicianId, isUuid]);
+  }, [politicianId, hasLiveProfileId]);
 
   if (loading) {
     return (
