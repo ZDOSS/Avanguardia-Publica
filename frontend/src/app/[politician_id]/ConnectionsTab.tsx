@@ -7,8 +7,8 @@ import {
   type ConnectionsBundle,
   type CoVoteConnection,
 } from '@/lib/connections';
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { isUuid } from '@/lib/ids';
+import { profilePath } from '@/lib/routes';
 
 // A connection rendered as a node in the hub-and-spoke mini-graph.
 interface GraphNode {
@@ -111,7 +111,7 @@ function MiniGraph({ center, nodes }: { center: string; nodes: GraphNode[] }) {
 function PersonCardLink({ id, children }: { id: string | null; children: React.ReactNode }) {
   if (id) {
     return (
-      <Link href={`/${id}`} className="group block premium-card p-4 hover:border-[var(--color-official-link)] transition-colors bg-[var(--color-official-bg)]">
+      <Link href={profilePath(id)} className="group block premium-card p-4 hover:border-[var(--color-official-link)] transition-colors bg-[var(--color-official-bg)]">
         {children}
       </Link>
     );
@@ -153,19 +153,19 @@ export default function ConnectionsTab({ politicianId, politicianName }: { polit
   // Mock/non-UUID profiles have no DB row, so the RPCs would error — start them in a
   // resolved-empty state (initialized from props, so the effect never setStates
   // synchronously, which the react-hooks lint forbids).
-  const isUuid = UUID_RE.test(politicianId);
-  const [data, setData] = useState<ConnectionsBundle | null>(isUuid ? null : EMPTY_BUNDLE);
-  const [loading, setLoading] = useState(isUuid);
+  const hasLiveProfileId = isUuid(politicianId);
+  const [data, setData] = useState<ConnectionsBundle | null>(hasLiveProfileId ? null : EMPTY_BUNDLE);
+  const [loading, setLoading] = useState(hasLiveProfileId);
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    if (!isUuid) return;
+    if (!hasLiveProfileId) return;
     let cancelled = false;
     fetchConnections(politicianId)
       .then((d) => { if (!cancelled) { setData(d); setLoading(false); } })
       .catch((e) => { if (!cancelled) { console.error('Failed to load connections:', e); setError(true); setLoading(false); } });
     return () => { cancelled = true; };
-  }, [politicianId, isUuid]);
+  }, [politicianId, hasLiveProfileId]);
 
   if (loading) {
     return (
@@ -267,7 +267,7 @@ export default function ConnectionsTab({ politicianId, politicianName }: { polit
               );
               const cardClass = "block p-4 bg-[var(--color-official-bg)] border border-[var(--color-official-border)] rounded-xl transition-colors";
               if (t.related_politician_id) {
-                return <Link key={`${t.related_name}-${i}`} href={`/${t.related_politician_id}`} className={`${cardClass} hover:border-[var(--color-official-link)]`}>{inner}</Link>;
+                return <Link key={`${t.related_name}-${i}`} href={profilePath(t.related_politician_id)} className={`${cardClass} hover:border-[var(--color-official-link)]`}>{inner}</Link>;
               }
               if (t.url) {
                 return (

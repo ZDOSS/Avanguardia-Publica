@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { fetchAllPoliticians, type PoliticianSummary } from '@/lib/politicians';
+import { profilePath } from '@/lib/routes';
 
 type Politician = PoliticianSummary;
 
@@ -66,7 +67,7 @@ export default function Home() {
             <div className="absolute left-0 right-0 mt-4 bg-[var(--color-official-bg)] border border-[var(--color-official-border)] rounded-xl shadow-2xl text-left overflow-hidden z-20">
               {filtered.length > 0 ? (
                 filtered.map(p => (
-                  <Link href={`/${p.id}`} key={p.id} className="block p-4 hover:bg-[var(--color-official-bg-alt)] border-b border-[var(--color-official-border)] last:border-0 transition-colors">
+                  <Link href={profilePath(p.id)} key={p.id} className="block p-4 hover:bg-[var(--color-official-bg-alt)] border-b border-[var(--color-official-border)] last:border-0 transition-colors">
                     <div className="font-bold text-lg">{p.full_name}</div>
                     <div className="text-sm text-[var(--color-official-text-muted)]">{p.current_office}</div>
                   </Link>
@@ -99,7 +100,7 @@ export default function Home() {
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {directory.slice(0, 6).map(p => (
-                  <Link href={`/${p.id}`} key={p.id} className="premium-card p-5 group flex flex-col h-full bg-[var(--color-official-bg)]">
+                  <Link href={profilePath(p.id)} key={p.id} className="premium-card p-5 group flex flex-col h-full bg-[var(--color-official-bg)]">
                     <div className="font-bold text-lg group-hover:text-[var(--color-official-link)] transition-colors mb-1">{p.full_name}</div>
                     <div className="text-sm text-[var(--color-official-text-muted)] flex-grow">{p.current_office}</div>
                     <div className="text-xs font-mono mt-4 text-[var(--color-official-text-muted)] uppercase">{p.party}</div>

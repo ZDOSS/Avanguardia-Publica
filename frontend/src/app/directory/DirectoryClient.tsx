@@ -5,6 +5,7 @@ import Link from "next/link";
 import { fetchAllPoliticians, type PoliticianSummary } from "@/lib/politicians";
 import { GOV_STRUCTURE, type GovNode, type GovPath } from "@/lib/governmentStructure";
 import { US_STATES, resolveStateToken, zipToState, officeMatchesState } from "@/lib/location";
+import { profilePath } from "@/lib/routes";
 
 type Politician = PoliticianSummary;
 
@@ -217,7 +218,7 @@ function PoliticianCard({ politician }: { politician: Politician }) {
 
   return (
     <Link
-      href={`/${politician.id}`}
+      href={profilePath(politician.id)}
       className="group block p-4 rounded-xl bg-[var(--color-official-bg)] border border-[var(--color-official-border)] hover:border-[var(--color-official-link)] hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5"
     >
       <div className="font-semibold text-sm group-hover:text-[var(--color-official-link)] transition-colors leading-tight mb-1">
