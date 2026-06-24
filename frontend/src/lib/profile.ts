@@ -31,7 +31,8 @@ export async function fetchLiveProfile(politicianId: string): Promise<LiveProfil
     .from('unconfirmed_mentions')
     .select('*')
     .eq('politician_id', politicianId)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(PROFILE_RELATED_ROW_LIMIT);
 
   if (mentionsError) throw mentionsError;
 
