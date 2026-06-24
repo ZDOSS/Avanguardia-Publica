@@ -71,7 +71,10 @@ When contributing to this project, you must adhere strictly to these rules:
 2. **Data Integrity & Labeling:** You are permitted to use unconfirmed data sources (e.g. for politician headers) *only* if the frontend explicitly and visibly labels them as "unconfirmed".
 3. **Classification Order:** When modifying the keyword classifiers in `DirectoryClient.tsx`, remember that Javascript evaluates array rules sequentially. State & Federal rules must always sit above generic Local rules to avoid substring capturing errors.
 4. **DCO Compliance:** Every single commit requires a Developer Certificate of Origin. You **must** append `--signoff` or `-s` to every `git commit` command (e.g., `git commit --signoff -m "message"`).
-5. **Migrations are applied MANUALLY — there is no runner.** Nothing in CI applies
+5. **Codex PR review feedback:** When asked to check or fix PR review feedback, start with GitHub CLI from PowerShell: `gh pr view <number> --json title,body,comments,reviews,latestReviews,files,url,mergeStateStatus,changedFiles` and `gh pr checks <number>`. Greptile's actionable issues are usually embedded in the PR body. Do not use browser automation, the Greptile connector, or UI inspection unless `gh` cannot access the public PR or the user explicitly asks for that route.
+6. **Codex Windows Git workaround:** If normal sandboxed Git fails on `.git` lock files, use the documented Codex-owned worktree/clone flow such as `.codex-pr-<task>` for branch work instead of repeatedly retrying the locked main checkout. Git/GitHub CLI commands may still need the approved `git` or `gh` outside-sandbox command path for network/auth operations, but the repo workflow should stay centered on the Codex-owned worktree workaround.
+7. **Local agent artifacts:** Do not leave Codex/agent scratch files visible as unstaged changes. Add purely local scratch patterns to `.git/info/exclude` when they should stay local, or add narrow project-safe patterns to `.gitignore` only when they should apply for everyone. Never include private key material such as `.codex-local-gnupg/` in a commit.
+8. **Migrations are applied MANUALLY — there is no runner.** Nothing in CI applies
    `schema.sql` or `migrations/*.sql` to Supabase; `scraper.yml` only runs the ETL and
    `nextjs.yml` only builds. When you add a column/table/RPC in a migration, you (or the
    maintainer) must run it in the Supabase SQL editor, or the live DB silently drifts from
@@ -79,7 +82,7 @@ When contributing to this project, you must adhere strictly to these rules:
    live table lacks, **every** upsert fails with PGRST204, and (until this was fixed) the
    pipeline still reported success. All migrations are idempotent — safe to re-run in order.
    See README → "Applying migrations".
-6. **Agent Configuration:** If you require additional capabilities to parse data, generate code, or analyze specific schemas, you must explicitly look up and add the appropriate agent skills or rules. We use non-frontier models for some tasks which need an extra push, so always configure the required skills before executing complex workflows.
+9. **Agent Configuration:** If you require additional capabilities to parse data, generate code, or analyze specific schemas, you must explicitly look up and add the appropriate agent skills or rules. We use non-frontier models for some tasks which need an extra push, so always configure the required skills before executing complex workflows.
 
 ## 🚀 Next Steps & Outstanding Work
 - The groundwork is incredibly solid. The new agent should feel free to start building out any further visual analytics, user-authenticated features, or new scraper modules on top of this reliable foundation.
