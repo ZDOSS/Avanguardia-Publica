@@ -34,7 +34,10 @@ export default function CampaignDonorsTab({ politicianId }: { politicianId: stri
     let cancelled = false;
     fetchPage()
       .then((nextResult) => {
-        if (!cancelled) setResult(nextResult);
+        if (!cancelled) {
+          setError(false);
+          setResult(nextResult);
+        }
       })
       .catch((e) => {
         if (!cancelled) {
@@ -55,6 +58,7 @@ export default function CampaignDonorsTab({ politicianId }: { politicianId: stri
     setPage(nextPage);
     setResult(null);
     setLoading(true);
+    setError(false);
   };
 
   if (loading && !result) return <LoadingBlock />;

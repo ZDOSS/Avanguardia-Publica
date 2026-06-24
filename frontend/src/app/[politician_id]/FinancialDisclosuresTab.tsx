@@ -32,7 +32,10 @@ export default function FinancialDisclosuresTab({ politicianId }: { politicianId
     let cancelled = false;
     fetchPage()
       .then((nextResult) => {
-        if (!cancelled) setResult(nextResult);
+        if (!cancelled) {
+          setError(false);
+          setResult(nextResult);
+        }
       })
       .catch((e) => {
         if (!cancelled) {
@@ -53,6 +56,7 @@ export default function FinancialDisclosuresTab({ politicianId }: { politicianId
     setPage(nextPage);
     setResult(null);
     setLoading(true);
+    setError(false);
   };
 
   if (loading && !result) return <LoadingBlock />;

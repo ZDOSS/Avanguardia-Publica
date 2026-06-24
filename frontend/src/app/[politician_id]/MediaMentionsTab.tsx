@@ -32,7 +32,10 @@ export default function MediaMentionsTab({ politicianId }: { politicianId: strin
     let cancelled = false;
     fetchPage()
       .then((nextResult) => {
-        if (!cancelled) setResult(nextResult);
+        if (!cancelled) {
+          setError(false);
+          setResult(nextResult);
+        }
       })
       .catch((e) => {
         if (!cancelled) {
@@ -53,6 +56,7 @@ export default function MediaMentionsTab({ politicianId }: { politicianId: strin
     setPage(nextPage);
     setResult(null);
     setLoading(true);
+    setError(false);
   };
 
   if (loading && !result) return <LoadingBlock />;

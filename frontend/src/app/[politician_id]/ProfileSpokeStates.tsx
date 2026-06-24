@@ -11,7 +11,7 @@ export function formatDateTime(value: string | null | undefined): string {
   if (!value) return 'Not available';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 export function SectionHeading({ title, meta }: { title: string; meta?: string }) {

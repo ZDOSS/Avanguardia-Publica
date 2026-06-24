@@ -35,7 +35,10 @@ export default function VotingRecordTab({ politicianId }: { politicianId: string
     let cancelled = false;
     fetchPage()
       .then((nextResult) => {
-        if (!cancelled) setResult(nextResult);
+        if (!cancelled) {
+          setError(false);
+          setResult(nextResult);
+        }
       })
       .catch((e) => {
         if (!cancelled) {
@@ -56,6 +59,7 @@ export default function VotingRecordTab({ politicianId }: { politicianId: string
     setPage(nextPage);
     setResult(null);
     setLoading(true);
+    setError(false);
   };
 
   const changeFilter = (next: string) => {
@@ -63,6 +67,7 @@ export default function VotingRecordTab({ politicianId }: { politicianId: string
     setPage(0);
     setResult(null);
     setLoading(true);
+    setError(false);
   };
 
   if (loading && !result) return <LoadingBlock />;
