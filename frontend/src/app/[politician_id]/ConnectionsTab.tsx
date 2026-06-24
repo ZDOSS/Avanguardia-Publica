@@ -7,6 +7,7 @@ import {
   type ConnectionsBundle,
   type CoVoteConnection,
 } from '@/lib/connections';
+import { profilePath } from '@/lib/routes';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -111,7 +112,7 @@ function MiniGraph({ center, nodes }: { center: string; nodes: GraphNode[] }) {
 function PersonCardLink({ id, children }: { id: string | null; children: React.ReactNode }) {
   if (id) {
     return (
-      <Link href={`/${id}`} className="group block premium-card p-4 hover:border-[var(--color-official-link)] transition-colors bg-[var(--color-official-bg)]">
+      <Link href={profilePath(id)} className="group block premium-card p-4 hover:border-[var(--color-official-link)] transition-colors bg-[var(--color-official-bg)]">
         {children}
       </Link>
     );
@@ -267,7 +268,7 @@ export default function ConnectionsTab({ politicianId, politicianName }: { polit
               );
               const cardClass = "block p-4 bg-[var(--color-official-bg)] border border-[var(--color-official-border)] rounded-xl transition-colors";
               if (t.related_politician_id) {
-                return <Link key={`${t.related_name}-${i}`} href={`/${t.related_politician_id}`} className={`${cardClass} hover:border-[var(--color-official-link)]`}>{inner}</Link>;
+                return <Link key={`${t.related_name}-${i}`} href={profilePath(t.related_politician_id)} className={`${cardClass} hover:border-[var(--color-official-link)]`}>{inner}</Link>;
               }
               if (t.url) {
                 return (
