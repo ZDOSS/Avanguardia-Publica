@@ -21,7 +21,7 @@ When a user clicks a politician from the search results, they land here. This vi
 ### D. View 3: The Data Spokes (Tabbed Navigation)
 Directly beneath the Hub, the dense data is categorized into horizontal, clickable tabs. Only one tab's data is rendered at a time to prevent endless scrolling and browser lag.
 
-**Render model (hybrid):** these profile tabs (Financial Disclosures, Campaign Donors, Voting Record, Media) are **baked at build time** — `[politician_id]/page.tsx` is an `async` server component that fetches them during `npm run build`, so they refresh only on redeploy. The **Connections** tab is the exception: it is fetched LIVE in the browser via Postgres RPC. See AGENTS.md → "Render model".
+**Render model (static shell + live spokes):** profile tabs are client-fetched at runtime. Financial Disclosures, Campaign Donors, Voting Record, and Media use focused Supabase helpers with ranged pagination; **Connections** is fetched live via Postgres RPC. The legacy pretty `[politician_id]` route is still generated at build time, but `/profile?id=<uuid>` is the reliable live profile route for newly ingested rows. See AGENTS.md → "Render model".
 
 | Tab Name | Data Rendered | UI Component Rules |
 | :--- | :--- | :--- |
@@ -34,5 +34,5 @@ Directly beneath the Hub, the dense data is categorized into horizontal, clickab
 ### E. User Flow Summary
 1. User lands on `index.html` (Landing Page).
 2. User types into the central search bar.
-3. User selects a profile, navigating to `[politician_id].html` (The Hub).
-4. User clicks through the horizontal tabs to view specific data domains (The Spokes) without leaving the current URL.
+3. User selects a profile, navigating to `/profile?id=<uuid>` (The Hub).
+4. User clicks through the horizontal tabs to view specific data domains; tab state is reflected with `tab=` query params for direct links.

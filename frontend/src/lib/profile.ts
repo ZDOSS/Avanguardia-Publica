@@ -1,43 +1,48 @@
 import { supabase } from './supabase';
 import { isUuid } from './ids';
-import type { PoliticianData, UnconfirmedMention } from '@/app/[politician_id]/PoliticianClient';
 
-export interface LiveProfileBundle {
-  politician: PoliticianData;
-  unconfirmed: UnconfirmedMention[];
+export interface ProfileHeader {
+  id: string;
+  full_name: string;
+  current_office: string | null;
+  party: string | null;
+  state: string | null;
+  district: string | null;
+  last_updated: string | null;
 }
 
-const PROFILE_RELATED_ROW_LIMIT = 100;
+export interface ContactInfo {
+  politician_id?: string;
+  office_address: string | null;
+  phone_number: string | null;
+  official_website: string | null;
+  last_updated: string | null;
+}
 
-export async function fetchLiveProfile(politicianId: string): Promise<LiveProfileBundle | null> {
+const PROFILE_COLUMNS = 'id, full_name, current_office, party, state, district, last_updated';
+
+export async function fetchProfileHeader(politicianId: string): Promise<ProfileHeader | null> {
   if (!isUuid(politicianId)) return null;
 
-  const { data: politician, error: politicianError } = await supabase
+  const { data, error } = await supabase
     .from('politicians')
-    .select('*, contact_info(*), financial_disclosures(*), campaign_donors(*), voting_records(*)')
+    .select(PROFILE_COLUMNS)
     .eq('id', politicianId)
-    .order('filing_date', { referencedTable: 'financial_disclosures', ascending: false })
-    .limit(PROFILE_RELATED_ROW_LIMIT, { referencedTable: 'financial_disclosures' })
-    .order('donation_date', { referencedTable: 'campaign_donors', ascending: false })
-    .limit(PROFILE_RELATED_ROW_LIMIT, { referencedTable: 'campaign_donors' })
-    .order('vote_date', { referencedTable: 'voting_records', ascending: false })
-    .limit(PROFILE_RELATED_ROW_LIMIT, { referencedTable: 'voting_records' })
     .maybeSingle();
 
-  if (politicianError) throw politicianError;
-  if (!politician) return null;
+  if (error) throw error;
+  return (data ?? null) as ProfileHeader | null;
+}
 
-  const { data: unconfirmed, error: mentionsError } = await supabase
-    .from('unconfirmed_mentions')
+export async function fetchContactInfo(politicianId: string): Promise<ContactInfo | null> {
+  if (!isUuid(politicianId)) return null;
+
+  const { data, error } = await supabase
+    .from('contact_info')
     .select('*')
     .eq('politician_id', politicianId)
-    .order('created_at', { ascending: false })
-    .limit(PROFILE_RELATED_ROW_LIMIT);
+    .maybeSingle();
 
-  if (mentionsError) throw mentionsError;
-
-  return {
-    politician: politician as PoliticianData,
-    unconfirmed: (unconfirmed ?? []) as UnconfirmedMention[],
-  };
+  if (error) throw error;
+  return (data ?? null) as ContactInfo | null;
 }

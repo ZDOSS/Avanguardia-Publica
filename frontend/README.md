@@ -8,12 +8,13 @@ on where the fetch runs:
 
 - **LIVE (client-fetched in the browser; reflects the DB with no rebuild):** home/search
   (`app/page.tsx`, `"use client"` → `fetchAllPoliticians` in `src/lib/politicians.ts`),
-  `/directory` (`DirectoryClient.tsx`), and the profile **Connections** tab
-  (`ConnectionsTab.tsx` → `supabase.rpc()`, `src/lib/connections.ts`).
-- **BAKED at build time (frozen into static HTML; only changes on redeploy):** the
-  `/[politician_id]` profile payload *except* Connections — `app/[politician_id]/page.tsx` is
-  an `async` server component that bakes the hub header plus the contact / financial / donor /
-  voting / media tabs during `npm run build`.
+  `/directory` (`DirectoryClient.tsx`), `/profile?id=<uuid>` (`ProfilePageClient.tsx`), and
+  all profile spokes: contact, financial disclosures, campaign donors, voting records,
+  Connections, and media mentions.
+- **BAKED at build time (frozen into static HTML; only changes on redeploy):** the legacy
+  `/[politician_id]` route list and minimal profile header shell. GitHub Pages cannot create
+  new pretty dynamic routes at runtime, so brand-new rows should be linked through
+  `/profile?id=<uuid>` until the next deploy generates an SEO route.
 
 When adding a profile data view that must reflect the DB without a rebuild, make it a
 `"use client"` component or a Supabase RPC called with `supabase.rpc()` (copy the Connections
@@ -52,6 +53,6 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 
 This project deploys as a **static export to GitHub Pages** (not Vercel). `next build`
 with `output: "export"` emits the static `out/` directory; CI publishes it to GitHub Pages.
-The home/search and `/directory` pages then read live from Supabase in the browser, but the
-`/[politician_id]` profile pages are **baked at build time** and only refresh on redeploy
-(see "Data architecture" above).
+The home/search, `/directory`, `/profile?id=<uuid>`, and profile spoke views then read live
+from Supabase in the browser. Only the legacy pretty `/[politician_id]` route availability is
+limited by static generation (see "Data architecture" above).

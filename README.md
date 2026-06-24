@@ -8,10 +8,11 @@ Federal, State, and Local levels, presenting it as a clean, read-only encycloped
 
 The project follows a **decoupled, zero-cost architecture**: a Python ETL pipeline pushes
 data into Supabase on a schedule, and a statically-exported Next.js frontend reads from it.
-The render model is **hybrid** — the home/search and `/directory` pages query Supabase
-**live in the browser**, while the `/[politician_id]` profile pages are **baked at build
-time** (their contact / financial / donor / voting / media tabs only refresh when the
-frontend is redeployed; the profile's Connections tab is the one live exception). Read
+The render model is **static export with live client data**: home/search, `/directory`,
+`/profile?id=<uuid>`, and the profile contact / financial / donor / voting / media /
+connections spokes query Supabase **live in the browser**. The legacy pretty
+`/[politician_id]` route list is still generated at build time for GitHub Pages, but its
+profile spokes now hydrate from the browser once the page exists. Read
 [`AGENTS.md`](AGENTS.md) → "Render model" before touching any data-fetching code.
 
 ---
@@ -30,7 +31,7 @@ frontend is redeployed; the profile's Connections tab is the one live exception)
 | ------------ | ------------------------------------------------ | -------------------------------------------------- |
 | Database/API | Supabase (PostgreSQL)                            | Auto-generated REST API; "Hub-and-Spoke" schema    |
 | Ingestion    | Python + GitHub Actions                          | Free-tier / open-source data sources only          |
-| Frontend     | Next.js (App Router) + React 19 + Tailwind CSS 4 | `output: 'export'` — hybrid: home/search + `/directory` read live; profile pages baked at build time |
+| Frontend     | Next.js (App Router) + React 19 + Tailwind CSS 4 | `output: 'export'` — home/search, `/directory`, `/profile?id=<uuid>`, and profile spokes read live in the browser; pretty dynamic route availability is build-time |
 | Hosting      | GitHub Pages (frontend) + GitHub Actions (ETL)   | Zero-cost                                           |
 
 See [`spec.md`](spec.md) for the full product/technical spec and [`AGENTS.md`](AGENTS.md)
@@ -148,12 +149,14 @@ Both pipelines run from GitHub Actions:
 - **`.github/workflows/nextjs.yml`** — builds the static frontend and deploys it to GitHub
   Pages. Set `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` as repository
   secrets (embedded in the client bundle; the anon key is public by design, protected by
-  Supabase RLS). The home/search and `/directory` pages read Supabase **live in the
-  browser**, but the **`/[politician_id]` profile pages are baked at build time** — their
-  contact / financial / donor / voting / media tabs only refresh when this deploy re-runs.
-  It is wired to re-run automatically after a *successful* nightly ETL via a `workflow_run`
-  trigger, so profiles re-bake after each scrape. (A failed scraper run does **not** trigger
-  the deploy, so the live site keeps the last good build rather than shipping nothing.)
+  Supabase RLS). The home/search, `/directory`, `/profile?id=<uuid>`, and profile spoke
+  views read Supabase **live in the browser**, including contact, financial disclosures,
+  campaign donors, voting records, media mentions, and connections. The legacy pretty
+  `/[politician_id]` route availability is still tied to static generation, so brand-new
+  rows should be linked through `/profile?id=<uuid>` until a deploy creates the SEO route.
+  The deploy is wired to re-run automatically after a *successful* nightly ETL via a
+  `workflow_run` trigger. (A failed scraper run does **not** trigger the deploy, so the live
+  site keeps the last good build rather than shipping nothing.)
 - **`.github/workflows/scraper.yml`** — runs the Python ETL on a nightly schedule, writing
   fresh data into Supabase.
 
