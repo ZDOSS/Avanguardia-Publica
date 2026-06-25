@@ -5,9 +5,11 @@ import logging
 from datetime import date
 from dotenv import load_dotenv
 from loader import SupabaseLoader
+from etl_summary import ETLRunSummary
+from schema_preflight import SchemaPreflightError, run_schema_preflight
 from extractors.gov_api import get_congress_members
 from extractors.littlesis import get_littlesis
-from extractors.news_aggregator import get_news_data
+from extractors.news_aggregator import get_news_data, get_provider_status
 from extractors.fec import get_campaign_donors
 from extractors.govtrack import get_voting_records
 from extractors.openstates import get_state_politicians
@@ -23,11 +25,12 @@ logging.basicConfig(
 def main():
     load_dotenv()
     print("Starting Avanguardia-Publica Phase 1 Scraper Pipeline...")
+    summary = ETLRunSummary()
     
     # Initialize DB connection
     supabase_url = os.environ.get("SUPABASE_URL")
     supabase_key = os.environ.get("SUPABASE_KEY")
-    loader = SupabaseLoader(supabase_url, supabase_key)
+    loader = SupabaseLoader(supabase_url, supabase_key, summary=summary)
 
     # Fail loud if running in CI without credentials. Without a key the loader drops into
     # dry-run mode, which writes nothing and would otherwise exit 0 and trigger the Pages
@@ -36,17 +39,31 @@ def main():
     if loader.supabase is None and (
         os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
     ):
+        summary.set_schema_preflight("skipped", ["Supabase credentials missing in CI."])
+        summary.error("configuration", "SUPABASE_URL/SUPABASE_KEY not set in CI")
+        summary.print(success=False)
         sys.exit(
             "FATAL: SUPABASE_URL/SUPABASE_KEY not set in CI — refusing to run a no-op "
             "pipeline that would deploy empty data. Configure the repository secrets."
         )
 
-    # FEC donor enrichment only runs with a real api.data.gov key — DEMO_KEY's tiny
+    # Validate the live Supabase API before spending time and source quotas.
+    try:
+        run_schema_preflight(loader)
+        summary.set_schema_preflight("passed" if loader.supabase else "skipped")
+    except SchemaPreflightError as e:
+        summary.set_schema_preflight("failed", e.failures)
+        summary.error("schema_preflight", e)
+        summary.print(success=False)
+        sys.exit(str(e))
+
+    # FEC donor enrichment only runs with a real api.data.gov key. DEMO_KEY's tiny
     # hourly limit would 429 almost immediately across all members, so it is treated
     # the same as "not configured".
     fec_key = os.environ.get("FEC_API_KEY")
     fec_enabled = bool(fec_key) and fec_key.strip().upper() != "DEMO_KEY"
     if not fec_enabled:
+        summary.skip("FEC", "FEC_API_KEY not set or DEMO_KEY")
         print("Note: FEC_API_KEY not set (or DEMO_KEY) — skipping campaign-donor enrichment.")
     
     # 1. Fetch active Congress members
@@ -130,6 +147,7 @@ def main():
                         loader.upsert_financial_disclosures(politician_id, fd_filings)
         except Exception as e:
             print(f"  [!] Error scraping {member['full_name']}: {e}")
+            summary.error(f"congress:{member.get('full_name')}", e)
             errors_caught += 1
         finally:
             # Respect API rate limits for downstream services
@@ -143,6 +161,7 @@ def main():
         state_people = get_state_politicians()
     except Exception as e:
         print(f"[!] Failed to fetch state politicians: {e}")
+        summary.error("openstates:fetch_state_politicians", e)
         state_people = []
 
     state_total = len(state_people)
@@ -161,6 +180,7 @@ def main():
                     ocd_to_pid[ocd] = politician_id
         except Exception as e:
             print(f"  [!] Error upserting state politician {person.get('full_name')}: {e}")
+            summary.error(f"state_politician:{person.get('full_name')}", e)
             errors_caught += 1
         finally:
             # Brief pause every 100 records so ~8,000 back-to-back upserts don't
@@ -173,6 +193,7 @@ def main():
     # no key the call is a no-op. Roll-call-centric, so one bounded crawl fans out to
     # many legislators at once (see extractors/openstates_votes.py).
     if not os.environ.get("OPENSTATES_API_KEY"):
+        summary.skip("OpenStates votes", "OPENSTATES_API_KEY not set")
         print("Note: OPENSTATES_API_KEY not set — skipping state voting records.")
     elif ocd_to_pid:
         print("\n=== State voting records (OpenStates API) ===")
@@ -182,6 +203,7 @@ def main():
                 loader.upsert_voting_records(ocd_to_pid[ocd], records)
         except Exception as e:
             print(f"[!] Failed to fetch/store state voting records: {e}")
+            summary.error("openstates:state_voting_records", e)
             errors_caught += 1
 
     # 4. Federal executive (President, VP) + judicial (Supreme Court). Hub + official
@@ -191,6 +213,7 @@ def main():
         fed_people = get_federal_exec_judicial()
     except Exception as e:
         print(f"[!] Failed to fetch federal exec/judicial: {e}")
+        summary.error("federal_exec_judicial:fetch", e)
         fed_people = []
 
     for person in fed_people:
@@ -200,10 +223,13 @@ def main():
                 loader.upsert_contact_info(politician_id, person.get('contact', {}))
         except Exception as e:
             print(f"  [!] Error upserting federal official {person.get('full_name')}: {e}")
+            summary.error(f"federal_exec_judicial:{person.get('full_name')}", e)
             errors_caught += 1
 
+    summary.set_news_providers(get_provider_status())
     if errors_caught == 0:
         print("\nPipeline finished successfully.")
+        summary.print(success=True)
     else:
         print(f"\nPipeline finished with {errors_caught} errors.")
         # A run where (nearly) every record errors almost always means the live database
@@ -212,6 +238,7 @@ def main():
         # in the schema cache"). Migrations are applied MANUALLY (there is no runner); see
         # README "Applying migrations". Exiting non-zero fails the run so the deploy gate
         # (nextjs.yml workflow_run) does not ship a stale site.
+        summary.print(success=False)
         sys.exit(1)
 
 if __name__ == "__main__":

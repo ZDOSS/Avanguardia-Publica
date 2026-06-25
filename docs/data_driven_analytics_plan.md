@@ -103,6 +103,17 @@ This makes the live-data model visible and helps debug stale records.
 
 Once the UI is consistently live, tighten the pipeline so it is easier to trust.
 
+### Phase 2 Progress
+
+Implemented in the ETL preflight/summary chunk:
+
+- Added a scraper schema preflight for required live Supabase tables, columns, and RPCs.
+- Added an end-of-run ETL summary with row-write counters, source skips, errors, schema
+  preflight status, and news-provider circuit status.
+- Added transient Supabase/PostgREST retry handling around loader writes and lookups so
+  HTTP/2 connection resets refresh the client and retry instead of failing the run after
+  otherwise-successful work.
+
 ### 2.1 Add Schema Preflight
 
 Before the scraper starts a long run, check that Supabase has the required columns,

@@ -1,4 +1,5 @@
 import logging
+import time
 from collections import defaultdict
 from datetime import datetime, timezone
 from supabase import create_client, Client
@@ -14,13 +15,72 @@ _STABLE_SCHEMES = ("openstates", "wikidata")
 
 
 class SupabaseLoader:
-    def __init__(self, url: str, key: str):
+    def __init__(self, url: str, key: str, summary=None):
+        self.url = url
+        self.key = key
+        self.summary = summary
         if url and key:
             self.supabase: Client = create_client(url, key)
             print("Supabase client initialized.")
         else:
             self.supabase = None
             print("Warning: SUPABASE_URL or SUPABASE_KEY is not set. Running in dry-run mode.")
+
+    def _increment(self, key: str, amount: int = 1) -> None:
+        if self.summary:
+            self.summary.increment(key, amount)
+
+    def _reset_client(self) -> None:
+        if self.url and self.key:
+            self.supabase = create_client(self.url, self.key)
+
+    @staticmethod
+    def _is_transient_supabase_error(exc: Exception) -> bool:
+        message = str(exc).lower()
+        transient_markers = (
+            "connectionterminated",
+            "connection terminated",
+            "remote protocol error",
+            "server disconnected",
+            "read timed out",
+            "readtimeout",
+            "connecttimeout",
+            "connection reset",
+            "temporarily unavailable",
+            "bad gateway",
+            "service unavailable",
+            "gateway timeout",
+            "http/2",
+            "503",
+            "504",
+            "502",
+        )
+        return any(marker in message for marker in transient_markers)
+
+    def execute_supabase(self, operation, description: str, retries: int = 3):
+        """
+        Execute a Supabase request with a fresh-client retry for transient transport
+        failures. Schema/API errors still bubble immediately.
+        """
+        for attempt in range(1, retries + 1):
+            try:
+                return operation()
+            except Exception as exc:
+                if attempt >= retries or not self._is_transient_supabase_error(exc):
+                    raise
+                wait_seconds = 2 ** (attempt - 1)
+                logger.warning(
+                    "Transient Supabase error during %s (attempt %d/%d): %s. "
+                    "Refreshing client and retrying in %ss.",
+                    description,
+                    attempt,
+                    retries,
+                    exc,
+                    wait_seconds,
+                )
+                self._increment("supabase_transient_retries")
+                self._reset_client()
+                time.sleep(wait_seconds)
 
     def upsert_politician(self, member_data: dict):
         """
@@ -73,11 +133,14 @@ class SupabaseLoader:
             if bioguide_id:
                 # Federal: bioguide_id column, then name fallback (migrates legacy
                 # null-bioguide rows in place).
-                resp = (
-                    self.supabase.table("politicians")
-                    .select("id")
-                    .eq("bioguide_id", bioguide_id)
-                    .execute()
+                resp = self.execute_supabase(
+                    lambda: (
+                        self.supabase.table("politicians")
+                        .select("id")
+                        .eq("bioguide_id", bioguide_id)
+                        .execute()
+                    ),
+                    f"select politician by bioguide_id {bioguide_id}",
                 )
                 if resp.data:
                     existing_id = resp.data[0]["id"]
@@ -88,11 +151,14 @@ class SupabaseLoader:
                     # member whose bioguide_id isn't in the DB yet would otherwise
                     # overwrite a same-named state legislator or Supreme Court justice,
                     # strip its identity, and corrupt both records.
-                    resp = (
-                        self.supabase.table("politicians")
-                        .select("id, external_ids")
-                        .eq("full_name", member_data["full_name"])
-                        .execute()
+                    resp = self.execute_supabase(
+                        lambda: (
+                            self.supabase.table("politicians")
+                            .select("id, external_ids")
+                            .eq("full_name", member_data["full_name"])
+                            .execute()
+                        ),
+                        f"select federal legacy politician by name {member_data['full_name']}",
                     )
                     for row in (resp.data or []):
                         row_ext = row.get("external_ids") or {}
@@ -103,11 +169,14 @@ class SupabaseLoader:
                 # Non-federal: match ONLY on the stable id (JSONB containment, served
                 # by the external_ids GIN index). No name fallback — see the docstring.
                 scheme, value = stable_match
-                resp = (
-                    self.supabase.table("politicians")
-                    .select("id, bioguide_id")
-                    .contains("external_ids", {scheme: value})
-                    .execute()
+                resp = self.execute_supabase(
+                    lambda: (
+                        self.supabase.table("politicians")
+                        .select("id, bioguide_id")
+                        .contains("external_ids", {scheme: value})
+                        .execute()
+                    ),
+                    f"select politician by external id {scheme}",
                 )
                 # Never adopt a federal congressional row (one carrying a bioguide_id)
                 # from a non-federal source. Congress rows store their wikidata QID in
@@ -119,23 +188,39 @@ class SupabaseLoader:
                         existing_id = row["id"]
                         break
             else:
-                resp = (
-                    self.supabase.table("politicians")
-                    .select("id")
-                    .eq("full_name", member_data["full_name"])
-                    .execute()
+                resp = self.execute_supabase(
+                    lambda: (
+                        self.supabase.table("politicians")
+                        .select("id")
+                        .eq("full_name", member_data["full_name"])
+                        .execute()
+                    ),
+                    f"select politician by name {member_data['full_name']}",
                 )
                 if resp.data:
                     existing_id = resp.data[0]["id"]
 
             if existing_id is not None:
-                self.supabase.table("politicians").update(data_to_write).eq("id", existing_id).execute()
+                self.execute_supabase(
+                    lambda: (
+                        self.supabase.table("politicians")
+                        .update(data_to_write)
+                        .eq("id", existing_id)
+                        .execute()
+                    ),
+                    f"update politician {member_data['full_name']}",
+                )
+                self._increment("hub_rows_updated")
                 print(f"  [+] Updated Hub for {member_data['full_name']}")
                 return existing_id
 
-            insert_resp = self.supabase.table("politicians").insert(data_to_write).execute()
+            insert_resp = self.execute_supabase(
+                lambda: self.supabase.table("politicians").insert(data_to_write).execute(),
+                f"insert politician {member_data['full_name']}",
+            )
             if insert_resp.data:
                 p_id = insert_resp.data[0]["id"]
+                self._increment("hub_rows_inserted")
                 print(f"  [+] Inserted new Hub for {member_data['full_name']}")
                 return p_id
         except Exception as e:
@@ -171,9 +256,13 @@ class SupabaseLoader:
             "last_updated": datetime.now(timezone.utc).isoformat(),
         }
         try:
-            self.supabase.table("contact_info").upsert(
-                payload, on_conflict="politician_id"
-            ).execute()
+            self.execute_supabase(
+                lambda: self.supabase.table("contact_info").upsert(
+                    payload, on_conflict="politician_id"
+                ).execute(),
+                f"upsert contact info for {politician_id}",
+            )
+            self._increment("contact_rows_updated")
             print("  [+] Updated contact info")
         except Exception as e:
             print(f"  [!] Error upserting contact info for {politician_id}: {e}")
@@ -210,9 +299,13 @@ class SupabaseLoader:
         if not rows:
             return
         try:
-            self.supabase.table("financial_disclosures").upsert(
-                rows, on_conflict="doc_id"
-            ).execute()
+            self.execute_supabase(
+                lambda: self.supabase.table("financial_disclosures").upsert(
+                    rows, on_conflict="doc_id"
+                ).execute(),
+                f"upsert {len(rows)} financial disclosures for {politician_id}",
+            )
+            self._increment("financial_disclosure_filings_written", len(rows))
             print(f"  [+] Upserted {len(rows)} financial disclosures")
         except Exception as e:
             # Re-raise (like upsert_politician) rather than swallowing. This spoke depends on
@@ -246,9 +339,13 @@ class SupabaseLoader:
             for d in donors
         ]
         try:
-            self.supabase.table("campaign_donors").upsert(
-                rows, on_conflict="fec_transaction_id"
-            ).execute()
+            self.execute_supabase(
+                lambda: self.supabase.table("campaign_donors").upsert(
+                    rows, on_conflict="fec_transaction_id"
+                ).execute(),
+                f"upsert {len(rows)} campaign donors for {politician_id}",
+            )
+            self._increment("donor_rows_written", len(rows))
             print(f"  [+] Upserted {len(rows)} campaign donors")
         except Exception as e:
             print(f"  [!] Error upserting campaign donors for {politician_id}: {e}")
@@ -298,13 +395,17 @@ class SupabaseLoader:
         upserted = 0
         for group in groups.values():
             try:
-                self.supabase.table("voting_records").upsert(
-                    group, on_conflict="politician_id,bill_name,vote_date"
-                ).execute()
+                self.execute_supabase(
+                    lambda group=group: self.supabase.table("voting_records").upsert(
+                        group, on_conflict="politician_id,bill_name,vote_date"
+                    ).execute(),
+                    f"upsert {len(group)} voting records for {politician_id}",
+                )
                 upserted += len(group)
             except Exception as e:
                 print(f"  [!] Error upserting {len(group)} voting records for {politician_id}: {e}")
         if upserted:
+            self._increment("voting_rows_written", upserted)
             print(f"  [+] Upserted {upserted} voting records")
 
     def upsert_relationships(self, politician_id: str, edges: list):
@@ -355,9 +456,13 @@ class SupabaseLoader:
                 row["related_politician_id"] = name_to_id.get(related_name)
             rows.append(row)
         try:
-            self.supabase.table("relationships").upsert(
-                rows, on_conflict="politician_id,related_name,relationship_type"
-            ).execute()
+            self.execute_supabase(
+                lambda: self.supabase.table("relationships").upsert(
+                    rows, on_conflict="politician_id,related_name,relationship_type"
+                ).execute(),
+                f"upsert {len(rows)} relationships for {politician_id}",
+            )
+            self._increment("relationship_rows_written", len(rows))
             print(f"  [+] Upserted {len(rows)} relationships")
         except Exception as e:
             print(f"  [!] Error upserting relationships for {politician_id}: {e}")
@@ -377,11 +482,14 @@ class SupabaseLoader:
         if not self.supabase or not name_list:
             return {}
         try:
-            resp = (
-                self.supabase.table("politicians")
-                .select("id, full_name")
-                .in_("full_name", name_list)
-                .execute()
+            resp = self.execute_supabase(
+                lambda: (
+                    self.supabase.table("politicians")
+                    .select("id, full_name")
+                    .in_("full_name", name_list)
+                    .execute()
+                ),
+                f"resolve {len(name_list)} politician names",
             )
         except Exception as e:
             # WARNING, not DEBUG: a resolve failure means this run skips internal-link
@@ -417,7 +525,12 @@ class SupabaseLoader:
                 "sentiment_score": item.get("sentiment_score"),
             }
             try:
-                self.supabase.table("unconfirmed_mentions").insert(mention_data).execute()
+                self.execute_supabase(
+                    lambda mention_data=mention_data: (
+                        self.supabase.table("unconfirmed_mentions").insert(mention_data).execute()
+                    ),
+                    f"insert {source_api} mention for {politician_id}",
+                )
                 inserted_count += 1
             except Exception as e:
                 # Most commonly a UNIQUE(politician_id, source_api, url) violation on a
@@ -425,4 +538,5 @@ class SupabaseLoader:
                 # genuine failures (schema/permission errors) are still discoverable.
                 logger.debug("Skipped mention from %s (%s): %s", source_api, item.get("url"), e)
 
+        self._increment("media_mentions_inserted", inserted_count)
         print(f"  [+] Added {inserted_count} new mentions from {source_api}")
