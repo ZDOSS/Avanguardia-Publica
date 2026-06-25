@@ -1,10 +1,37 @@
 ZERO_UUID = "00000000-0000-0000-0000-000000000000"
 
 REQUIRED_COLUMN_CHECKS = [
-    ("politicians", "state,district,external_ids"),
-    ("voting_records", "roll_call_id,jurisdiction"),
-    ("relationships", "id"),
-    ("financial_disclosures", "doc_id,doc_url,filing_type"),
+    (
+        "politicians",
+        "id,full_name,current_office,party,state,district,external_ids,aliases,"
+        "last_updated,bioguide_id",
+    ),
+    (
+        "contact_info",
+        "politician_id,office_address,phone_number,official_website,last_updated",
+    ),
+    (
+        "financial_disclosures",
+        "politician_id,filing_type,filing_date,doc_id,doc_url",
+    ),
+    (
+        "campaign_donors",
+        "politician_id,donor_name,amount,donation_date,pac_status,fec_transaction_id",
+    ),
+    (
+        "voting_records",
+        "politician_id,bill_name,bill_summary,vote_cast,vote_date,roll_call_id,"
+        "jurisdiction",
+    ),
+    (
+        "relationships",
+        "id,politician_id,related_name,relationship_type,source_api,url,last_updated,"
+        "related_politician_id",
+    ),
+    (
+        "unconfirmed_mentions",
+        "politician_id,source_api,content_summary,url,sentiment_score",
+    ),
 ]
 
 REQUIRED_RPC_CHECKS = [
