@@ -103,6 +103,17 @@ This makes the live-data model visible and helps debug stale records.
 
 Once the UI is consistently live, tighten the pipeline so it is easier to trust.
 
+### Phase 2 Progress
+
+Implemented in the schema-preflight chunk:
+
+- The scraper runs a startup schema preflight against the live Supabase PostgREST surface
+  before extractor work begins.
+- The preflight verifies the migrated hub/spoke columns needed by the current loader and
+  the Connections RPC functions used by the live frontend.
+- Drift now fails fast with a migration-oriented fatal message instead of spending API
+  quota and reporting a late partial run.
+
 ### 2.1 Add Schema Preflight
 
 Before the scraper starts a long run, check that Supabase has the required columns,

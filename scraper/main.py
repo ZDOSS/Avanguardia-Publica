@@ -5,6 +5,7 @@ import logging
 from datetime import date
 from dotenv import load_dotenv
 from loader import SupabaseLoader
+from schema_preflight import SchemaPreflightError, run_schema_preflight
 from extractors.gov_api import get_congress_members
 from extractors.littlesis import get_littlesis
 from extractors.news_aggregator import get_news_data
@@ -28,6 +29,11 @@ def main():
     supabase_url = os.environ.get("SUPABASE_URL")
     supabase_key = os.environ.get("SUPABASE_KEY")
     loader = SupabaseLoader(supabase_url, supabase_key)
+
+    try:
+        run_schema_preflight(loader.supabase)
+    except SchemaPreflightError as e:
+        sys.exit(f"FATAL: {e}")
 
     # Fail loud if running in CI without credentials. Without a key the loader drops into
     # dry-run mode, which writes nothing and would otherwise exit 0 and trigger the Pages
