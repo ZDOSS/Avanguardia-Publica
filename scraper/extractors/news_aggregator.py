@@ -50,6 +50,17 @@ def _bump(provider: str) -> None:
     _counters[provider] += 1
 
 
+def get_provider_status() -> dict[str, dict]:
+    return {
+        provider: {
+            "requests": _counters[provider],
+            "limit": limit,
+            "breaker_tripped": _counters[provider] >= limit,
+        }
+        for provider, limit in RATE_LIMITS.items()
+    }
+
+
 # ---------------------------------------------------------------------------
 # 1. Currents API (primary production source)
 # ---------------------------------------------------------------------------
