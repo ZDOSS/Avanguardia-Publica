@@ -71,6 +71,18 @@ class SchemaPreflightTests(unittest.TestCase):
         run_schema_preflight(client)
 
         self.assertEqual(
+            {
+                "politicians",
+                "contact_info",
+                "campaign_donors",
+                "voting_records",
+                "unconfirmed_mentions",
+                "relationships",
+                "financial_disclosures",
+            },
+            {req.table for req in TABLE_REQUIREMENTS},
+        )
+        self.assertEqual(
             [(req.table, req.columns, 0) for req in TABLE_REQUIREMENTS],
             client.table_checks,
         )
@@ -82,7 +94,7 @@ class SchemaPreflightTests(unittest.TestCase):
 
     def test_failure_reports_all_missing_requirements(self):
         client = FakeSupabase(
-            failing_tables={"financial_disclosures"},
+            failing_tables={"contact_info", "financial_disclosures"},
             failing_rpcs={"get_covoting"},
         )
 
@@ -91,9 +103,10 @@ class SchemaPreflightTests(unittest.TestCase):
 
         message = str(raised.exception)
         self.assertIn(MIGRATION_HELP, message)
+        self.assertIn("contact_info columns", message)
         self.assertIn("financial_disclosures columns", message)
         self.assertIn("RPC get_covoting", message)
-        self.assertEqual(2, len(raised.exception.failures))
+        self.assertEqual(3, len(raised.exception.failures))
 
 
 if __name__ == "__main__":

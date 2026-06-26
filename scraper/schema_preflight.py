@@ -31,8 +31,41 @@ TABLE_REQUIREMENTS: tuple[TableRequirement, ...] = (
         ("id", "state", "district", "external_ids"),
     ),
     TableRequirement(
+        "contact_info",
+        (
+            "politician_id",
+            "office_address",
+            "phone_number",
+            "official_website",
+            "last_updated",
+        ),
+    ),
+    TableRequirement(
+        "campaign_donors",
+        (
+            "id",
+            "politician_id",
+            "donor_name",
+            "amount",
+            "donation_date",
+            "pac_status",
+            "fec_transaction_id",
+        ),
+    ),
+    TableRequirement(
         "voting_records",
         ("id", "roll_call_id", "jurisdiction"),
+    ),
+    TableRequirement(
+        "unconfirmed_mentions",
+        (
+            "id",
+            "politician_id",
+            "source_api",
+            "content_summary",
+            "sentiment_score",
+            "url",
+        ),
     ),
     TableRequirement(
         "relationships",
