@@ -37,6 +37,27 @@ class GovernmentClassificationTests(unittest.TestCase):
         self.assertEqual("senator", row["office_type"])
         self.assertEqual("CA", row["jurisdiction"])
 
+    def test_us_district_representative_is_federal_even_with_state_title(self):
+        row = normalize_government_classification(
+            {
+                "current_office": "State Representative from US District FL-4",
+                "state": "US",
+                "government_level": "State",
+                "government_branch": "Legislative",
+                "jurisdiction": "US",
+            }
+        )
+
+        self.assertEqual(
+            {
+                "government_level": "federal",
+                "government_branch": "legislative",
+                "office_type": "representative",
+                "jurisdiction": "US",
+            },
+            row,
+        )
+
     def test_source_values_override_office_fallback(self):
         row = normalize_government_classification(
             {

@@ -1,3 +1,5 @@
+import re
+
 FEDERAL = "federal"
 STATE = "state"
 LOCAL = "local"
@@ -25,10 +27,16 @@ def normalize_government_classification(member_data: dict) -> dict:
         has_openstates=bool(external_ids.get("openstates")),
     )
 
-    level = _clean_value(member_data.get("government_level")) or inferred["government_level"]
-    branch = _clean_value(member_data.get("government_branch")) or inferred["government_branch"]
-    office_type = _clean_value(member_data.get("office_type")) or inferred["office_type"]
-    jurisdiction = _clean_jurisdiction(member_data.get("jurisdiction")) or inferred["jurisdiction"]
+    if _looks_like_federal_house_office(office):
+        level = inferred["government_level"]
+        branch = inferred["government_branch"]
+        office_type = inferred["office_type"]
+        jurisdiction = inferred["jurisdiction"]
+    else:
+        level = _clean_value(member_data.get("government_level")) or inferred["government_level"]
+        branch = _clean_value(member_data.get("government_branch")) or inferred["government_branch"]
+        office_type = _clean_value(member_data.get("office_type")) or inferred["office_type"]
+        jurisdiction = _clean_jurisdiction(member_data.get("jurisdiction")) or inferred["jurisdiction"]
 
     return {
         "government_level": level,
@@ -44,8 +52,14 @@ def _infer_from_office(office: str, state: str | None, has_bioguide: bool, has_o
     office_type = None
     jurisdiction = None
 
+    # Congressional district strings like "US District FL-4" can arrive from
+    # generic civic sources even when the title text says "State Representative".
+    # Treat those as federal before applying state-title fallbacks.
+    if _looks_like_federal_house_office(office):
+        level, branch, office_type = FEDERAL, LEGISLATIVE, "representative"
+
     # State rules must run before broad federal/local substring rules.
-    if "lieutenant governor" in office:
+    elif "lieutenant governor" in office:
         level, branch, office_type = STATE, EXECUTIVE, "lieutenant_governor"
     elif office.startswith("governor of") or "governor," in office:
         level, branch, office_type = STATE, EXECUTIVE, "governor"
@@ -122,6 +136,17 @@ def _infer_from_office(office: str, state: str | None, has_bioguide: bool, has_o
         "office_type": office_type,
         "jurisdiction": jurisdiction,
     }
+
+
+def _looks_like_federal_house_office(office: str) -> bool:
+    return (
+        "representative" in office
+        and (
+            "us district" in office
+            or "u.s. district" in office
+            or re.search(r"\b[a-z]{2}-\d+\b", office) is not None
+        )
+    )
 
 
 def _clean_value(value) -> str | None:

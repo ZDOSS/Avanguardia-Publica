@@ -270,7 +270,13 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
             NULLIF(
                 regexp_replace(lower(btrim(coalesce(ci.office_address, ''))), '\s+', ' ', 'g'),
                 ''
-            ) AS address_key
+            ) AS address_key,
+            NULLIF(upper(btrim(coalesce(p.state, ''))), '') AS raw_state,
+            NULLIF(upper(btrim(coalesce(p.district, ''))), '') AS raw_district,
+            lower(btrim(coalesce(p.government_level, ''))) AS raw_government_level,
+            lower(btrim(coalesce(p.office_type, ''))) AS raw_office_type,
+            upper(coalesce(p.current_office, '')) AS office_upper,
+            lower(coalesce(p.current_office, '')) AS office_lower
         FROM public.politicians AS p
         LEFT JOIN public.contact_info AS ci ON ci.politician_id = p.id
     ),
@@ -287,7 +293,30 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
                 CASE WHEN ck.phone_key IS NOT NULL AND length(ck.phone_key) >= 7 THEN 'phone:' || ck.phone_key END,
                 CASE WHEN ck.website_key IS NOT NULL AND length(ck.website_key) >= 4 THEN 'web:' || ck.website_key END,
                 CASE WHEN ck.address_key IS NOT NULL AND length(ck.address_key) >= 10 THEN 'addr:' || ck.address_key END
-            ) AS contact_signature
+            ) AS contact_signature,
+            CASE
+                WHEN ck.raw_district ~ '^[A-Z]{2}-' THEN substring(ck.raw_district from '^([A-Z]{2})-')
+                WHEN ck.office_upper ~ 'US DISTRICT [A-Z]{2}-' THEN substring(ck.office_upper from 'US DISTRICT ([A-Z]{2})-')
+                WHEN ck.raw_state = 'US' THEN NULL
+                ELSE ck.raw_state
+            END AS match_state,
+            CASE
+                WHEN ck.raw_district ~ '^[A-Z]{2}-' THEN regexp_replace(ck.raw_district, '^[A-Z]{2}-', '')
+                WHEN ck.office_upper ~ 'US DISTRICT [A-Z]{2}-' THEN substring(ck.office_upper from 'US DISTRICT [A-Z]{2}-([0-9A-Z-]+)')
+                ELSE ck.raw_district
+            END AS match_district,
+            CASE
+                WHEN ck.raw_government_level = 'state'
+                  AND ck.office_lower LIKE '%representative%'
+                  AND (
+                      ck.website_key LIKE '%.house.gov%'
+                      OR ck.raw_district ~ '^[A-Z]{2}-'
+                      OR ck.office_upper ~ 'US DISTRICT [A-Z]{2}-'
+                  )
+                    THEN 'federal'
+                ELSE NULLIF(ck.raw_government_level, '')
+            END AS match_government_level,
+            NULLIF(ck.raw_office_type, '') AS match_office_type
         FROM contact_keys AS ck
     ),
     matchable AS (
@@ -306,13 +335,13 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
         WHERE duplicate_key IS NOT NULL
         GROUP BY duplicate_key
         HAVING count(*) > 1
-           AND count(DISTINCT lower(btrim(state))) FILTER (WHERE state IS NOT NULL AND btrim(state) <> '') <= 1
-           AND count(DISTINCT lower(btrim(district))) FILTER (WHERE district IS NOT NULL AND btrim(district) <> '') <= 1
-           AND count(DISTINCT lower(btrim(government_level))) FILTER (
-                WHERE government_level IS NOT NULL AND btrim(government_level) <> ''
+           AND count(DISTINCT match_state) FILTER (WHERE match_state IS NOT NULL AND btrim(match_state) <> '') <= 1
+           AND count(DISTINCT match_district) FILTER (WHERE match_district IS NOT NULL AND btrim(match_district) <> '') <= 1
+           AND count(DISTINCT match_government_level) FILTER (
+                WHERE match_government_level IS NOT NULL AND btrim(match_government_level) <> ''
            ) <= 1
-           AND count(DISTINCT lower(btrim(office_type))) FILTER (
-                WHERE office_type IS NOT NULL AND btrim(office_type) <> ''
+           AND count(DISTINCT match_office_type) FILTER (
+                WHERE match_office_type IS NOT NULL AND btrim(match_office_type) <> ''
            ) <= 1
     ),
     scored AS (
