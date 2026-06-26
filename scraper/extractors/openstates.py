@@ -60,7 +60,12 @@ def _classification(role: dict, state: str) -> dict:
         "upper": "senator",
         "lower": "representative",
     }.get(rtype)
-    branch = "executive" if rtype in {"governor", "lt_governor"} else "legislative"
+    branch = {
+        "governor": "executive",
+        "lt_governor": "executive",
+        "upper": "legislative",
+        "lower": "legislative",
+    }.get(rtype)
     return {
         "government_level": "state",
         "government_branch": branch,

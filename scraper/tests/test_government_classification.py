@@ -58,6 +58,17 @@ class GovernmentClassificationTests(unittest.TestCase):
             row,
         )
 
+    def test_source_jurisdiction_is_uppercase(self):
+        row = normalize_government_classification(
+            {
+                "current_office": "Unknown Office",
+                "government_level": "State",
+                "jurisdiction": " ca ",
+            }
+        )
+
+        self.assertEqual("CA", row["jurisdiction"])
+
 
 if __name__ == "__main__":
     unittest.main()

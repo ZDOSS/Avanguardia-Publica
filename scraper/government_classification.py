@@ -141,5 +141,5 @@ def _clean_state(value) -> str | None:
 def _clean_jurisdiction(value) -> str | None:
     if value is None:
         return None
-    cleaned = str(value).strip()
+    cleaned = str(value).strip().upper()
     return cleaned or None

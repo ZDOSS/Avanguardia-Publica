@@ -200,3 +200,11 @@ CREATE TRIGGER politicians_search_vector_update
     ON politicians
     FOR EACH ROW
     EXECUTE FUNCTION update_politicians_search_vector();
+
+-- Recompute existing rows now that the trigger includes classification terms.
+UPDATE politicians
+SET full_name = full_name
+WHERE government_level IS NOT NULL
+   OR government_branch IS NOT NULL
+   OR office_type IS NOT NULL
+   OR jurisdiction IS NOT NULL;
