@@ -72,6 +72,115 @@ const LEVEL_ROOT: Record<string, string> = {
   Local: LOCAL,
 };
 
+const NORMALIZED_LEVEL_ROOT: Record<string, string> = {
+  federal: FED,
+  state: STATE,
+  local: LOCAL,
+};
+
+function normalizedClassificationPath(pol: Politician): GovPath | null {
+  const level = pol.government_level?.toLowerCase();
+  const branch = pol.government_branch?.toLowerCase();
+  const officeType = pol.office_type?.toLowerCase();
+
+  if (!level) return null;
+
+  if (level === "federal") {
+    if (branch === "executive") {
+      if (officeType === "president") return [FED, "Executive Branch", "The President"];
+      if (officeType === "vice_president") return [FED, "Executive Branch", "The Vice President"];
+      return [FED, "Executive Branch"];
+    }
+
+    if (branch === "legislative") {
+      if (officeType === "senator") return [FED, "Legislative Branch (Congress)", "Senate (100 Members)"];
+      if (officeType === "representative") {
+        return [FED, "Legislative Branch (Congress)", "House of Representatives (435 Members)"];
+      }
+      return [FED, "Legislative Branch (Congress)"];
+    }
+
+    if (branch === "judicial") {
+      if (officeType === "chief_justice") {
+        return [FED, "Judicial Branch", "Supreme Court of the United States", "Chief Justice"];
+      }
+      if (officeType === "associate_justice") {
+        return [FED, "Judicial Branch", "Supreme Court of the United States", "8 Associate Justices"];
+      }
+      return [FED, "Judicial Branch"];
+    }
+
+    return [FED];
+  }
+
+  if (level === "state") {
+    if (branch === "executive") {
+      if (officeType === "governor") return [STATE, "State Executive Branch", "The Governor (Chief Executive)"];
+      if (officeType === "lieutenant_governor") return [STATE, "State Executive Branch", "Lieutenant Governor"];
+      if (officeType === "attorney_general") {
+        return [STATE, "State Executive Branch", "Elected Executive Officers (Varies by State)", "Attorney General (Chief Legal Officer)"];
+      }
+      if (officeType === "secretary_of_state") {
+        return [STATE, "State Executive Branch", "Elected Executive Officers (Varies by State)", "Secretary of State (Elections, Business Registry)"];
+      }
+      if (officeType === "treasurer" || officeType === "comptroller") {
+        return [STATE, "State Executive Branch", "Elected Executive Officers (Varies by State)", "State Treasurer / Comptroller"];
+      }
+      return [STATE, "State Executive Branch"];
+    }
+
+    if (branch === "legislative") {
+      if (officeType === "senator") return [STATE, "State Legislative Branch", "State Senate (Upper Chamber)"];
+      if (officeType === "representative") {
+        return [STATE, "State Legislative Branch", "State House of Representatives / Assembly / House of Delegates (Lower Chamber)"];
+      }
+      return [STATE, "State Legislative Branch"];
+    }
+
+    if (branch === "judicial") return [STATE, "State Judicial Branch"];
+
+    return [STATE];
+  }
+
+  if (level === "local") {
+    if (officeType === "mayor") {
+      return [LOCAL, "Municipal Government (Cities, Towns, Villages)", "Executive Branch", "Mayor (Chief Executive)"];
+    }
+    if (officeType === "city_manager" || officeType === "town_administrator") {
+      return [LOCAL, "Municipal Government (Cities, Towns, Villages)", "Executive Branch", "City Manager / Town Administrator (Appointed Professional)"];
+    }
+    if (officeType === "council_member") {
+      return [LOCAL, "Municipal Government (Cities, Towns, Villages)", "Legislative Branch", "City Council / Board of Aldermen / Town Board"];
+    }
+    if (officeType === "sheriff") {
+      return [LOCAL, "County Government", "Elected County Officials", "County Sheriff (Law Enforcement & Jails)"];
+    }
+    if (officeType === "district_attorney") {
+      return [LOCAL, "County Government", "Elected County Officials", "District Attorney / County Prosecutor"];
+    }
+    if (officeType === "county_commissioner") {
+      return [LOCAL, "County Government", "Legislative / Executive Authority", "Board of County Commissioners / Supervisors"];
+    }
+    if (officeType === "school_board_member") {
+      return [LOCAL, "Special Districts (Independent Entities)", "School Districts (Over 13,000 nationwide)", "Board of Education / School Board (Elected Legislative Body)"];
+    }
+    return [LOCAL];
+  }
+
+  return null;
+}
+
+function classifyPoliticianToPath(pol: Politician): GovPath {
+  return normalizedClassificationPath(pol) ?? classifyToPath(pol.current_office || "");
+}
+
+function politicianLevelRoot(pol: Politician): string {
+  const normalizedRoot = pol.government_level
+    ? NORMALIZED_LEVEL_ROOT[pol.government_level.toLowerCase()]
+    : null;
+  return normalizedRoot ?? classifyToPath(pol.current_office || "")[0];
+}
+
 // ─── Runtime tree (taxonomy skeleton + attached politicians) ────────────────
 interface RuntimeNode {
   label: string;
@@ -102,7 +211,7 @@ function buildTree(politicians: Politician[]): RuntimeNode[] {
   const roots = cloneStructure(GOV_STRUCTURE);
 
   for (const pol of politicians) {
-    const path = classifyToPath(pol.current_office || "");
+    const path = classifyPoliticianToPath(pol);
     let node = findOrCreate(roots, path[0]);
     for (let i = 1; i < path.length; i++) node = findOrCreate(node.children, path[i]);
     node.politicians.push(pol);
@@ -366,7 +475,7 @@ export default function DirectoryClient() {
         if (!ok) return false;
       }
       if (party !== "All" && (p.party || "Unknown") !== party) return false;
-      if (levelRoot && classifyToPath(p.current_office)[0] !== levelRoot) return false;
+      if (levelRoot && politicianLevelRoot(p) !== levelRoot) return false;
       if (parsed.textTokens.length > 0) {
         const hay = `${p.full_name} ${p.current_office || ""} ${p.party || ""}`.toLowerCase();
         if (!parsed.textTokens.every((t) => hay.includes(t.toLowerCase()))) return false;

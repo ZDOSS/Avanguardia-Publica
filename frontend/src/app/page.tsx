@@ -7,6 +7,18 @@ import { profilePath } from '@/lib/routes';
 
 type Politician = PoliticianSummary;
 
+function mockPolitician(data: Pick<Politician, "id" | "full_name" | "current_office" | "party">): Politician {
+  return {
+    ...data,
+    state: null,
+    district: null,
+    government_level: null,
+    government_branch: null,
+    office_type: null,
+    jurisdiction: null,
+  };
+}
+
 export default function Home() {
   const [search, setSearch] = useState("");
   const [featured, setFeatured] = useState<Politician[]>([]);
@@ -18,8 +30,8 @@ export default function Home() {
     async function fetchFeatured() {
       // Mock fallback if supabase isn't connected
       const mockData: Politician[] = [
-        { id: 'biden-joe', full_name: 'Joe Biden', current_office: 'President of the United States', party: 'Democratic', state: null, district: null },
-        { id: 'harris-kamala', full_name: 'Kamala Harris', current_office: 'Vice President of the United States', party: 'Democratic', state: null, district: null },
+        mockPolitician({ id: 'biden-joe', full_name: 'Joe Biden', current_office: 'President of the United States', party: 'Democratic' }),
+        mockPolitician({ id: 'harris-kamala', full_name: 'Kamala Harris', current_office: 'Vice President of the United States', party: 'Democratic' }),
       ];
       
       try {

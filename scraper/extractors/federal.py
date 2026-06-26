@@ -36,6 +36,11 @@ _EXEC_OFFICE_BY_TYPE = {
     "viceprez": "Vice President of the United States",
 }
 
+_EXEC_OFFICE_TYPE_BY_TYPE = {
+    "prez": "president",
+    "viceprez": "vice_president",
+}
+
 # Supreme Court of the United States — current bench, with Wikidata-verified QIDs.
 _SUPREME_COURT = [
     {"full_name": "John Roberts",          "wikidata": "Q11153",    "seat": "Chief Justice of the United States"},
@@ -87,6 +92,10 @@ def get_federal_executives() -> list:
             "full_name": full_name,
             "current_office": office,
             "party": term.get("party") or "Unknown",
+            "government_level": "federal",
+            "government_branch": "executive",
+            "office_type": _EXEC_OFFICE_TYPE_BY_TYPE.get(term.get("type")),
+            "jurisdiction": "US",
             "bioguide_id": None,
             "external_ids": external_ids,
             "aliases": [full_name],
@@ -107,6 +116,10 @@ def get_supreme_court() -> list:
             "full_name": j["full_name"],
             "current_office": j["seat"],
             "party": "Nonpartisan",
+            "government_level": "federal",
+            "government_branch": "judicial",
+            "office_type": "chief_justice" if "Chief Justice" in j["seat"] else "associate_justice",
+            "jurisdiction": "US",
             "bioguide_id": None,
             "external_ids": {"wikidata": j["wikidata"]},
             "aliases": [j["full_name"]],

@@ -114,6 +114,15 @@ Implemented in the ETL preflight/summary chunk:
   HTTP/2 connection resets refresh the client and retry instead of failing the run after
   otherwise-successful work.
 
+Implemented in the government-classification chunk:
+
+- Added normalized `politicians` hub columns for government level, branch, office type, and
+  jurisdiction, with an idempotent backfill migration and indexes for future filters.
+- Updated the scraper to write normalized classification metadata from source records on every
+  hub upsert, with conservative office-string fallback for older extractors.
+- Updated `/directory` to prefer normalized classification fields and only fall back to keyword
+  parsing while the live database is being migrated/backfilled.
+
 ### 2.1 Add Schema Preflight
 
 Before the scraper starts a long run, check that Supabase has the required columns,
@@ -167,6 +176,10 @@ Add normalized columns or a derived table for:
 
 The frontend can still render the current taxonomy, but it should not need to infer all
 structure from display text.
+
+Status: implemented with nullable hub columns in `migrations/0007_government_classification.sql`.
+Apply the migration manually, then run the scraper so source-owned normalized values replace
+the compatibility backfill.
 
 ### 2.4 Add Source Metadata
 
@@ -321,6 +334,6 @@ Visualization rules:
 3. Add pagination, loading, error, empty, and freshness states.
 4. Add schema preflight to the scraper.
 5. Add ETL summary reporting.
-6. Normalize government classification fields.
+6. Normalize government classification fields. (Implemented; pending manual migration on live DB.)
 7. Add richer connection RPCs.
 8. Build visual analytics on top of those RPCs.

@@ -172,7 +172,7 @@ EXISTS`, `DROP POLICY IF EXISTS`), so re-running the full set is safe.
 > `Could not find the 'district' column of 'politicians' in the schema cache`, and profile
 > pages show stale/empty data. Recover in this order:
 >
-> 1. Apply the pending migrations (e.g. `0002`–`0005`) against the live database. If a
+> 1. Apply the pending migrations (e.g. `0002`–`0007`) against the live database. If a
 >    freshly-added column still isn't found right after, reload PostgREST's schema cache:
 >    `NOTIFY pgrst, 'reload schema';`
 > 2. **Run the Nightly ETL Scraper and confirm it succeeds** — look for `[+] Updated/Inserted
@@ -194,8 +194,10 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md). Key rules for this repo:
 1. **No paid APIs** — all scraper sources must be free-tier or open source.
 2. **Label unconfirmed data** — third-party/unverified data must be visibly marked in the UI
    (the "Visual Firewall").
-3. **Classifier order matters** — in `DirectoryClient.tsx`, rules are evaluated top-to-bottom
-   and first match wins; State/Federal rules must sit above generic Local rules.
+3. **Classification is data-first** — the directory should prefer normalized
+   `government_level`, `government_branch`, `office_type`, and `jurisdiction` columns. The
+   legacy keyword classifier is only a compatibility fallback; if you edit it, State/Federal
+   rules must still sit above generic Local rules.
 4. **Sign off every commit (DCO)** — append `--signoff` (`-s`) to every `git commit`.
 5. **New work branches off `main`** and lands via PR; maintainers handle merges.
 

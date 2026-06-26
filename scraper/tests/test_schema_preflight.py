@@ -97,6 +97,14 @@ class SchemaPreflightTests(unittest.TestCase):
             [(table, columns, 1) for table, columns in REQUIRED_COLUMN_CHECKS],
             client.table_checks,
         )
+        politicians_columns = dict(REQUIRED_COLUMN_CHECKS)["politicians"]
+        for column in (
+            "government_level",
+            "government_branch",
+            "office_type",
+            "jurisdiction",
+        ):
+            self.assertIn(column, politicians_columns)
         self.assertEqual(
             [(rpc_name, {"p_id": ZERO_UUID}) for rpc_name in REQUIRED_RPC_CHECKS],
             client.rpc_checks,
