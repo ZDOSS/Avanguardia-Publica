@@ -4,4 +4,5 @@
 node_modules/
 .DS_Store
 .codex-*/
+.agents/
 git-acl-before.txt
