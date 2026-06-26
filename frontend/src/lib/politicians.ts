@@ -123,7 +123,7 @@ async function fetchAllPoliticiansWithColumns(
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await supabase
       .from('politicians')
-      .select(SUMMARY_COLUMNS)
+      .select(columns)
       .order('full_name')
       .range(from, from + PAGE_SIZE - 1);
 
