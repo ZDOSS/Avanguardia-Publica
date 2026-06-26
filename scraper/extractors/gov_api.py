@@ -76,12 +76,15 @@ def get_congress_members():
         district_label = None
         if office_type == "sen":
             office = f"US Senator from {state}"
+            normalized_office_type = "senator"
         elif office_type == "rep":
             district = term_obj.get("district", "")
             district_label = "At-Large" if str(district) == "0" else str(district)
             office = f"US Representative from {state}-{district_label}"
+            normalized_office_type = "representative"
         else:
             office = "Unknown Office"
+            normalized_office_type = None
 
         # Format Party
         party = term_obj.get("party", "Independent")
@@ -99,6 +102,10 @@ def get_congress_members():
             # 2-letter USPS state code + district for the directory location filter.
             "state": (state or "").upper() or None,
             "district": district_label,
+            "government_level": "federal",
+            "government_branch": "legislative" if normalized_office_type else None,
+            "office_type": normalized_office_type,
+            "jurisdiction": "US",
             "bioguide_id": bioguide_id,
             "external_ids": external_ids,
             "aliases": _build_aliases(name_obj),

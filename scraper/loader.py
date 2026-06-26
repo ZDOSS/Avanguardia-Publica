@@ -4,6 +4,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from supabase import create_client, Client
 
+from government_classification import normalize_government_classification
+
 logger = logging.getLogger(__name__)
 
 # Stable, non-federal identity schemes carried in external_ids, most-trusted first.
@@ -110,6 +112,8 @@ class SupabaseLoader:
             None,
         )
 
+        classification = normalize_government_classification(member_data)
+
         data_to_write = {
             "full_name": member_data.get("full_name"),
             "current_office": member_data.get("current_office"),
@@ -118,6 +122,10 @@ class SupabaseLoader:
             # offices leave them NULL). Powers the directory's location filter.
             "state": member_data.get("state"),
             "district": member_data.get("district"),
+            "government_level": classification["government_level"],
+            "government_branch": classification["government_branch"],
+            "office_type": classification["office_type"],
+            "jurisdiction": classification["jurisdiction"],
             "external_ids": member_data.get("external_ids") or {},
             "aliases": member_data.get("aliases") or [],
             # DEFAULT NOW() only fires on INSERT, so set it explicitly to keep the

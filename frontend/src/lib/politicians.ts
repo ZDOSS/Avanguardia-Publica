@@ -7,9 +7,20 @@ export interface PoliticianSummary {
   party: string;
   state: string | null;
   district: string | null;
+  government_level: string | null;
+  government_branch: string | null;
+  office_type: string | null;
+  jurisdiction: string | null;
 }
 
-const SUMMARY_COLUMNS = "id, full_name, current_office, party, state, district";
+type BasePoliticianSummary = Omit<
+  PoliticianSummary,
+  "government_level" | "government_branch" | "office_type" | "jurisdiction"
+>;
+
+const BASE_SUMMARY_COLUMNS = "id, full_name, current_office, party, state, district";
+const SUMMARY_COLUMNS = `${BASE_SUMMARY_COLUMNS}, government_level, government_branch, office_type, jurisdiction`;
+const CLASSIFICATION_COLUMNS = ["government_level", "government_branch", "office_type", "jurisdiction"];
 
 // Supabase/PostgREST caps every response at `max-rows` (1,000 by default).
 // Crucially, `.limit(n)` does NOT raise that cap — a `.limit(10000)` request is
@@ -18,6 +29,22 @@ const SUMMARY_COLUMNS = "id, full_name, current_office, party, state, district";
 const PAGE_SIZE = 1000;
 const DEFAULT_SEARCH_LIMIT = 25;
 
+function missingClassificationColumn(error: { code?: string; message?: string; details?: string } | null): boolean {
+  if (!error) return false;
+  const text = `${error.code ?? ""} ${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
+  return text.includes("pgrst204") && CLASSIFICATION_COLUMNS.some((column) => text.includes(column));
+}
+
+function withEmptyClassification(rows: BasePoliticianSummary[] | null): PoliticianSummary[] {
+  return (rows ?? []).map((row) => ({
+    ...row,
+    government_level: null,
+    government_branch: null,
+    office_type: null,
+    jurisdiction: null,
+  }));
+}
+
 export async function fetchPoliticianSummaries(limit = 6): Promise<PoliticianSummary[]> {
   const { data, error } = await supabase
     .from('politicians')
@@ -25,8 +52,19 @@ export async function fetchPoliticianSummaries(limit = 6): Promise<PoliticianSum
     .order('full_name')
     .limit(limit);
 
+  if (missingClassificationColumn(error)) {
+    const fallback = await supabase
+      .from('politicians')
+      .select(BASE_SUMMARY_COLUMNS)
+      .order('full_name')
+      .limit(limit);
+
+    if (fallback.error) throw fallback.error;
+    return withEmptyClassification(fallback.data as unknown as BasePoliticianSummary[]);
+  }
+
   if (error) throw error;
-  return (data ?? []) as PoliticianSummary[];
+  return (data ?? []) as unknown as PoliticianSummary[];
 }
 
 export async function searchPoliticians(
@@ -43,8 +81,20 @@ export async function searchPoliticians(
     .order('full_name')
     .limit(limit);
 
+  if (missingClassificationColumn(error)) {
+    const fallback = await supabase
+      .from('politicians')
+      .select(BASE_SUMMARY_COLUMNS)
+      .textSearch('search_vector', trimmed, { type: 'websearch', config: 'english' })
+      .order('full_name')
+      .limit(limit);
+
+    if (fallback.error) throw fallback.error;
+    return withEmptyClassification(fallback.data as unknown as BasePoliticianSummary[]);
+  }
+
   if (error) throw error;
-  return (data ?? []) as PoliticianSummary[];
+  return (data ?? []) as unknown as PoliticianSummary[];
 }
 
 /**
@@ -54,6 +104,20 @@ export async function searchPoliticians(
  * silently truncated directory).
  */
 export async function fetchAllPoliticians(): Promise<PoliticianSummary[]> {
+  try {
+    return await fetchAllPoliticiansWithColumns(SUMMARY_COLUMNS, true);
+  } catch (error) {
+    if (!missingClassificationColumn(error as { code?: string; message?: string; details?: string })) {
+      throw error;
+    }
+    return fetchAllPoliticiansWithColumns(BASE_SUMMARY_COLUMNS, false);
+  }
+}
+
+async function fetchAllPoliticiansWithColumns(
+  columns: string,
+  includesClassification: boolean,
+): Promise<PoliticianSummary[]> {
   const all: PoliticianSummary[] = [];
 
   for (let from = 0; ; from += PAGE_SIZE) {
@@ -66,7 +130,10 @@ export async function fetchAllPoliticians(): Promise<PoliticianSummary[]> {
     if (error) throw error;
     if (!data || data.length === 0) break;
 
-    all.push(...(data as PoliticianSummary[]));
+    const page = includesClassification
+      ? (data as unknown as PoliticianSummary[])
+      : withEmptyClassification(data as unknown as BasePoliticianSummary[]);
+    all.push(...page);
 
     // A short page means we've reached the end of the table.
     if (data.length < PAGE_SIZE) break;

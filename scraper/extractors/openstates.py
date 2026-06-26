@@ -52,6 +52,23 @@ def _office_string(role: dict, state: str) -> str | None:
     return None
 
 
+def _classification(role: dict, state: str) -> dict:
+    rtype = role.get("type")
+    office_type = {
+        "governor": "governor",
+        "lt_governor": "lieutenant_governor",
+        "upper": "senator",
+        "lower": "representative",
+    }.get(rtype)
+    branch = "executive" if rtype in {"governor", "lt_governor"} else "legislative"
+    return {
+        "government_level": "state",
+        "government_branch": branch,
+        "office_type": office_type,
+        "jurisdiction": (state or "").upper() or None,
+    }
+
+
 def _party(person: dict) -> str:
     parties = person.get("party") or []
     if not parties or not isinstance(parties, list):
@@ -130,6 +147,7 @@ def _map_person(person: dict, state: str) -> dict | None:
         # 2-letter USPS state code + district for the directory location filter.
         "state": (state or "").upper() or None,
         "district": str(district) if district is not None else None,
+        **_classification(role, state),
         "bioguide_id": None,
         "external_ids": _external_ids(person),
         "aliases": _aliases(person),

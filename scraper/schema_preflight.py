@@ -4,6 +4,7 @@ REQUIRED_COLUMN_CHECKS = [
     (
         "politicians",
         "id,full_name,current_office,party,state,district,external_ids,aliases,"
+        "government_level,government_branch,office_type,jurisdiction,"
         "search_vector,last_updated,bioguide_id",
     ),
     (

@@ -18,6 +18,12 @@ CREATE TABLE IF NOT EXISTS politicians (
     -- ('12', 'At-Large', ...) where applicable. See migrations/0002.
     state TEXT,
     district TEXT,
+    -- Normalized classification for directory filters and future analytics. The scraper
+    -- writes these from source metadata; migrations/0006 backfills older rows.
+    government_level TEXT,
+    government_branch TEXT,
+    office_type TEXT,
+    jurisdiction TEXT,
     bioguide_id TEXT UNIQUE,
     external_ids JSONB NOT NULL DEFAULT '{}'::jsonb,
     aliases TEXT[] NOT NULL DEFAULT '{}',
@@ -26,6 +32,10 @@ CREATE TABLE IF NOT EXISTS politicians (
 );
 
 CREATE INDEX IF NOT EXISTS idx_politicians_state ON politicians (state);
+CREATE INDEX IF NOT EXISTS idx_politicians_government_level ON politicians (government_level);
+CREATE INDEX IF NOT EXISTS idx_politicians_government_classification
+    ON politicians (government_level, government_branch, office_type);
+CREATE INDEX IF NOT EXISTS idx_politicians_jurisdiction ON politicians (jurisdiction);
 CREATE INDEX IF NOT EXISTS idx_politicians_full_name ON politicians (full_name);
 CREATE INDEX IF NOT EXISTS idx_politicians_external_ids ON politicians USING gin (external_ids);
 CREATE INDEX IF NOT EXISTS idx_politicians_search_vector ON politicians USING gin (search_vector);
@@ -42,6 +52,10 @@ BEGIN
             coalesce(NEW.full_name, '') || ' ' ||
             coalesce(NEW.current_office, '') || ' ' ||
             coalesce(NEW.party, '') || ' ' ||
+            coalesce(NEW.government_level, '') || ' ' ||
+            coalesce(NEW.government_branch, '') || ' ' ||
+            coalesce(NEW.office_type, '') || ' ' ||
+            coalesce(NEW.jurisdiction, '') || ' ' ||
             coalesce(array_to_string(NEW.aliases, ' '), '')
         );
     RETURN NEW;
@@ -50,7 +64,8 @@ $$;
 
 DROP TRIGGER IF EXISTS politicians_search_vector_update ON politicians;
 CREATE TRIGGER politicians_search_vector_update
-    BEFORE INSERT OR UPDATE OF full_name, current_office, party, aliases
+    BEFORE INSERT OR UPDATE OF full_name, current_office, party, aliases,
+        government_level, government_branch, office_type, jurisdiction
     ON politicians
     FOR EACH ROW
     EXECUTE FUNCTION update_politicians_search_vector();
