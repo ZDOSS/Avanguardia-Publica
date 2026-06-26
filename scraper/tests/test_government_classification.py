@@ -58,6 +58,24 @@ class GovernmentClassificationTests(unittest.TestCase):
             row,
         )
 
+    def test_state_representative_with_state_district_stays_state(self):
+        row = normalize_government_classification(
+            {
+                "current_office": "State Representative from CA-12",
+                "state": "CA",
+            }
+        )
+
+        self.assertEqual(
+            {
+                "government_level": "state",
+                "government_branch": "legislative",
+                "office_type": "representative",
+                "jurisdiction": "CA",
+            },
+            row,
+        )
+
     def test_source_values_override_office_fallback(self):
         row = normalize_government_classification(
             {

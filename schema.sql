@@ -310,7 +310,6 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
                   AND ck.office_lower LIKE '%representative%'
                   AND (
                       ck.website_key LIKE '%.house.gov%'
-                      OR ck.raw_district ~ '^[A-Z]{2}-'
                       OR ck.office_upper ~ 'US DISTRICT [A-Z]{2}-'
                   )
                     THEN 'federal'

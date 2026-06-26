@@ -1,5 +1,3 @@
-import re
-
 FEDERAL = "federal"
 STATE = "state"
 LOCAL = "local"
@@ -141,11 +139,7 @@ def _infer_from_office(office: str, state: str | None, has_bioguide: bool, has_o
 def _looks_like_federal_house_office(office: str) -> bool:
     return (
         "representative" in office
-        and (
-            "us district" in office
-            or "u.s. district" in office
-            or re.search(r"\b[a-z]{2}-\d+\b", office) is not None
-        )
+        and ("us district" in office or "u.s. district" in office)
     )
 
 
