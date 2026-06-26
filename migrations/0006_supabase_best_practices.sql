@@ -1,23 +1,64 @@
 -- 0006_supabase_best_practices.sql
 --
 -- Aligns the live database with the current Supabase/Postgres read paths:
---   * generated full-text search vector for browser search
+--   * trigger-maintained full-text search vector for browser search
 --   * composite indexes for profile spoke pagination
 --   * schema parity indexes that schema.sql now includes for fresh bootstraps
 --   * hardened SECURITY DEFINER RPCs with an empty search_path and fully-qualified tables
 --
 -- Idempotent and safe to re-run. Apply manually after existing migrations.
 
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_attribute
+        WHERE attrelid = 'public.politicians'::regclass
+          AND attname = 'search_vector'
+          AND attgenerated <> ''
+          AND NOT attisdropped
+    ) THEN
+        ALTER TABLE public.politicians DROP COLUMN search_vector;
+    END IF;
+END $$;
+
 ALTER TABLE politicians
-    ADD COLUMN IF NOT EXISTS search_vector TSVECTOR GENERATED ALWAYS AS (
+    ADD COLUMN IF NOT EXISTS search_vector TSVECTOR;
+
+CREATE OR REPLACE FUNCTION update_politicians_search_vector()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+    NEW.search_vector :=
         to_tsvector(
             'english',
-            coalesce(full_name, '') || ' ' ||
-            coalesce(current_office, '') || ' ' ||
-            coalesce(party, '') || ' ' ||
-            coalesce(array_to_string(aliases, ' '), '')
-        )
-    ) STORED;
+            coalesce(NEW.full_name, '') || ' ' ||
+            coalesce(NEW.current_office, '') || ' ' ||
+            coalesce(NEW.party, '') || ' ' ||
+            coalesce(array_to_string(NEW.aliases, ' '), '')
+        );
+    RETURN NEW;
+END;
+$$;
+
+UPDATE politicians
+SET search_vector =
+    to_tsvector(
+        'english',
+        coalesce(full_name, '') || ' ' ||
+        coalesce(current_office, '') || ' ' ||
+        coalesce(party, '') || ' ' ||
+        coalesce(array_to_string(aliases, ' '), '')
+    );
+
+DROP TRIGGER IF EXISTS politicians_search_vector_update ON politicians;
+CREATE TRIGGER politicians_search_vector_update
+    BEFORE INSERT OR UPDATE OF full_name, current_office, party, aliases
+    ON politicians
+    FOR EACH ROW
+    EXECUTE FUNCTION update_politicians_search_vector();
 
 CREATE INDEX IF NOT EXISTS idx_politicians_full_name
     ON politicians (full_name);

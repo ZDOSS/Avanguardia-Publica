@@ -21,15 +21,7 @@ CREATE TABLE IF NOT EXISTS politicians (
     bioguide_id TEXT UNIQUE,
     external_ids JSONB NOT NULL DEFAULT '{}'::jsonb,
     aliases TEXT[] NOT NULL DEFAULT '{}',
-    search_vector TSVECTOR GENERATED ALWAYS AS (
-        to_tsvector(
-            'english',
-            coalesce(full_name, '') || ' ' ||
-            coalesce(current_office, '') || ' ' ||
-            coalesce(party, '') || ' ' ||
-            coalesce(array_to_string(aliases, ' '), '')
-        )
-    ) STORED,
+    search_vector TSVECTOR,
     last_updated TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -37,6 +29,31 @@ CREATE INDEX IF NOT EXISTS idx_politicians_state ON politicians (state);
 CREATE INDEX IF NOT EXISTS idx_politicians_full_name ON politicians (full_name);
 CREATE INDEX IF NOT EXISTS idx_politicians_external_ids ON politicians USING gin (external_ids);
 CREATE INDEX IF NOT EXISTS idx_politicians_search_vector ON politicians USING gin (search_vector);
+
+CREATE OR REPLACE FUNCTION update_politicians_search_vector()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+    NEW.search_vector :=
+        to_tsvector(
+            'english',
+            coalesce(NEW.full_name, '') || ' ' ||
+            coalesce(NEW.current_office, '') || ' ' ||
+            coalesce(NEW.party, '') || ' ' ||
+            coalesce(array_to_string(NEW.aliases, ' '), '')
+        );
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS politicians_search_vector_update ON politicians;
+CREATE TRIGGER politicians_search_vector_update
+    BEFORE INSERT OR UPDATE OF full_name, current_office, party, aliases
+    ON politicians
+    FOR EACH ROW
+    EXECUTE FUNCTION update_politicians_search_vector();
 
 -- 2. Verified Spoke: contact_info
 CREATE TABLE IF NOT EXISTS contact_info (
