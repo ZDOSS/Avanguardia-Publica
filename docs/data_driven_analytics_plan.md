@@ -105,14 +105,14 @@ Once the UI is consistently live, tighten the pipeline so it is easier to trust.
 
 ### Phase 2 Progress
 
-Implemented in the schema-preflight chunk:
+Implemented in the ETL preflight/summary chunk:
 
-- The scraper runs a startup schema preflight against the live Supabase PostgREST surface
-  before extractor work begins.
-- The preflight verifies the migrated hub/spoke columns needed by the current loader and
-  the Connections RPC functions used by the live frontend.
-- Drift now fails fast with a migration-oriented fatal message instead of spending API
-  quota and reporting a late partial run.
+- Added a scraper schema preflight for required live Supabase tables, columns, and RPCs.
+- Added an end-of-run ETL summary with row-write counters, source skips, errors, schema
+  preflight status, and news-provider circuit status.
+- Added transient Supabase/PostgREST retry handling around loader writes and lookups so
+  HTTP/2 connection resets refresh the client and retry instead of failing the run after
+  otherwise-successful work.
 
 ### 2.1 Add Schema Preflight
 

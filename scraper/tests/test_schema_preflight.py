@@ -1,10 +1,9 @@
 import unittest
 
 from schema_preflight import (
-    MIGRATION_HELP,
-    RPC_REQUIREMENTS,
-    TABLE_REQUIREMENTS,
-    NIL_UUID,
+    REQUIRED_COLUMN_CHECKS,
+    REQUIRED_RPC_CHECKS,
+    ZERO_UUID,
     SchemaPreflightError,
     run_schema_preflight,
 )
@@ -26,9 +25,7 @@ class FakeTableQuery:
         return self
 
     def execute(self):
-        self.client.table_checks.append(
-            (self.table_name, tuple(self.columns.split(",")), self.limit_value)
-        )
+        self.client.table_checks.append((self.table_name, self.columns, self.limit_value))
         if self.table_name in self.client.failing_tables:
             raise RuntimeError(f"{self.table_name} missing")
         return type("Response", (), {"data": []})()
@@ -61,14 +58,28 @@ class FakeSupabase:
         return FakeRpcQuery(self, name, args)
 
 
+class FakeLoader:
+    def __init__(self, supabase):
+        self.supabase = supabase
+        self.executed_descriptions = []
+
+    def execute_supabase(self, operation, description, retries=3):
+        self.executed_descriptions.append(description)
+        return operation()
+
+
 class SchemaPreflightTests(unittest.TestCase):
     def test_dry_run_skips_without_client(self):
-        run_schema_preflight(None)
+        loader = FakeLoader(None)
+
+        self.assertEqual([], run_schema_preflight(loader))
+        self.assertEqual([], loader.executed_descriptions)
 
     def test_success_checks_required_tables_and_rpcs(self):
         client = FakeSupabase()
+        loader = FakeLoader(client)
 
-        run_schema_preflight(client)
+        self.assertEqual([], run_schema_preflight(loader))
 
         self.assertEqual(
             {
@@ -80,32 +91,36 @@ class SchemaPreflightTests(unittest.TestCase):
                 "relationships",
                 "financial_disclosures",
             },
-            {req.table for req in TABLE_REQUIREMENTS},
+            {table for table, _ in REQUIRED_COLUMN_CHECKS},
         )
         self.assertEqual(
-            [(req.table, req.columns, 0) for req in TABLE_REQUIREMENTS],
+            [(table, columns, 1) for table, columns in REQUIRED_COLUMN_CHECKS],
             client.table_checks,
         )
         self.assertEqual(
-            [(req.name, req.args) for req in RPC_REQUIREMENTS],
+            [(rpc_name, {"p_id": ZERO_UUID}) for rpc_name in REQUIRED_RPC_CHECKS],
             client.rpc_checks,
         )
-        self.assertTrue(all(args == {"p_id": NIL_UUID} for _, args in client.rpc_checks))
+        self.assertEqual(
+            len(REQUIRED_COLUMN_CHECKS) + len(REQUIRED_RPC_CHECKS),
+            len(loader.executed_descriptions),
+        )
 
     def test_failure_reports_all_missing_requirements(self):
         client = FakeSupabase(
             failing_tables={"contact_info", "financial_disclosures"},
             failing_rpcs={"get_covoting"},
         )
+        loader = FakeLoader(client)
 
         with self.assertRaises(SchemaPreflightError) as raised:
-            run_schema_preflight(client)
+            run_schema_preflight(loader)
 
         message = str(raised.exception)
-        self.assertIn(MIGRATION_HELP, message)
-        self.assertIn("contact_info columns", message)
-        self.assertIn("financial_disclosures columns", message)
-        self.assertIn("RPC get_covoting", message)
+        self.assertIn("Supabase schema preflight failed", message)
+        self.assertIn("contact_info.", message)
+        self.assertIn("financial_disclosures.", message)
+        self.assertIn("rpc get_covoting(uuid)", message)
         self.assertEqual(3, len(raised.exception.failures))
 
 
