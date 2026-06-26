@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub PR Body Check"
+  short_description: "Check PR bodies for Greptile confidence"
+  default_prompt: "Use $github-pr-body-check to inspect PR 42 for Greptile confidence, body feedback, checks, and actionable review items."

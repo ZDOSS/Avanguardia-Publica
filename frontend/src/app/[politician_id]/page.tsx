@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { fetchProfileHeader } from '@/lib/profile';
+import { fetchStaticProfileHeader } from '@/lib/profile';
 import PoliticianClient from './PoliticianClient';
 import type { PoliticianData } from './PoliticianClient';
 
@@ -44,7 +44,8 @@ export default async function Page(props: { params: Promise<{ politician_id: str
   const params = await props.params;
   const { politician_id } = params;
 
-  // We fetch the data on the server side at build time for the static export
+  // Static export prerenders thousands of legacy UUID routes. Use the primary-key
+  // table lookup here; canonical/live profile reads happen in browser routes.
   let politician: PoliticianData | null = null;
 
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(politician_id);
@@ -55,7 +56,7 @@ export default async function Page(props: { params: Promise<{ politician_id: str
         throw new Error("No Supabase URL or Anon Key configured.");
       }
 
-      const polData = await fetchProfileHeader(politician_id);
+      const polData = await fetchStaticProfileHeader(politician_id);
       if (polData) {
         politician = polData;
       }
