@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { fetchProfileHeader } from '@/lib/profile';
 import PoliticianClient from './PoliticianClient';
 import type { PoliticianData } from './PoliticianClient';
 
@@ -53,14 +54,8 @@ export default async function Page(props: { params: Promise<{ politician_id: str
       if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
         throw new Error("No Supabase URL or Anon Key configured.");
       }
-      
-      const { data: polData, error: polError } = await supabase
-        .from('politicians')
-        .select('id, full_name, current_office, party, state, district, last_updated')
-        .eq('id', politician_id)
-        .maybeSingle();
-        
-      if (polError) throw polError;
+
+      const polData = await fetchProfileHeader(politician_id);
       if (polData) {
         politician = polData;
       }

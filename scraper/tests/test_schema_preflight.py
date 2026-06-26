@@ -106,8 +106,16 @@ class SchemaPreflightTests(unittest.TestCase):
         ):
             self.assertIn(column, politicians_columns)
         self.assertEqual(
-            [(rpc_name, {"p_id": ZERO_UUID}) for rpc_name in REQUIRED_RPC_CHECKS],
+            [(rpc_name, args) for rpc_name, args, _signature in REQUIRED_RPC_CHECKS],
             client.rpc_checks,
+        )
+        self.assertIn(
+            "get_canonical_politician_summaries",
+            {rpc_name for rpc_name, _args, _signature in REQUIRED_RPC_CHECKS},
+        )
+        self.assertIn(
+            "get_canonical_politician_header",
+            {rpc_name for rpc_name, _args, _signature in REQUIRED_RPC_CHECKS},
         )
         self.assertEqual(
             len(REQUIRED_COLUMN_CHECKS) + len(REQUIRED_RPC_CHECKS),

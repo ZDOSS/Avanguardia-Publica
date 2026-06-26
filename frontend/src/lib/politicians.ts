@@ -1,3 +1,4 @@
+import { missingCanonicalPoliticianRpc } from './canonicalPoliticians';
 import { supabase } from './supabase';
 
 export interface PoliticianSummary {
@@ -28,6 +29,7 @@ const CLASSIFICATION_COLUMNS = ["government_level", "government_branch", "office
 // table is to page through it with `.range()`, which is what this helper does.
 const PAGE_SIZE = 1000;
 const DEFAULT_SEARCH_LIMIT = 25;
+const CANONICAL_SUMMARIES_RPC = 'get_canonical_politician_summaries';
 
 function missingClassificationColumn(error: { code?: string; message?: string; details?: string } | null): boolean {
   if (!error) return false;
@@ -46,6 +48,18 @@ function withEmptyClassification(rows: BasePoliticianSummary[] | null): Politici
 }
 
 export async function fetchPoliticianSummaries(limit = 6): Promise<PoliticianSummary[]> {
+  try {
+    return await fetchCanonicalPoliticianSummaries({ limit });
+  } catch (error) {
+    if (!missingCanonicalPoliticianRpc(error as { code?: string; message?: string; details?: string; hint?: string })) {
+      throw error;
+    }
+  }
+
+  return fetchPoliticianSummariesFromTable(limit);
+}
+
+async function fetchPoliticianSummariesFromTable(limit: number): Promise<PoliticianSummary[]> {
   const { data, error } = await supabase
     .from('politicians')
     .select(SUMMARY_COLUMNS)
@@ -73,6 +87,14 @@ export async function searchPoliticians(
 ): Promise<PoliticianSummary[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
+
+  try {
+    return await fetchCanonicalPoliticianSummaries({ searchQuery: trimmed, limit });
+  } catch (error) {
+    if (!missingCanonicalPoliticianRpc(error as { code?: string; message?: string; details?: string; hint?: string })) {
+      throw error;
+    }
+  }
 
   const { data, error } = await supabase
     .from('politicians')
@@ -105,6 +127,14 @@ export async function searchPoliticians(
  */
 export async function fetchAllPoliticians(): Promise<PoliticianSummary[]> {
   try {
+    return await fetchAllCanonicalPoliticians();
+  } catch (error) {
+    if (!missingCanonicalPoliticianRpc(error as { code?: string; message?: string; details?: string; hint?: string })) {
+      throw error;
+    }
+  }
+
+  try {
     return await fetchAllPoliticiansWithColumns(SUMMARY_COLUMNS, true);
   } catch (error) {
     if (!missingClassificationColumn(error as { code?: string; message?: string; details?: string })) {
@@ -112,6 +142,37 @@ export async function fetchAllPoliticians(): Promise<PoliticianSummary[]> {
     }
     return fetchAllPoliticiansWithColumns(BASE_SUMMARY_COLUMNS, false);
   }
+}
+
+async function fetchCanonicalPoliticianSummaries({
+  searchQuery = null,
+  limit,
+  offset = 0,
+}: {
+  searchQuery?: string | null;
+  limit: number;
+  offset?: number;
+}): Promise<PoliticianSummary[]> {
+  const { data, error } = await supabase.rpc(CANONICAL_SUMMARIES_RPC, {
+    search_query: searchQuery,
+    result_limit: limit,
+    result_offset: offset,
+  });
+
+  if (error) throw error;
+  return (data ?? []) as unknown as PoliticianSummary[];
+}
+
+async function fetchAllCanonicalPoliticians(): Promise<PoliticianSummary[]> {
+  const all: PoliticianSummary[] = [];
+
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const page = await fetchCanonicalPoliticianSummaries({ limit: PAGE_SIZE, offset });
+    all.push(...page);
+    if (page.length < PAGE_SIZE) break;
+  }
+
+  return all;
 }
 
 async function fetchAllPoliticiansWithColumns(

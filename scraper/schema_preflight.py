@@ -36,9 +36,19 @@ REQUIRED_COLUMN_CHECKS = [
 ]
 
 REQUIRED_RPC_CHECKS = [
-    "get_shared_donors",
-    "get_covoting",
-    "get_network_ties",
+    ("get_shared_donors", {"p_id": ZERO_UUID}, "get_shared_donors(uuid)"),
+    ("get_covoting", {"p_id": ZERO_UUID}, "get_covoting(uuid)"),
+    ("get_network_ties", {"p_id": ZERO_UUID}, "get_network_ties(uuid)"),
+    (
+        "get_canonical_politician_summaries",
+        {"search_query": None, "result_limit": 1, "result_offset": 0},
+        "get_canonical_politician_summaries(text, integer, integer)",
+    ),
+    (
+        "get_canonical_politician_header",
+        {"p_id": ZERO_UUID},
+        "get_canonical_politician_header(uuid)",
+    ),
 ]
 
 
@@ -81,17 +91,17 @@ def run_schema_preflight(loader) -> list[str]:
         except Exception as exc:
             failures.append(f"{label}: {exc}")
 
-    for rpc_name in REQUIRED_RPC_CHECKS:
+    for rpc_name, args, signature in REQUIRED_RPC_CHECKS:
         try:
             loader.execute_supabase(
-                lambda rpc_name=rpc_name: (
-                    loader.supabase.rpc(rpc_name, {"p_id": ZERO_UUID}).execute()
+                lambda rpc_name=rpc_name, args=args: (
+                    loader.supabase.rpc(rpc_name, args).execute()
                 ),
-                f"schema preflight rpc {rpc_name}",
+                f"schema preflight rpc {signature}",
             )
-            print(f"  [+] rpc {rpc_name}(uuid)")
+            print(f"  [+] rpc {signature}")
         except Exception as exc:
-            failures.append(f"rpc {rpc_name}(uuid): {exc}")
+            failures.append(f"rpc {signature}: {exc}")
 
     if failures:
         raise SchemaPreflightError(failures)
