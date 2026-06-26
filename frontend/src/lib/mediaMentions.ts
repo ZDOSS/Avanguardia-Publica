@@ -30,15 +30,17 @@ export async function fetchMediaMentions(
 
   const { data, error, count } = await supabase
     .from('unconfirmed_mentions')
-    .select('id, source_api, sentiment_score, content_summary, url, created_at', { count: 'exact' })
+    .select('id, source_api, sentiment_score, content_summary, url, created_at')
     .eq('politician_id', politicianId)
     .order('created_at', { ascending: false })
-    .range(range.from, range.to);
+    .range(range.from, range.to + 1);
 
   if (error) throw error;
+  const rows = ((data ?? []) as MediaMention[]).map(normalizeMention);
   return {
-    rows: ((data ?? []) as MediaMention[]).map(normalizeMention),
+    rows: rows.slice(0, range.pageSize),
     count,
+    hasMore: rows.length > range.pageSize,
     page: range.page,
     pageSize: range.pageSize,
   };

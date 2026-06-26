@@ -26,15 +26,17 @@ export async function fetchCampaignDonors(
 
   const { data, error, count } = await supabase
     .from('campaign_donors')
-    .select('id, donation_date, donor_name, pac_status, amount', { count: 'exact' })
+    .select('id, donation_date, donor_name, pac_status, amount')
     .eq('politician_id', politicianId)
     .order('donation_date', { ascending: false, nullsFirst: false })
-    .range(range.from, range.to);
+    .range(range.from, range.to + 1);
 
   if (error) throw error;
+  const rows = ((data ?? []) as CampaignDonor[]).map(normalizeDonor);
   return {
-    rows: ((data ?? []) as CampaignDonor[]).map(normalizeDonor),
+    rows: rows.slice(0, range.pageSize),
     count,
+    hasMore: rows.length > range.pageSize,
     page: range.page,
     pageSize: range.pageSize,
   };

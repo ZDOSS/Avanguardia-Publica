@@ -3,6 +3,7 @@ export const DEFAULT_PROFILE_PAGE_SIZE = 25;
 export interface PageResult<T> {
   rows: T[];
   count: number | null;
+  hasMore?: boolean;
   page: number;
   pageSize: number;
 }
@@ -14,6 +15,7 @@ export function pageRange(page: number, pageSize = DEFAULT_PROFILE_PAGE_SIZE) {
 }
 
 export function hasNextPage<T>(result: PageResult<T>): boolean {
+  if (typeof result.hasMore === 'boolean') return result.hasMore;
   if (typeof result.count === 'number') {
     return (result.page + 1) * result.pageSize < result.count;
   }

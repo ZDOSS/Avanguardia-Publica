@@ -7,8 +7,9 @@ server at runtime.** The render model is **hybrid** — whether data is live or 
 on where the fetch runs:
 
 - **LIVE (client-fetched in the browser; reflects the DB with no rebuild):** home/search
-  (`app/page.tsx`, `"use client"` → `fetchAllPoliticians` in `src/lib/politicians.ts`),
-  `/directory` (`DirectoryClient.tsx`), `/profile?id=<uuid>` (`ProfilePageClient.tsx`), and
+  (`app/page.tsx`, `"use client"` → `fetchPoliticianSummaries` plus indexed
+  `searchPoliticians` in `src/lib/politicians.ts`), `/directory` (`DirectoryClient.tsx`),
+  `/profile?id=<uuid>` (`ProfilePageClient.tsx`), and
   all profile spokes: contact, financial disclosures, campaign donors, voting records,
   Connections, and media mentions.
 - **BAKED at build time (frozen into static HTML; only changes on redeploy):** the legacy

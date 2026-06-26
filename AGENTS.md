@@ -22,8 +22,9 @@ no server at runtime.** Whether a given piece of data is live or frozen depends 
 *where the fetch runs*:
 
 **LIVE — fetched in the user's browser at runtime; reflects the database with no rebuild:**
-- `/` (home + search) — `app/page.tsx` is a `"use client"` component; calls `fetchAllPoliticians`
-  (`lib/politicians.ts`) from a `useEffect`.
+- `/` (home + search) — `app/page.tsx` is a `"use client"` component; fetches a small
+  featured slice with `fetchPoliticianSummaries` and runs indexed full-text search via
+  `searchPoliticians` (`lib/politicians.ts`) from `useEffect`.
 - `/directory` — `app/directory/DirectoryClient.tsx` is `"use client"`.
 - `/profile?id=<uuid>` — `app/profile/ProfilePageClient.tsx` is `"use client"` and fetches
   the profile header from `lib/profile.ts`.
