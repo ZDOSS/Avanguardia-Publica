@@ -172,7 +172,7 @@ EXISTS`, `DROP POLICY IF EXISTS`), so re-running the full set is safe.
 > `Could not find the 'district' column of 'politicians' in the schema cache`, and profile
 > pages show stale/empty data. Recover in this order:
 >
-> 1. Apply the pending migrations (e.g. `0002`–`0006`) against the live database. If a
+> 1. Apply the pending migrations (e.g. `0002`–`0007`) against the live database. If a
 >    freshly-added column still isn't found right after, reload PostgREST's schema cache:
 >    `NOTIFY pgrst, 'reload schema';`
 > 2. **Run the Nightly ETL Scraper and confirm it succeeds** — look for `[+] Updated/Inserted

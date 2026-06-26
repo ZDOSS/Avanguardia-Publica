@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS politicians (
     state TEXT,
     district TEXT,
     -- Normalized classification for directory filters and future analytics. The scraper
-    -- writes these from source metadata; migrations/0006 backfills older rows.
+    -- writes these from source metadata; migrations/0007 backfills older rows.
     government_level TEXT,
     government_branch TEXT,
     office_type TEXT,

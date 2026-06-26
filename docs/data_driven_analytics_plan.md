@@ -177,7 +177,7 @@ Add normalized columns or a derived table for:
 The frontend can still render the current taxonomy, but it should not need to infer all
 structure from display text.
 
-Status: implemented with nullable hub columns in `migrations/0006_government_classification.sql`.
+Status: implemented with nullable hub columns in `migrations/0007_government_classification.sql`.
 Apply the migration manually, then run the scraper so source-owned normalized values replace
 the compatibility backfill.
 
