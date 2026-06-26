@@ -20,11 +20,18 @@ export async function fetchFinancialDisclosures(
 
   const { data, error, count } = await supabase
     .from('financial_disclosures')
-    .select('id, filing_date, filing_type, doc_url, doc_id', { count: 'exact' })
+    .select('id, filing_date, filing_type, doc_url, doc_id')
     .eq('politician_id', politicianId)
     .order('filing_date', { ascending: false })
-    .range(range.from, range.to);
+    .range(range.from, range.to + 1);
 
   if (error) throw error;
-  return { rows: (data ?? []) as FinancialDisclosure[], count, page: range.page, pageSize: range.pageSize };
+  const rows = (data ?? []) as FinancialDisclosure[];
+  return {
+    rows: rows.slice(0, range.pageSize),
+    count,
+    hasMore: rows.length > range.pageSize,
+    page: range.page,
+    pageSize: range.pageSize,
+  };
 }

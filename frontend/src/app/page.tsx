@@ -2,18 +2,20 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { fetchAllPoliticians, type PoliticianSummary } from '@/lib/politicians';
+import { fetchPoliticianSummaries, searchPoliticians, type PoliticianSummary } from '@/lib/politicians';
 import { profilePath } from '@/lib/routes';
 
 type Politician = PoliticianSummary;
 
 export default function Home() {
   const [search, setSearch] = useState("");
-  const [directory, setDirectory] = useState<Politician[]>([]);
+  const [featured, setFeatured] = useState<Politician[]>([]);
+  const [searchResults, setSearchResults] = useState<Politician[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   useEffect(() => {
-    async function fetchDirectory() {
+    async function fetchFeatured() {
       // Mock fallback if supabase isn't connected
       const mockData: Politician[] = [
         { id: 'biden-joe', full_name: 'Joe Biden', current_office: 'President of the United States', party: 'Democratic', state: null, district: null },
@@ -22,23 +24,50 @@ export default function Home() {
       
       try {
         if (!process.env.NEXT_PUBLIC_SUPABASE_URL) throw new Error("No URL");
-        // Pages past Supabase's per-response row cap (a plain `.limit()` is
-        // silently truncated to 1,000 rows).
-        const data = await fetchAllPoliticians();
-        setDirectory(data);
+        const data = await fetchPoliticianSummaries(6);
+        setFeatured(data);
       } catch (e) {
         console.warn("Falling back to mock data. Supabase connection failed:", e);
-        setDirectory(mockData);
+        setFeatured(mockData);
       } finally {
         setLoading(false);
       }
     }
-    fetchDirectory();
+    fetchFeatured();
   }, []);
 
-  const filtered = directory.filter(p => 
-    p.full_name.toLowerCase().includes(search.toLowerCase())
-  );
+  useEffect(() => {
+    const trimmed = search.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      setSearchLoading(true);
+      searchPoliticians(trimmed)
+        .then((results) => {
+          if (!cancelled) setSearchResults(results);
+        })
+        .catch((e) => {
+          console.warn("Supabase search failed:", e);
+          if (!cancelled) {
+            const fallback = featured.filter((p) =>
+              p.full_name.toLowerCase().includes(trimmed.toLowerCase())
+            );
+            setSearchResults(fallback);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setSearchLoading(false);
+        });
+    }, 200);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [featured, search]);
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center p-4">
@@ -65,8 +94,10 @@ export default function Home() {
           
           {search && (
             <div className="absolute left-0 right-0 mt-4 bg-[var(--color-official-bg)] border border-[var(--color-official-border)] rounded-xl shadow-2xl text-left overflow-hidden z-20">
-              {filtered.length > 0 ? (
-                filtered.map(p => (
+              {searchLoading ? (
+                <div className="p-6 text-center text-[var(--color-official-text-muted)]">Searching...</div>
+              ) : searchResults.length > 0 ? (
+                searchResults.map(p => (
                   <Link href={profilePath(p.id)} key={p.id} className="block p-4 hover:bg-[var(--color-official-bg-alt)] border-b border-[var(--color-official-border)] last:border-0 transition-colors">
                     <div className="font-bold text-lg">{p.full_name}</div>
                     <div className="text-sm text-[var(--color-official-text-muted)]">{p.current_office}</div>
@@ -99,7 +130,7 @@ export default function Home() {
           ) : (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {directory.slice(0, 6).map(p => (
+                {featured.map(p => (
                   <Link href={profilePath(p.id)} key={p.id} className="premium-card p-5 group flex flex-col h-full bg-[var(--color-official-bg)]">
                     <div className="font-bold text-lg group-hover:text-[var(--color-official-link)] transition-colors mb-1">{p.full_name}</div>
                     <div className="text-sm text-[var(--color-official-text-muted)] flex-grow">{p.current_office}</div>
@@ -107,17 +138,15 @@ export default function Home() {
                   </Link>
                 ))}
               </div>
-              {directory.length > 6 && (
-                <div className="mt-6 text-center">
-                  <Link
-                    href="/directory"
-                    className="inline-flex items-center gap-2 px-6 py-3 rounded-full border border-[var(--color-official-border)] text-sm font-bold text-[var(--color-official-text-muted)] hover:text-[var(--color-official-link)] hover:border-[var(--color-official-link)] transition-all"
-                  >
-                    View Full Directory by Category
-                    <span className="text-[var(--color-official-link)]">&rarr;</span>
-                  </Link>
-                </div>
-              )}
+              <div className="mt-6 text-center">
+                <Link
+                  href="/directory"
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-full border border-[var(--color-official-border)] text-sm font-bold text-[var(--color-official-text-muted)] hover:text-[var(--color-official-link)] hover:border-[var(--color-official-link)] transition-all"
+                >
+                  View Full Directory by Category
+                  <span className="text-[var(--color-official-link)]">&rarr;</span>
+                </Link>
+              </div>
             </>
           )}
         </div>

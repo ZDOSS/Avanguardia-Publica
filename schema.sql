@@ -21,10 +21,39 @@ CREATE TABLE IF NOT EXISTS politicians (
     bioguide_id TEXT UNIQUE,
     external_ids JSONB NOT NULL DEFAULT '{}'::jsonb,
     aliases TEXT[] NOT NULL DEFAULT '{}',
+    search_vector TSVECTOR,
     last_updated TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_politicians_state ON politicians (state);
+CREATE INDEX IF NOT EXISTS idx_politicians_full_name ON politicians (full_name);
+CREATE INDEX IF NOT EXISTS idx_politicians_external_ids ON politicians USING gin (external_ids);
+CREATE INDEX IF NOT EXISTS idx_politicians_search_vector ON politicians USING gin (search_vector);
+
+CREATE OR REPLACE FUNCTION update_politicians_search_vector()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+    NEW.search_vector :=
+        to_tsvector(
+            'english',
+            coalesce(NEW.full_name, '') || ' ' ||
+            coalesce(NEW.current_office, '') || ' ' ||
+            coalesce(NEW.party, '') || ' ' ||
+            coalesce(array_to_string(NEW.aliases, ' '), '')
+        );
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS politicians_search_vector_update ON politicians;
+CREATE TRIGGER politicians_search_vector_update
+    BEFORE INSERT OR UPDATE OF full_name, current_office, party, aliases
+    ON politicians
+    FOR EACH ROW
+    EXECUTE FUNCTION update_politicians_search_vector();
 
 -- 2. Verified Spoke: contact_info
 CREATE TABLE IF NOT EXISTS contact_info (
@@ -62,6 +91,9 @@ CREATE TABLE IF NOT EXISTS financial_disclosures (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_financial_disclosures_doc_id
     ON financial_disclosures (doc_id);
 
+CREATE INDEX IF NOT EXISTS idx_financial_disclosures_politician_filing_date
+    ON financial_disclosures (politician_id, filing_date DESC, id);
+
 -- 4. Verified Spoke: campaign_donors
 CREATE TABLE IF NOT EXISTS campaign_donors (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -77,6 +109,12 @@ CREATE TABLE IF NOT EXISTS campaign_donors (
 -- migrations/0003), which matches on a normalized donor name.
 CREATE INDEX IF NOT EXISTS idx_campaign_donors_donor_name_lower
     ON campaign_donors (lower(btrim(donor_name)));
+
+CREATE INDEX IF NOT EXISTS idx_campaign_donors_politician
+    ON campaign_donors (politician_id);
+
+CREATE INDEX IF NOT EXISTS idx_campaign_donors_politician_donation_date
+    ON campaign_donors (politician_id, donation_date DESC NULLS LAST, id);
 
 -- 5. Verified Spoke: voting_records
 -- roll_call_id is a STABLE, source-namespaced id for a single roll call
@@ -100,6 +138,12 @@ CREATE TABLE IF NOT EXISTS voting_records (
 CREATE INDEX IF NOT EXISTS idx_voting_records_roll_call
     ON voting_records (roll_call_id, politician_id, vote_cast);
 
+CREATE INDEX IF NOT EXISTS idx_voting_records_politician_vote_date
+    ON voting_records (politician_id, vote_date DESC, id);
+
+CREATE INDEX IF NOT EXISTS idx_voting_records_politician_vote_cast_vote_date
+    ON voting_records (politician_id, vote_cast, vote_date DESC, id);
+
 -- 6. Third-Party Spoke: unconfirmed_mentions
 CREATE TABLE IF NOT EXISTS unconfirmed_mentions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -111,6 +155,9 @@ CREATE TABLE IF NOT EXISTS unconfirmed_mentions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(politician_id, source_api, url)
 );
+
+CREATE INDEX IF NOT EXISTS idx_unconfirmed_mentions_politician_created
+    ON unconfirmed_mentions (politician_id, created_at DESC);
 
 -- 7. Third-Party Spoke: relationships (structured network ties, e.g. LittleSis)
 -- Powers the "Network Ties" group of the profile Connections view. related_politician_id

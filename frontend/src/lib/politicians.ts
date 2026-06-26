@@ -16,6 +16,36 @@ const SUMMARY_COLUMNS = "id, full_name, current_office, party, state, district";
 // still silently truncated to 1,000 rows. The only reliable way to read the full
 // table is to page through it with `.range()`, which is what this helper does.
 const PAGE_SIZE = 1000;
+const DEFAULT_SEARCH_LIMIT = 25;
+
+export async function fetchPoliticianSummaries(limit = 6): Promise<PoliticianSummary[]> {
+  const { data, error } = await supabase
+    .from('politicians')
+    .select(SUMMARY_COLUMNS)
+    .order('full_name')
+    .limit(limit);
+
+  if (error) throw error;
+  return (data ?? []) as PoliticianSummary[];
+}
+
+export async function searchPoliticians(
+  query: string,
+  limit = DEFAULT_SEARCH_LIMIT,
+): Promise<PoliticianSummary[]> {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+
+  const { data, error } = await supabase
+    .from('politicians')
+    .select(SUMMARY_COLUMNS)
+    .textSearch('search_vector', trimmed, { type: 'websearch', config: 'english' })
+    .order('full_name')
+    .limit(limit);
+
+  if (error) throw error;
+  return (data ?? []) as PoliticianSummary[];
+}
 
 /**
  * Fetch every politician summary, paging past Supabase's per-response row cap.

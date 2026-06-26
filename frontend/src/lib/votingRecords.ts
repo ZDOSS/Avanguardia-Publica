@@ -27,10 +27,10 @@ export async function fetchVotingRecords(
 
   let query = supabase
     .from('voting_records')
-    .select('id, bill_name, bill_summary, vote_date, vote_cast, jurisdiction, roll_call_id', { count: 'exact' })
+    .select('id, bill_name, bill_summary, vote_date, vote_cast, jurisdiction, roll_call_id')
     .eq('politician_id', politicianId)
     .order('vote_date', { ascending: false })
-    .range(range.from, range.to);
+    .range(range.from, range.to + 1);
 
   if (filters.voteCast) {
     query = query.eq('vote_cast', filters.voteCast);
@@ -38,5 +38,12 @@ export async function fetchVotingRecords(
 
   const { data, error, count } = await query;
   if (error) throw error;
-  return { rows: (data ?? []) as VotingRecord[], count, page: range.page, pageSize: range.pageSize };
+  const rows = (data ?? []) as VotingRecord[];
+  return {
+    rows: rows.slice(0, range.pageSize),
+    count,
+    hasMore: rows.length > range.pageSize,
+    page: range.page,
+    pageSize: range.pageSize,
+  };
 }
