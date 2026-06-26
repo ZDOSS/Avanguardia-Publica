@@ -23,7 +23,9 @@ gh pr checks <number>
 
 3. Read the PR body first. Look for the block between `<!-- greptile_comment -->` and `<!-- /greptile_comment -->`.
 
-4. Extract and report:
+4. If Greptile is still pending or the body does not yet contain a Greptile block, report that clearly and stop. Greptile often takes 15 minutes or more to update the PR body. Do not set automatic timers, polling loops, reminders, or delayed checks unless the user explicitly asks for one.
+
+5. Extract and report:
 
 - `Confidence Score: X/5`
 - Whether Greptile says it found no issues or lists actionable issues.
@@ -31,7 +33,7 @@ gh pr checks <number>
 - Any deployment notes or manual migration notes in the body.
 - Any failing checks from `gh pr checks`.
 
-5. If Actions failed or the user asks about failures, inspect the run logs:
+6. If Actions failed or the user asks about failures, inspect the run logs:
 
 ```bash
 gh run list --limit 30 --json databaseId,workflowName,displayTitle,conclusion,status,event,headBranch,headSha,createdAt,updatedAt,url
