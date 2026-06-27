@@ -36,6 +36,11 @@ export async function fetchProfileHeader(politicianId: string): Promise<ProfileH
   return fetchRawProfileHeader(politicianId);
 }
 
+export async function fetchStaticProfileHeader(politicianId: string): Promise<ProfileHeader | null> {
+  if (!isUuid(politicianId)) return null;
+  return fetchRawProfileHeader(politicianId);
+}
+
 async function fetchCanonicalProfileHeader(politicianId: string): Promise<ProfileHeader | null> {
   const { data, error } = await supabase.rpc('get_canonical_politician_header', {
     p_id: politicianId,
