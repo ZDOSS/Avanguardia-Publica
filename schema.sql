@@ -276,10 +276,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
                 ),
                 ''
             ) AS address_key,
-            NULLIF(
-                lower(btrim(coalesce(p.bioguide_id, p.external_ids ->> 'bioguide', ''))),
-                ''
-            ) AS bioguide_key,
+            NULLIF(lower(btrim(coalesce(p.bioguide_id, ''))), '') AS bioguide_key,
             NULLIF(upper(btrim(coalesce(p.state, ''))), '') AS raw_state,
             NULLIF(upper(btrim(coalesce(p.district, ''))), '') AS raw_district,
             lower(btrim(coalesce(p.government_level, ''))) AS raw_government_level,

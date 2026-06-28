@@ -53,7 +53,7 @@ def normalize_location_fields(member_data: dict) -> dict:
     state = _clean_state(member_data.get("state"))
     district = _clean_district(member_data.get("district"))
 
-    if _looks_like_federal_house_office(office):
+    if _looks_like_federal_house_office(office) or (state == "US" and _district_has_state_prefix(district)):
         parsed = _parse_us_district(district, office_upper)
         if parsed:
             return {"state": parsed["state"], "district": parsed["district"]}
@@ -164,7 +164,7 @@ def _parse_us_district(district: str | None, office_upper: str) -> dict | None:
     import re
 
     for value, pattern in (
-        (district or "", r"^([A-Z]{2})-([0-9A-Z-]+)$"),
+        ((district or "").upper(), r"^([A-Z]{2})-([0-9A-Z-]+)$"),
         (office_upper, r"U\.?S\.? DISTRICT ([A-Z]{2})-([0-9A-Z-]+)"),
     ):
         match = re.search(pattern, value)
@@ -172,6 +172,12 @@ def _parse_us_district(district: str | None, office_upper: str) -> dict | None:
             return {"state": match.group(1), "district": match.group(2)}
 
     return None
+
+
+def _district_has_state_prefix(district: str | None) -> bool:
+    import re
+
+    return bool(re.search(r"^[A-Z]{2}-[0-9A-Z-]+$", (district or "").upper()))
 
 
 def _clean_value(value) -> str | None:

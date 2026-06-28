@@ -84,6 +84,18 @@ class GovernmentClassificationTests(unittest.TestCase):
             normalize_location_fields(source),
         )
 
+    def test_lowercase_us_district_is_normalized_from_district_field(self):
+        source = {
+            "current_office": "State Representative",
+            "state": "US",
+            "district": "fl-4",
+        }
+
+        self.assertEqual(
+            {"state": "FL", "district": "4"},
+            normalize_location_fields(source),
+        )
+
     def test_source_values_override_office_fallback(self):
         row = normalize_government_classification(
             {
