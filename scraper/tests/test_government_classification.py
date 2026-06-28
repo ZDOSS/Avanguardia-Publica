@@ -1,6 +1,6 @@
 import unittest
 
-from government_classification import normalize_government_classification
+from government_classification import normalize_government_classification, normalize_location_fields
 
 
 class GovernmentClassificationTests(unittest.TestCase):
@@ -38,15 +38,15 @@ class GovernmentClassificationTests(unittest.TestCase):
         self.assertEqual("CA", row["jurisdiction"])
 
     def test_us_district_representative_is_federal_even_with_state_title(self):
-        row = normalize_government_classification(
-            {
-                "current_office": "State Representative from US District FL-4",
-                "state": "US",
-                "government_level": "State",
-                "government_branch": "Legislative",
-                "jurisdiction": "US",
-            }
-        )
+        source = {
+            "current_office": "State Representative from US District FL-4",
+            "state": "US",
+            "district": "FL-4",
+            "government_level": "State",
+            "government_branch": "Legislative",
+            "jurisdiction": "US",
+        }
+        row = normalize_government_classification(source)
 
         self.assertEqual(
             {
@@ -57,14 +57,18 @@ class GovernmentClassificationTests(unittest.TestCase):
             },
             row,
         )
+        self.assertEqual(
+            {"state": "FL", "district": "4"},
+            normalize_location_fields(source),
+        )
 
     def test_state_representative_with_state_district_stays_state(self):
-        row = normalize_government_classification(
-            {
-                "current_office": "State Representative from CA-12",
-                "state": "CA",
-            }
-        )
+        source = {
+            "current_office": "State Representative from CA-12",
+            "state": "CA",
+            "district": "12",
+        }
+        row = normalize_government_classification(source)
 
         self.assertEqual(
             {
@@ -74,6 +78,22 @@ class GovernmentClassificationTests(unittest.TestCase):
                 "jurisdiction": "CA",
             },
             row,
+        )
+        self.assertEqual(
+            {"state": "CA", "district": "12"},
+            normalize_location_fields(source),
+        )
+
+    def test_lowercase_us_district_is_normalized_from_district_field(self):
+        source = {
+            "current_office": "State Representative",
+            "state": "US",
+            "district": "fl-4",
+        }
+
+        self.assertEqual(
+            {"state": "FL", "district": "4"},
+            normalize_location_fields(source),
         )
 
     def test_source_values_override_office_fallback(self):

@@ -44,6 +44,23 @@ def normalize_government_classification(member_data: dict) -> dict:
     }
 
 
+def normalize_location_fields(member_data: dict) -> dict:
+    """
+    Return normalized state/district fields for directory location filters.
+    """
+    office = (member_data.get("current_office") or "").lower()
+    office_upper = (member_data.get("current_office") or "").upper()
+    state = _clean_state(member_data.get("state"))
+    district = _clean_district(member_data.get("district"))
+
+    if _looks_like_federal_house_office(office) or (state == "US" and _district_has_state_prefix(district)):
+        parsed = _parse_us_district(district, office_upper)
+        if parsed:
+            return {"state": parsed["state"], "district": parsed["district"]}
+
+    return {"state": state, "district": district}
+
+
 def _infer_from_office(office: str, state: str | None, has_bioguide: bool, has_openstates: bool) -> dict:
     level = None
     branch = None
@@ -143,6 +160,26 @@ def _looks_like_federal_house_office(office: str) -> bool:
     )
 
 
+def _parse_us_district(district: str | None, office_upper: str) -> dict | None:
+    import re
+
+    for value, pattern in (
+        ((district or "").upper(), r"^([A-Z]{2})-([0-9A-Z-]+)$"),
+        (office_upper, r"U\.?S\.? DISTRICT ([A-Z]{2})-([0-9A-Z-]+)"),
+    ):
+        match = re.search(pattern, value)
+        if match:
+            return {"state": match.group(1), "district": match.group(2)}
+
+    return None
+
+
+def _district_has_state_prefix(district: str | None) -> bool:
+    import re
+
+    return bool(re.search(r"^[A-Z]{2}-[0-9A-Z-]+$", (district or "").upper()))
+
+
 def _clean_value(value) -> str | None:
     if value is None:
         return None
@@ -154,6 +191,13 @@ def _clean_state(value) -> str | None:
     if value is None:
         return None
     cleaned = str(value).strip().upper()
+    return cleaned or None
+
+
+def _clean_district(value) -> str | None:
+    if value is None:
+        return None
+    cleaned = str(value).strip()
     return cleaned or None
 
 

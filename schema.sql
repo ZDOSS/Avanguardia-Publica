@@ -233,8 +233,8 @@ END $$;
 -- ---------------------------------------------------------------------------------------
 -- Conservative read-time duplicate collapse for directory/search/profile views. Rows are
 -- not merged or deleted; the read RPCs choose a canonical row only when records share a
--- normalized full name and at least two normalized official contact signals, with no
--- conflicting state/classification fields.
+-- normalized full name and either a stable federal identity signal or at least two
+-- normalized official contact signals, with no conflicting state/classification fields.
 CREATE OR REPLACE FUNCTION public.resolve_canonical_politician_ids()
 RETURNS TABLE (
     id uuid,
@@ -268,9 +268,15 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
                 ''
             ) AS website_key,
             NULLIF(
-                regexp_replace(lower(btrim(coalesce(ci.office_address, ''))), '\s+', ' ', 'g'),
+                regexp_replace(
+                    regexp_replace(lower(btrim(coalesce(ci.office_address, ''))), '[^a-z0-9]+', ' ', 'g'),
+                    '\s+',
+                    ' ',
+                    'g'
+                ),
                 ''
             ) AS address_key,
+            NULLIF(lower(btrim(coalesce(p.bioguide_id, ''))), '') AS bioguide_key,
             NULLIF(upper(btrim(coalesce(p.state, ''))), '') AS raw_state,
             NULLIF(upper(btrim(coalesce(p.district, ''))), '') AS raw_district,
             lower(btrim(coalesce(p.government_level, ''))) AS raw_government_level,
@@ -296,13 +302,13 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
             ) AS contact_signature,
             CASE
                 WHEN ck.raw_district ~ '^[A-Z]{2}-' THEN substring(ck.raw_district from '^([A-Z]{2})-')
-                WHEN ck.office_upper ~ 'US DISTRICT [A-Z]{2}-' THEN substring(ck.office_upper from 'US DISTRICT ([A-Z]{2})-')
+                WHEN ck.office_upper ~ 'U\.?S\.? DISTRICT [A-Z]{2}-' THEN substring(ck.office_upper from 'U\.?S\.? DISTRICT ([A-Z]{2})-')
                 WHEN ck.raw_state = 'US' THEN NULL
                 ELSE ck.raw_state
             END AS match_state,
             CASE
                 WHEN ck.raw_district ~ '^[A-Z]{2}-' THEN regexp_replace(ck.raw_district, '^[A-Z]{2}-', '')
-                WHEN ck.office_upper ~ 'US DISTRICT [A-Z]{2}-' THEN substring(ck.office_upper from 'US DISTRICT [A-Z]{2}-([0-9A-Z-]+)')
+                WHEN ck.office_upper ~ 'U\.?S\.? DISTRICT [A-Z]{2}-' THEN substring(ck.office_upper from 'U\.?S\.? DISTRICT [A-Z]{2}-([0-9A-Z-]+)')
                 ELSE ck.raw_district
             END AS match_district,
             CASE
@@ -310,7 +316,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
                   AND ck.office_lower LIKE '%representative%'
                   AND (
                       ck.website_key LIKE '%.house.gov%'
-                      OR ck.office_upper ~ 'US DISTRICT [A-Z]{2}-'
+                      OR ck.office_upper ~ 'U\.?S\.? DISTRICT [A-Z]{2}-'
                   )
                     THEN 'federal'
                 ELSE NULLIF(ck.raw_government_level, '')
@@ -322,8 +328,20 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
         SELECT
             k.*,
             CASE
-                WHEN k.name_key IS NOT NULL AND k.contact_signal_count >= 2
-                    THEN k.name_key || '|' || k.contact_signature
+                WHEN k.name_key IS NOT NULL AND k.bioguide_key IS NOT NULL
+                    THEN k.name_key || '|bio:' || k.bioguide_key
+                WHEN k.name_key IS NOT NULL
+                  AND k.phone_key IS NOT NULL AND length(k.phone_key) >= 7
+                  AND k.website_key IS NOT NULL AND length(k.website_key) >= 4
+                    THEN k.name_key || '|phone:' || k.phone_key || '|web:' || k.website_key
+                WHEN k.name_key IS NOT NULL
+                  AND k.phone_key IS NOT NULL AND length(k.phone_key) >= 7
+                  AND k.address_key IS NOT NULL AND length(k.address_key) >= 10
+                    THEN k.name_key || '|phone:' || k.phone_key || '|addr:' || k.address_key
+                WHEN k.name_key IS NOT NULL
+                  AND k.website_key IS NOT NULL AND length(k.website_key) >= 4
+                  AND k.address_key IS NOT NULL AND length(k.address_key) >= 10
+                    THEN k.name_key || '|web:' || k.website_key || '|addr:' || k.address_key
                 ELSE NULL
             END AS duplicate_key
         FROM keyed AS k
