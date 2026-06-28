@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from supabase import create_client, Client
 
-from government_classification import normalize_government_classification
+from government_classification import normalize_government_classification, normalize_location_fields
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +113,7 @@ class SupabaseLoader:
         )
 
         classification = normalize_government_classification(member_data)
+        location = normalize_location_fields(member_data)
 
         data_to_write = {
             "full_name": member_data.get("full_name"),
@@ -120,8 +121,8 @@ class SupabaseLoader:
             "party": member_data.get("party"),
             # 2-letter USPS state code + district label (both optional; national
             # offices leave them NULL). Powers the directory's location filter.
-            "state": member_data.get("state"),
-            "district": member_data.get("district"),
+            "state": location["state"],
+            "district": location["district"],
             "government_level": classification["government_level"],
             "government_branch": classification["government_branch"],
             "office_type": classification["office_type"],
