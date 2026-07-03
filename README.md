@@ -34,8 +34,10 @@ profile spokes now hydrate from the browser once the page exists. Read
 | Frontend     | Next.js (App Router) + React 19 + Tailwind CSS 4 | `output: 'export'` — home/search, `/directory`, `/profile?id=<uuid>`, and profile spokes read live in the browser; pretty dynamic route availability is build-time |
 | Hosting      | GitHub Pages (frontend) + GitHub Actions (ETL)   | Zero-cost                                           |
 
-See [`spec.md`](spec.md) for the full product/technical spec and [`AGENTS.md`](AGENTS.md)
-for architecture handoff notes.
+See [`spec.md`](spec.md) for the full product/technical spec,
+[`docs/canonical_data_and_analytics_plan.md`](docs/canonical_data_and_analytics_plan.md)
+for the active remaining roadmap, and [`AGENTS.md`](AGENTS.md) for architecture handoff
+notes.
 
 ---
 

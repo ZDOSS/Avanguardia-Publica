@@ -221,6 +221,7 @@ class SupabaseLoader:
                 )
                 self._increment("hub_rows_updated")
                 print(f"  [+] Updated Hub for {member_data['full_name']}")
+                self.sync_legacy_profile_identity(existing_id)
                 return existing_id
 
             insert_resp = self.execute_supabase(
@@ -231,6 +232,7 @@ class SupabaseLoader:
                 p_id = insert_resp.data[0]["id"]
                 self._increment("hub_rows_inserted")
                 print(f"  [+] Inserted new Hub for {member_data['full_name']}")
+                self.sync_legacy_profile_identity(p_id)
                 return p_id
         except Exception as e:
             # Re-raise instead of swallowing. The Hub upsert is the root of every spoke
@@ -240,6 +242,35 @@ class SupabaseLoader:
             # try/except in main.py counts the raised error and exits non-zero, which turns
             # a broken run red and blocks the auto-deploy of stale data. See main.py.
             print(f"  [!] Error upserting politician {member_data['full_name']}: {e}")
+            raise
+
+        return None
+
+    def sync_legacy_profile_identity(self, politician_id: str):
+        """
+        Keeps the Phase 1 people/legacy redirect bridge in step with hub writes.
+
+        The RPC is installed by migrations/0011. Missing or drifted schema should fail
+        loudly through the preflight, and if it still fails here the whole record should
+        error rather than writing a hub row that search/profile cannot resolve canonically.
+        """
+        if not self.supabase or not politician_id or politician_id == "dummy-uuid":
+            return None
+
+        try:
+            resp = self.execute_supabase(
+                lambda: self.supabase.rpc(
+                    "sync_legacy_profile_identity",
+                    {"p_politician_id": politician_id},
+                ).execute(),
+                f"sync canonical identity bridge for {politician_id}",
+            )
+            if resp.data:
+                self._increment("identity_profiles_synced")
+                print("  [+] Synced canonical identity bridge")
+                return resp.data[0].get("person_id")
+        except Exception as e:
+            print(f"  [!] Error syncing canonical identity bridge for {politician_id}: {e}")
             raise
 
         return None

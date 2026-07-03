@@ -65,6 +65,14 @@ async function fetchRawProfileHeader(politicianId: string): Promise<ProfileHeade
 export async function fetchContactInfo(politicianId: string): Promise<ContactInfo | null> {
   if (!isUuid(politicianId)) return null;
 
+  try {
+    return await fetchCanonicalContactInfo(politicianId);
+  } catch (error) {
+    if (!missingCanonicalPoliticianRpc(error as { code?: string; message?: string; details?: string; hint?: string })) {
+      throw error;
+    }
+  }
+
   const { data, error } = await supabase
     .from('contact_info')
     .select('*')
@@ -73,4 +81,14 @@ export async function fetchContactInfo(politicianId: string): Promise<ContactInf
 
   if (error) throw error;
   return (data ?? null) as ContactInfo | null;
+}
+
+async function fetchCanonicalContactInfo(politicianId: string): Promise<ContactInfo | null> {
+  const { data, error } = await supabase.rpc('get_canonical_contact_info', {
+    p_id: politicianId,
+  });
+
+  if (error) throw error;
+  const rows = (data ?? []) as unknown as ContactInfo[];
+  return rows[0] ?? null;
 }

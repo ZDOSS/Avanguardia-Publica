@@ -33,6 +33,38 @@ REQUIRED_COLUMN_CHECKS = [
         "unconfirmed_mentions",
         "politician_id,source_api,content_summary,url,sentiment_score",
     ),
+    (
+        "source_systems",
+        "key,display_name,source_kind,trust_level,verified,created_at,updated_at",
+    ),
+    (
+        "people",
+        "id,primary_name,display_name,status,merged_into_person_id,created_at,updated_at",
+    ),
+    (
+        "person_external_ids",
+        "person_id,source_system_key,external_id_type,external_id,is_trusted,"
+        "source_legacy_politician_id",
+    ),
+    (
+        "person_names",
+        "person_id,source_system_key,legacy_politician_id,name_text,normalized_name,"
+        "name_type,is_primary",
+    ),
+    (
+        "legacy_profile_redirects",
+        "legacy_politician_id,person_id,canonical_politician_id,resolution_method,"
+        "confidence,created_at,updated_at",
+    ),
+    (
+        "identity_resolution_candidates",
+        "id,candidate_type,source_legacy_politician_id,candidate_legacy_politician_id,"
+        "source_person_id,candidate_person_id,status,score,evidence,created_at,updated_at",
+    ),
+    (
+        "person_merge_events",
+        "id,survivor_person_id,merged_person_id,reason,evidence,created_at",
+    ),
 ]
 
 REQUIRED_RPC_CHECKS = [
@@ -48,6 +80,46 @@ REQUIRED_RPC_CHECKS = [
         "get_canonical_politician_header",
         {"p_id": ZERO_UUID},
         "get_canonical_politician_header(uuid)",
+    ),
+    (
+        "sync_legacy_profile_identity",
+        {"p_politician_id": ZERO_UUID},
+        "sync_legacy_profile_identity(uuid)",
+    ),
+    (
+        "get_canonical_person_legacy_ids",
+        {"profile_id": ZERO_UUID},
+        "get_canonical_person_legacy_ids(uuid)",
+    ),
+    (
+        "get_canonical_contact_info",
+        {"p_id": ZERO_UUID},
+        "get_canonical_contact_info(uuid)",
+    ),
+    (
+        "get_canonical_financial_disclosures",
+        {"p_id": ZERO_UUID, "result_limit": 1, "result_offset": 0},
+        "get_canonical_financial_disclosures(uuid, integer, integer)",
+    ),
+    (
+        "get_canonical_campaign_donors",
+        {"p_id": ZERO_UUID, "result_limit": 1, "result_offset": 0},
+        "get_canonical_campaign_donors(uuid, integer, integer)",
+    ),
+    (
+        "get_canonical_voting_records",
+        {
+            "p_id": ZERO_UUID,
+            "result_limit": 1,
+            "result_offset": 0,
+            "vote_cast_filter": None,
+        },
+        "get_canonical_voting_records(uuid, integer, integer, text)",
+    ),
+    (
+        "get_canonical_media_mentions",
+        {"p_id": ZERO_UUID, "result_limit": 1, "result_offset": 0},
+        "get_canonical_media_mentions(uuid, integer, integer)",
     ),
 ]
 
