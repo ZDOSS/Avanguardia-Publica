@@ -417,6 +417,7 @@ VOLATILE
 SECURITY DEFINER
 SET search_path = ''
 AS $$
+#variable_conflict use_column
 DECLARE
     identity_namespace constant uuid := '6fb3f3e2-0f6f-42f4-b7e9-d8ed15ed8d2f';
     existing_person_id uuid;
