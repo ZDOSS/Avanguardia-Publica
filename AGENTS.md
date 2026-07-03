@@ -85,4 +85,7 @@ When contributing to this project, you must adhere strictly to these rules:
 9. **Agent Configuration:** If you require additional capabilities to parse data, generate code, or analyze specific schemas, you must explicitly look up and add the appropriate agent skills or rules. We use non-frontier models for some tasks which need an extra push, so always configure the required skills before executing complex workflows.
 
 ## 🚀 Next Steps & Outstanding Work
+- The active remaining roadmap is `docs/canonical_data_and_analytics_plan.md`. Start with
+  Phase 1 only: add an explicit `people` identity bridge and legacy profile resolution
+  before attempting analytics or the broader government entity/role taxonomy.
 - The groundwork is incredibly solid. The new agent should feel free to start building out any further visual analytics, user-authenticated features, or new scraper modules on top of this reliable foundation.

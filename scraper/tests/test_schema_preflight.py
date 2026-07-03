@@ -90,6 +90,13 @@ class SchemaPreflightTests(unittest.TestCase):
                 "unconfirmed_mentions",
                 "relationships",
                 "financial_disclosures",
+                "source_systems",
+                "people",
+                "person_external_ids",
+                "person_names",
+                "legacy_profile_redirects",
+                "identity_resolution_candidates",
+                "person_merge_events",
             },
             {table for table, _ in REQUIRED_COLUMN_CHECKS},
         )
@@ -117,6 +124,19 @@ class SchemaPreflightTests(unittest.TestCase):
             "get_canonical_politician_header",
             {rpc_name for rpc_name, _args, _signature in REQUIRED_RPC_CHECKS},
         )
+        for rpc_name in (
+            "sync_legacy_profile_identity",
+            "get_canonical_person_legacy_ids",
+            "get_canonical_contact_info",
+            "get_canonical_financial_disclosures",
+            "get_canonical_campaign_donors",
+            "get_canonical_voting_records",
+            "get_canonical_media_mentions",
+        ):
+            self.assertIn(
+                rpc_name,
+                {name for name, _args, _signature in REQUIRED_RPC_CHECKS},
+            )
         self.assertEqual(
             len(REQUIRED_COLUMN_CHECKS) + len(REQUIRED_RPC_CHECKS),
             len(loader.executed_descriptions),

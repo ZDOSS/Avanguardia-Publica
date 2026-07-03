@@ -1,3 +1,4 @@
+import { missingCanonicalPoliticianRpc } from './canonicalPoliticians';
 import { isUuid } from './ids';
 import { pageRange, type PageResult } from './pagination';
 import { supabase } from './supabase';
@@ -24,6 +25,14 @@ export async function fetchCampaignDonors(
   if (!isUuid(politicianId)) return { rows: [], count: 0, page, pageSize: pageSize ?? 25 };
   const range = pageRange(page, pageSize);
 
+  try {
+    return await fetchCanonicalCampaignDonors(politicianId, range);
+  } catch (error) {
+    if (!missingCanonicalPoliticianRpc(error as { code?: string; message?: string; details?: string; hint?: string })) {
+      throw error;
+    }
+  }
+
   const { data, error, count } = await supabase
     .from('campaign_donors')
     .select('id, donation_date, donor_name, pac_status, amount')
@@ -36,6 +45,27 @@ export async function fetchCampaignDonors(
   return {
     rows: rows.slice(0, range.pageSize),
     count,
+    hasMore: rows.length > range.pageSize,
+    page: range.page,
+    pageSize: range.pageSize,
+  };
+}
+
+async function fetchCanonicalCampaignDonors(
+  politicianId: string,
+  range: ReturnType<typeof pageRange>,
+): Promise<PageResult<CampaignDonor>> {
+  const { data, error } = await supabase.rpc('get_canonical_campaign_donors', {
+    p_id: politicianId,
+    result_limit: range.pageSize + 1,
+    result_offset: range.from,
+  });
+
+  if (error) throw error;
+  const rows = ((data ?? []) as CampaignDonor[]).map(normalizeDonor);
+  return {
+    rows: rows.slice(0, range.pageSize),
+    count: null,
     hasMore: rows.length > range.pageSize,
     page: range.page,
     pageSize: range.pageSize,

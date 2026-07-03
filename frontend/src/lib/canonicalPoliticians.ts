@@ -2,6 +2,12 @@ const CANONICAL_POLITICIAN_RPC_NAMES = [
   'resolve_canonical_politician_ids',
   'get_canonical_politician_summaries',
   'get_canonical_politician_header',
+  'get_canonical_person_legacy_ids',
+  'get_canonical_contact_info',
+  'get_canonical_financial_disclosures',
+  'get_canonical_campaign_donors',
+  'get_canonical_voting_records',
+  'get_canonical_media_mentions',
 ];
 
 interface SupabaseErrorLike {

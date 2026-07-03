@@ -8,11 +8,18 @@ Database & Backend API: Supabase (PostgreSQL). Provides a visual, spreadsheet-li
 Data Ingestion (ETL Scraping): Python + GitHub Actions. GitHub Actions will run Python scraping scripts on a daily schedule, pushing data directly into Supabase.
 Frontend Framework: Next.js (React) + Tailwind CSS. Configured for static export (output: 'export').
 Hosting/Deployment: GitHub Pages for the frontend (zero-cost, static hosting) and GitHub Actions for the backend Python scripts.
-IMPORTANT — static hosting, HYBRID render model: `output: 'export'` exports a fully static site for GitHub Pages (no runtime server). Whether data is live or frozen depends on where the fetch runs: the home/search and `/directory` pages read LIVE from Supabase in the browser (supabase-js anon client / Postgres RPC), but the `/[politician_id]` profile pages are an `async` server component whose contact/financial/donor/voting/media tabs are BAKED at build time and only refresh on redeploy (the Connections tab is the one live exception). To make a profile view live without a rebuild, fetch it client-side or add an RPC and call it with `supabase.rpc()`. See AGENTS.md → "Render model" for the authoritative explanation.
+IMPORTANT — static hosting, HYBRID render model: `output: 'export'` exports a fully static site for GitHub Pages (no runtime server). Whether data is live or frozen depends on where the fetch runs. The home/search page, `/directory`, `/profile?id=<uuid>`, and the profile contact/financial/donor/voting/media/connections spokes read LIVE from Supabase in the browser through the anon client or Postgres RPCs. The legacy pretty `/[politician_id]` route list is still generated at build time for GitHub Pages, but its data spokes hydrate from the browser once the page exists. See AGENTS.md → "Render model" for the authoritative explanation.
 3. Data Storage Logic & Schema Blueprint
 To prevent data duplication and ensure accurate entity resolution, the database will strictly follow a "Hub-and-Spoke" model.
 A. Strict Entity Resolution Rule
 If third-party scrapers find a name that is not a 100% exact match to a verified politicians.full_name, the AI must not fuzzy-match it. The data must be routed to a pending_review table for manual approval by the admin.
+
+Current remaining data-model, identity, and analytics work is tracked in
+`docs/canonical_data_and_analytics_plan.md`. That plan supersedes one-shot attempts to
+solve duplicates only through read-time `politicians` rollups. The active path starts
+with an explicit `people` identity bridge, then migrates profile spokes to `person_id`,
+then adds the broader government entity/role model and analytics. Do not auto-merge fuzzy
+identity matches.
 B. Core Tables
 The AI agents must build these exact tables in Supabase:
 Table Name
@@ -53,6 +60,9 @@ Directly beneath the Hub, dense data is categorized into horizontal, clickable t
 Tabs: "Financial Disclosures" (Paginated table), "Campaign Donors" (Paginated table), "Voting Record" (List view), "Connections" (cross-referenced individuals — shared donors, co-voting allies/opponents, and network ties — rendered as a hub-and-spoke mini-graph over ranked, clickable relationship cards; fetched live via Postgres RPC), and "Media" (third-party news feed triggering the Visual Firewall). The verified connection types use the official palette; network ties sit behind the Visual Firewall. See docs/connections_design.md.
 5. The Phased Rollout Plan
 Development is strictly paced by data milestones to protect AI agents from generating conflicting code.
+Current duplicate-profile work is Phase 1 of
+`docs/canonical_data_and_analytics_plan.md`: add an explicit canonical identity bridge
+while preserving the existing live `/profile?id=<uuid>` route and legacy profile UUIDs.
 Phase 0.1: The Executive Branch Database Pipeline (Current Focus).
 Objective: The agents write Python scripts to scrape data for the ~17 Executive Branch members (President, VP, Cabinet). They connect the scripts to Supabase. No web frontend.
 Data Sources: Official Gov APIs, LittleSis, Wikidata, and World News API (Strictly limited to top 10 articles via pagination).

@@ -1,3 +1,4 @@
+import { missingCanonicalPoliticianRpc } from './canonicalPoliticians';
 import { isUuid } from './ids';
 import { pageRange, type PageResult } from './pagination';
 import { supabase } from './supabase';
@@ -28,6 +29,14 @@ export async function fetchMediaMentions(
   if (!isUuid(politicianId)) return { rows: [], count: 0, page, pageSize: pageSize ?? 25 };
   const range = pageRange(page, pageSize);
 
+  try {
+    return await fetchCanonicalMediaMentions(politicianId, range);
+  } catch (error) {
+    if (!missingCanonicalPoliticianRpc(error as { code?: string; message?: string; details?: string; hint?: string })) {
+      throw error;
+    }
+  }
+
   const { data, error, count } = await supabase
     .from('unconfirmed_mentions')
     .select('id, source_api, sentiment_score, content_summary, url, created_at')
@@ -40,6 +49,27 @@ export async function fetchMediaMentions(
   return {
     rows: rows.slice(0, range.pageSize),
     count,
+    hasMore: rows.length > range.pageSize,
+    page: range.page,
+    pageSize: range.pageSize,
+  };
+}
+
+async function fetchCanonicalMediaMentions(
+  politicianId: string,
+  range: ReturnType<typeof pageRange>,
+): Promise<PageResult<MediaMention>> {
+  const { data, error } = await supabase.rpc('get_canonical_media_mentions', {
+    p_id: politicianId,
+    result_limit: range.pageSize + 1,
+    result_offset: range.from,
+  });
+
+  if (error) throw error;
+  const rows = ((data ?? []) as MediaMention[]).map(normalizeMention);
+  return {
+    rows: rows.slice(0, range.pageSize),
+    count: null,
     hasMore: rows.length > range.pageSize,
     page: range.page,
     pageSize: range.pageSize,

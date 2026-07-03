@@ -1,3 +1,4 @@
+import { missingCanonicalPoliticianRpc } from './canonicalPoliticians';
 import { isUuid } from './ids';
 import { pageRange, type PageResult } from './pagination';
 import { supabase } from './supabase';
@@ -18,6 +19,14 @@ export async function fetchFinancialDisclosures(
   if (!isUuid(politicianId)) return { rows: [], count: 0, page, pageSize: pageSize ?? 25 };
   const range = pageRange(page, pageSize);
 
+  try {
+    return await fetchCanonicalFinancialDisclosures(politicianId, range);
+  } catch (error) {
+    if (!missingCanonicalPoliticianRpc(error as { code?: string; message?: string; details?: string; hint?: string })) {
+      throw error;
+    }
+  }
+
   const { data, error, count } = await supabase
     .from('financial_disclosures')
     .select('id, filing_date, filing_type, doc_url, doc_id')
@@ -30,6 +39,27 @@ export async function fetchFinancialDisclosures(
   return {
     rows: rows.slice(0, range.pageSize),
     count,
+    hasMore: rows.length > range.pageSize,
+    page: range.page,
+    pageSize: range.pageSize,
+  };
+}
+
+async function fetchCanonicalFinancialDisclosures(
+  politicianId: string,
+  range: ReturnType<typeof pageRange>,
+): Promise<PageResult<FinancialDisclosure>> {
+  const { data, error } = await supabase.rpc('get_canonical_financial_disclosures', {
+    p_id: politicianId,
+    result_limit: range.pageSize + 1,
+    result_offset: range.from,
+  });
+
+  if (error) throw error;
+  const rows = (data ?? []) as FinancialDisclosure[];
+  return {
+    rows: rows.slice(0, range.pageSize),
+    count: null,
     hasMore: rows.length > range.pageSize,
     page: range.page,
     pageSize: range.pageSize,
