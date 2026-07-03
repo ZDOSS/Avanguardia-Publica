@@ -111,6 +111,16 @@ def _parse_entity_slug(url: str):
     return entity_id, entity_type, name, slug
 
 
+def _link_url(value):
+    """Return a URL from either the current LittleSis string shape or JSON:API link dicts."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        href = value.get("href")
+        return href if isinstance(href, str) else None
+    return None
+
+
 def get_littlesis(full_name: str) -> tuple[list, list]:
     """
     Single LittleSis pass for a politician: ONE entity search, reused for both the
@@ -162,7 +172,9 @@ def _relationships_for_entity(entity_id) -> list:
         attrs = rel.get("attributes") or {}
         links = rel.get("links") or {}
         # The "other" entity is whichever side isn't our own entity_id.
-        candidates = [_parse_entity_slug(links.get("entity")), _parse_entity_slug(links.get("related"))]
+        entity_url = _link_url(links.get("entity")) or _link_url(rel.get("entity"))
+        related_url = _link_url(links.get("related")) or _link_url(rel.get("related"))
+        candidates = [_parse_entity_slug(entity_url), _parse_entity_slug(related_url)]
         other = next(
             ((eid, etype, name, slug) for eid, etype, name, slug in candidates if eid and eid != str(entity_id)),
             (None, None, None, None),
