@@ -9,29 +9,30 @@ REQUIRED_COLUMN_CHECKS = [
     ),
     (
         "contact_info",
-        "politician_id,office_address,phone_number,official_website,last_updated",
+        "politician_id,person_id,office_address,phone_number,official_website,last_updated",
     ),
     (
         "financial_disclosures",
-        "politician_id,filing_type,filing_date,doc_id,doc_url",
+        "politician_id,person_id,filing_type,filing_date,doc_id,doc_url",
     ),
     (
         "campaign_donors",
-        "politician_id,donor_name,amount,donation_date,pac_status,fec_transaction_id",
+        "politician_id,person_id,donor_name,amount,donation_date,pac_status,"
+        "fec_transaction_id",
     ),
     (
         "voting_records",
-        "politician_id,bill_name,bill_summary,vote_cast,vote_date,roll_call_id,"
+        "politician_id,person_id,bill_name,bill_summary,vote_cast,vote_date,roll_call_id,"
         "jurisdiction",
     ),
     (
         "relationships",
-        "id,politician_id,related_name,relationship_type,source_api,url,last_updated,"
-        "related_politician_id",
+        "id,politician_id,person_id,related_name,relationship_type,source_api,url,"
+        "last_updated,related_politician_id",
     ),
     (
         "unconfirmed_mentions",
-        "politician_id,source_api,content_summary,url,sentiment_score",
+        "politician_id,person_id,source_api,content_summary,url,sentiment_score",
     ),
     (
         "source_systems",
