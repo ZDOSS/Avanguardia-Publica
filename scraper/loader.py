@@ -27,6 +27,7 @@ class SupabaseLoader:
         else:
             self.supabase = None
             print("Warning: SUPABASE_URL or SUPABASE_KEY is not set. Running in dry-run mode.")
+        self.person_id_by_politician_id = {}
 
     def _increment(self, key: str, amount: int = 1) -> None:
         if self.summary:
@@ -266,14 +267,29 @@ class SupabaseLoader:
                 f"sync canonical identity bridge for {politician_id}",
             )
             if resp.data:
+                person_id = resp.data[0].get("person_id")
+                self.person_id_by_politician_id[politician_id] = person_id
                 self._increment("identity_profiles_synced")
                 print("  [+] Synced canonical identity bridge")
-                return resp.data[0].get("person_id")
+                return person_id
         except Exception as e:
             print(f"  [!] Error syncing canonical identity bridge for {politician_id}: {e}")
             raise
 
         return None
+
+    def _person_id_for_politician(self, politician_id: str):
+        if not self.supabase or not politician_id or politician_id == "dummy-uuid":
+            return None
+        if politician_id not in self.person_id_by_politician_id:
+            self.sync_legacy_profile_identity(politician_id)
+        return self.person_id_by_politician_id.get(politician_id)
+
+    def _with_person_id(self, politician_id: str, payload: dict) -> dict:
+        person_id = self._person_id_for_politician(politician_id)
+        if person_id:
+            payload["person_id"] = person_id
+        return payload
 
     def upsert_contact_info(self, politician_id: str, contact: dict):
         """
@@ -286,15 +302,18 @@ class SupabaseLoader:
             print(f"  [Dry-run] Upserting contact info for {politician_id}")
             return
 
-        payload = {
-            "politician_id": politician_id,
-            "office_address": contact.get("office_address"),
-            "phone_number": contact.get("phone_number"),
-            "official_website": contact.get("official_website"),
-            # Refresh freshness timestamp on every upsert (DEFAULT NOW() only fires
-            # on the initial insert, not on the on-conflict update).
-            "last_updated": datetime.now(timezone.utc).isoformat(),
-        }
+        payload = self._with_person_id(
+            politician_id,
+            {
+                "politician_id": politician_id,
+                "office_address": contact.get("office_address"),
+                "phone_number": contact.get("phone_number"),
+                "official_website": contact.get("official_website"),
+                # Refresh freshness timestamp on every upsert (DEFAULT NOW() only fires
+                # on the initial insert, not on the on-conflict update).
+                "last_updated": datetime.now(timezone.utc).isoformat(),
+            },
+        )
         try:
             self.execute_supabase(
                 lambda: self.supabase.table("contact_info").upsert(
@@ -323,18 +342,22 @@ class SupabaseLoader:
 
         # Dedup on doc_id within the batch: PostgREST rejects a batch that touches the same
         # ON CONFLICT key twice ("cannot affect row a second time").
+        person_id = self._person_id_for_politician(politician_id)
         by_doc = {}
         for f in filings:
             doc_id = f.get("doc_id")
             if not doc_id:
                 continue
-            by_doc[doc_id] = {
+            row = {
                 "politician_id": politician_id,
                 "filing_type": f.get("filing_type"),
                 "filing_date": f.get("filing_date"),
                 "doc_id": doc_id,
                 "doc_url": f.get("doc_url"),
             }
+            if person_id:
+                row["person_id"] = person_id
+            by_doc[doc_id] = row
         rows = list(by_doc.values())
         if not rows:
             return
@@ -367,8 +390,10 @@ class SupabaseLoader:
             print(f"  [Dry-run] Upserting {len(donors)} campaign donors")
             return
 
-        rows = [
-            {
+        person_id = self._person_id_for_politician(politician_id)
+        rows = []
+        for d in donors:
+            row = {
                 "politician_id": politician_id,
                 "donor_name": d.get("donor_name"),
                 "amount": d.get("amount"),
@@ -376,8 +401,9 @@ class SupabaseLoader:
                 "pac_status": d.get("pac_status", False),
                 "fec_transaction_id": d.get("fec_transaction_id"),
             }
-            for d in donors
-        ]
+            if person_id:
+                row["person_id"] = person_id
+            rows.append(row)
         try:
             self.execute_supabase(
                 lambda: self.supabase.table("campaign_donors").upsert(
@@ -402,6 +428,7 @@ class SupabaseLoader:
             print(f"  [Dry-run] Upserting {len(records)} voting records")
             return
 
+        person_id = self._person_id_for_politician(politician_id)
         rows = []
         for r in records:
             row = {
@@ -411,6 +438,8 @@ class SupabaseLoader:
                 "vote_cast": r.get("vote_cast"),
                 "vote_date": r.get("vote_date"),
             }
+            if person_id:
+                row["person_id"] = person_id
             # Stable per-roll-call id + jurisdiction (see migrations/0003). Only added when
             # present, so a row that lacks them leaves the columns untouched on conflict
             # rather than clobbering a previously-stored roll_call_id back to NULL.
@@ -477,6 +506,7 @@ class SupabaseLoader:
         # presence is uniform across all rows, so PostgREST won't union-NULL it either).
         resolved = name_to_id is not None
 
+        person_id = self._person_id_for_politician(politician_id)
         rows = []
         for e in edges:
             related_name = e.get("related_name")
@@ -492,6 +522,8 @@ class SupabaseLoader:
                 "url": e.get("url"),
                 "last_updated": datetime.now(timezone.utc).isoformat(),
             }
+            if person_id:
+                row["person_id"] = person_id
             if resolved:
                 row["related_politician_id"] = name_to_id.get(related_name)
             rows.append(row)
@@ -555,6 +587,7 @@ class SupabaseLoader:
             print(f"  [Dry-run] Inserted {len(data_list)} mentions from {source_api}")
             return
 
+        person_id = self._person_id_for_politician(politician_id)
         inserted_count = 0
         for item in data_list:
             mention_data = {
@@ -564,6 +597,8 @@ class SupabaseLoader:
                 "url": item.get("url"),
                 "sentiment_score": item.get("sentiment_score"),
             }
+            if person_id:
+                mention_data["person_id"] = person_id
             try:
                 self.execute_supabase(
                     lambda mention_data=mention_data: (

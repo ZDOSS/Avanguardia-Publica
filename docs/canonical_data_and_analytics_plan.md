@@ -4,8 +4,9 @@ This is the active roadmap for remaining data-model, scraper, profile, search, d
 and analytics work. It supersedes the former separate roadmap docs, which were removed to
 avoid split-source planning.
 
-This plan intentionally starts at the next unfinished step and leaves completed history
-out.
+This plan tracks the current implementation frontier. Phase 1 is retained because Phase 2
+depends on its compatibility contract, but new implementation should start from the first
+unfinished Phase 2 item unless the Phase 1 bridge needs a bug fix.
 
 ## Goal
 
@@ -30,7 +31,11 @@ even when multiple sources or legacy rows describe that person.
 - Migrations are manual, idempotent, and must be safe to re-run.
 - New data sources must remain free-tier or open source.
 
-## Phase 1: Canonical Identity Bridge
+## Phase 1: Canonical Identity Bridge (Implemented)
+
+Implemented by `migrations/0011_canonical_identity_bridge.sql`, the live profile/search
+RPC updates, scraper schema preflight checks, deterministic identity rule tests, and the
+loader's `sync_legacy_profile_identity` call after hub upserts.
 
 Fix duplicate profiles by adding an explicit identity bridge without replacing the whole
 schema.
@@ -94,7 +99,11 @@ Merge and redirect rules:
 - Do not move child spoke rows destructively until Phase 2 has a tested `person_id`
   backfill path.
 
-## Phase 2: Person-Aware Profile Spokes
+## Phase 2: Person-Aware Profile Spokes (Current)
+
+The first Phase 2 slice is `migrations/0012_person_aware_profile_spokes.sql`: add nullable
+`person_id` columns to existing spoke tables, backfill them from `legacy_profile_redirects`,
+index them, keep `politician_id`, and have future ETL writes stamp both IDs.
 
 Move profile spoke reads from legacy politician identity to canonical person identity.
 
@@ -302,8 +311,10 @@ Every schema change in this plan must follow these rules:
 
 ## Next PR
 
-The next implementation PR should be Phase 1 only: canonical identity bridge, legacy
-profile resolution, search/directory/profile RPCs, deterministic backfill, preflight
-checks, and duplicate regression coverage.
+The current implementation PR should stay Phase 2 only: nullable `person_id` columns on
+existing profile spokes, deterministic backfill from the identity bridge, ETL writes that
+stamp `person_id`, preflight checks for the new columns, and compatibility RPCs that keep
+legacy `politician_id` fallbacks.
 
-Do not add new analytics features or the full role/entity taxonomy in that PR.
+Do not remove legacy `politician_id`, add new analytics features, or add the full
+role/entity taxonomy in that PR.

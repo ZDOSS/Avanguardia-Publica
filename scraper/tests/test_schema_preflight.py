@@ -112,6 +112,15 @@ class SchemaPreflightTests(unittest.TestCase):
             "jurisdiction",
         ):
             self.assertIn(column, politicians_columns)
+        for table in (
+            "contact_info",
+            "financial_disclosures",
+            "campaign_donors",
+            "voting_records",
+            "relationships",
+            "unconfirmed_mentions",
+        ):
+            self.assertIn("person_id", dict(REQUIRED_COLUMN_CHECKS)[table])
         self.assertEqual(
             [(rpc_name, args) for rpc_name, args, _signature in REQUIRED_RPC_CHECKS],
             client.rpc_checks,
