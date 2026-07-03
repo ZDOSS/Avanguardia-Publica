@@ -833,7 +833,7 @@ INSERT INTO public.person_external_ids (
     is_trusted,
     source_legacy_politician_id
 )
-SELECT DISTINCT
+SELECT DISTINCT ON (k.source_system_key, k.external_id_type, k.external_id)
     b.person_id,
     k.source_system_key,
     k.external_id_type,
@@ -842,6 +842,12 @@ SELECT DISTINCT
     b.legacy_politician_id
 FROM _canonical_identity_backfill AS b
 CROSS JOIN LATERAL public.get_legacy_profile_identity_keys(b.legacy_politician_id) AS k
+ORDER BY
+    k.source_system_key,
+    k.external_id_type,
+    k.external_id,
+    (b.legacy_politician_id = b.canonical_politician_id) DESC,
+    b.legacy_politician_id
 ON CONFLICT (source_system_key, external_id_type, external_id) DO UPDATE SET
     person_id = EXCLUDED.person_id,
     source_legacy_politician_id = EXCLUDED.source_legacy_politician_id;
@@ -855,7 +861,10 @@ INSERT INTO public.person_names (
     name_type,
     is_primary
 )
-SELECT
+SELECT DISTINCT ON (
+    b.person_id,
+    public.normalize_identity_name(p.full_name)
+)
     b.person_id,
     'avanguardia-legacy-profile',
     p.id,
@@ -866,6 +875,11 @@ SELECT
 FROM _canonical_identity_backfill AS b
 JOIN public.politicians AS p ON p.id = b.legacy_politician_id
 WHERE public.normalize_identity_name(p.full_name) IS NOT NULL
+ORDER BY
+    b.person_id,
+    public.normalize_identity_name(p.full_name),
+    (p.id = b.canonical_politician_id) DESC,
+    p.id
 ON CONFLICT (person_id, source_system_key, normalized_name, name_type) DO UPDATE SET
     is_primary = public.person_names.is_primary OR EXCLUDED.is_primary;
 
@@ -878,7 +892,10 @@ INSERT INTO public.person_names (
     name_type,
     is_primary
 )
-SELECT DISTINCT
+SELECT DISTINCT ON (
+    b.person_id,
+    public.normalize_identity_name(alias_name)
+)
     b.person_id,
     'avanguardia-legacy-profile',
     p.id,
@@ -890,6 +907,11 @@ FROM _canonical_identity_backfill AS b
 JOIN public.politicians AS p ON p.id = b.legacy_politician_id
 CROSS JOIN LATERAL unnest(p.aliases) AS alias_name
 WHERE public.normalize_identity_name(alias_name) IS NOT NULL
+ORDER BY
+    b.person_id,
+    public.normalize_identity_name(alias_name),
+    (p.id = b.canonical_politician_id) DESC,
+    p.id
 ON CONFLICT (person_id, source_system_key, normalized_name, name_type) DO NOTHING;
 
 WITH mapped_profiles AS (
