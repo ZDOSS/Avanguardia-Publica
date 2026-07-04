@@ -15,6 +15,10 @@ CREATE INDEX IF NOT EXISTS idx_politicians_full_name_lower_prefix
 CREATE INDEX IF NOT EXISTS idx_people_primary_name_lower_prefix
     ON public.people (lower(primary_name) text_pattern_ops);
 
+CREATE INDEX IF NOT EXISTS idx_people_primary_name_search_vector
+    ON public.people
+    USING gin (to_tsvector('english', coalesce(primary_name, '')));
+
 CREATE INDEX IF NOT EXISTS idx_voting_records_person_roll_call_active
     ON public.voting_records (person_id, roll_call_id, vote_cast)
     WHERE person_id IS NOT NULL
@@ -114,6 +118,7 @@ AS $$
         SELECT
             mp.person_id,
             p.search_vector,
+            to_tsvector('english', coalesce(pe.primary_name, '')) AS primary_name_search_vector,
             lower(coalesce(pe.primary_name, p.full_name, '')) AS display_lower,
             lower(coalesce(p.full_name, '')) AS legacy_lower,
             btrim(
@@ -154,6 +159,7 @@ AS $$
             bool_or(
                 params.q IS NULL
                 OR COALESCE(sc.search_vector @@ params.q_ts, false)
+                OR COALESCE(sc.primary_name_search_vector @@ params.q_ts, false)
                 OR (
                     params.q IS NOT NULL
                     AND (
@@ -200,6 +206,7 @@ AS $$
                      AND (sc.display_norm LIKE '% ' || params.q_norm || '%' OR sc.legacy_norm LIKE '% ' || params.q_norm || '%')
                         THEN 2
                     WHEN COALESCE(sc.search_vector @@ params.q_ts, false)
+                      OR COALESCE(sc.primary_name_search_vector @@ params.q_ts, false)
                         THEN 3
                     ELSE 4
                 END
