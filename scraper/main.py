@@ -85,9 +85,15 @@ def main():
         )
     else:
         if state_unverified_config["capped"]:
-            summary.skip(
-                "State unverified enrichment",
-                f"limit capped at {state_unverified_config['limit']}",
+            summary.increment("state_unverified_limit_cap_applied")
+            summary.increment(
+                "state_unverified_requested_profiles_over_cap",
+                state_unverified_config["requested_limit"] - state_unverified_config["limit"],
+            )
+            print(
+                "Note: requested state LittleSis enrichment limit "
+                f"{state_unverified_config['requested_limit']} exceeds the cap; "
+                f"running {state_unverified_config['limit']} profiles."
             )
         print(
             "State LittleSis enrichment enabled for "
