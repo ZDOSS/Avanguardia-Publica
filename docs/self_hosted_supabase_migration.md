@@ -37,17 +37,19 @@ Every phase below starts with **Run from:** so it is clear where the commands be
 
 | Label | Where you are |
 | --- | --- |
-| **Local computer** | Your laptop/desktop. On Windows, use Git Bash or WSL for bash blocks unless the command is explicitly `gh`, which also works in PowerShell. |
-| **VPS SSH session** | The terminal after you run `ssh <SSH_USER>@<VPS_IP>`. Commands here change the Ubuntu server. |
-| **Browser dashboard** | A web UI such as your DNS provider, GitHub, or the Supabase dashboard. |
-| **GitHub Actions** | The workflow pages inside the GitHub repo. |
+| **PC terminal** | A terminal on your own computer. On Windows, use Git Bash or WSL for bash blocks unless the command is explicitly `gh`, which also works in PowerShell. |
+| **PC web browser** | A web browser on your own computer. Use this for GitHub, the managed Supabase dashboard, your VPS company's firewall page, and the website where your domain records are edited. |
+| **VPS SSH terminal** | The terminal after you run `ssh <SSH_USER>@<VPS_IP>`. Commands here change the Ubuntu server. |
+| **GitHub Actions website** | The workflow pages inside the GitHub repo. |
 
-If a phase says **Run from: local computer**, do not paste those commands into the VPS.
-If it says **Run from: VPS SSH session**, SSH into the VPS first.
+If a phase says **Run from: PC terminal**, do not paste those commands into the VPS.
+If it says **Run from: VPS SSH terminal**, SSH into the VPS first.
+If it says **Run from: PC web browser**, do not run a terminal command unless the step
+explicitly tells you to.
 
 ## Phase 0: Freeze Writes
 
-**Run from:** Browser dashboard, mostly GitHub Actions and managed Supabase.
+**Run from:** PC web browser, mostly GitHub Actions and managed Supabase.
 
 Do this before taking the managed Supabase dump:
 
@@ -61,7 +63,7 @@ Do this before taking the managed Supabase dump:
 
 ## Phase 1: SSH Into The VPS And Prepare Ubuntu 24.04
 
-**Run from:** Local computer for the first `ssh` command, then VPS SSH session for every
+**Run from:** PC terminal for the first `ssh` command, then VPS SSH terminal for every
 command after that.
 
 SSH into the VPS:
@@ -94,7 +96,7 @@ the Supabase HTTPS API, not direct public Postgres.
 
 ## Phase 2: Install Docker Engine
 
-**Run from:** VPS SSH session.
+**Run from:** VPS SSH terminal.
 
 Remove conflicting packages if present:
 
@@ -138,7 +140,7 @@ Docker group membership grants root-level power on the host. Only do this for tr
 
 ## Phase 3: Install Self-Hosted Supabase
 
-**Run from:** VPS SSH session.
+**Run from:** VPS SSH terminal.
 
 Use the manual Docker Compose path so the server layout and files are obvious.
 
@@ -188,16 +190,20 @@ Notes:
 
 ## Phase 4: Point DNS At The VPS
 
-**Run from:** Browser dashboard for the DNS record, then local computer for the `dig`
-check. This is **not** run on the VPS.
+**Run from:** PC web browser for the DNS record, then PC terminal for the `dig` check.
+This is **not** run on the VPS.
 
-Create a DNS `A` record in your domain/DNS provider:
+Open the website where your domain's DNS records are edited. This might be the same
+company as the VPS, or it might be where the domain was bought. It is not another server
+you SSH into.
+
+Create this DNS `A` record:
 
 ```text
 <SUPABASE_DOMAIN> -> <VPS_IP>
 ```
 
-Wait until it resolves from your local computer:
+Wait until it resolves from your PC terminal:
 
 ```bash
 dig +short <SUPABASE_DOMAIN>
@@ -210,7 +216,7 @@ record to point at the VPS before it can issue the TLS certificate.
 
 ## Phase 5: Start Supabase with HTTPS
 
-**Run from:** VPS SSH session.
+**Run from:** VPS SSH terminal.
 
 Start the stack with the Caddy HTTPS override:
 
@@ -245,12 +251,12 @@ docker compose logs kong
 Common causes:
 
 - DNS does not point to the VPS yet.
-- Ports `80` and `443` are blocked by the VPS provider firewall.
+- Ports `80` and `443` are blocked by the VPS company's firewall settings.
 - `PROXY_DOMAIN`, `SUPABASE_PUBLIC_URL`, or `API_EXTERNAL_URL` is wrong in `.env`.
 
 ## Phase 6: Record Self-Hosted Credentials
 
-**Run from:** VPS SSH session.
+**Run from:** VPS SSH terminal.
 
 ```bash
 cd /opt/avanguardia-supabase/supabase-project
@@ -283,7 +289,7 @@ psql "$SELF_HOSTED_DB_URL" -c 'select version();'
 
 ## Phase 7: Dump Managed Supabase
 
-**Run from:** Local computer, not the VPS. This phase reads from managed Supabase and
+**Run from:** PC terminal, not the VPS. This phase reads from managed Supabase and
 creates dump files on your local machine before copying them to the VPS.
 
 Run this from your local machine or another trusted machine with Docker and Node.js 20+.
@@ -314,7 +320,7 @@ scp roles.sql schema.sql data.sql checksums.sha256 <SSH_USER>@<VPS_IP>:/opt/avan
 
 ## Phase 8: Restore onto the VPS
 
-**Run from:** VPS SSH session.
+**Run from:** VPS SSH terminal.
 
 ```bash
 cd /opt/avanguardia-supabase/restore
@@ -347,7 +353,7 @@ do not exist.
 
 ## Phase 9: Apply Pending Repo Migrations
 
-**Run from:** VPS SSH session.
+**Run from:** VPS SSH terminal.
 
 If `0014` was not already applied before the dump, apply it now.
 
@@ -369,7 +375,7 @@ psql "$SELF_HOSTED_DB_URL" --variable ON_ERROR_STOP=1 --file migrations/manual_c
 
 ## Phase 10: Database Validation
 
-**Run from:** VPS SSH session.
+**Run from:** VPS SSH terminal.
 
 Run counts:
 
@@ -410,7 +416,7 @@ Expected:
 
 ## Phase 11: API Validation
 
-**Run from:** VPS SSH session.
+**Run from:** VPS SSH terminal.
 
 Load the publishable key from `.env`:
 
@@ -447,7 +453,7 @@ Expected: JSON array, possibly empty, without a timeout error.
 
 ## Phase 12: Update GitHub Secrets
 
-**Run from:** Local computer with GitHub CLI authenticated. Do not run these on the VPS
+**Run from:** PC terminal with GitHub CLI authenticated. Do not run these on the VPS
 unless the VPS also has your GitHub CLI authentication and you intentionally want that.
 
 From a local machine with GitHub CLI authenticated for `<GITHUB_REPO>`:
@@ -472,8 +478,8 @@ Do not put `SUPABASE_SECRET_KEY` in frontend env vars.
 
 ## Phase 13: Redeploy Frontend
 
-**Run from:** Local computer with GitHub CLI authenticated, or the GitHub Actions browser
-dashboard if you prefer clicking the workflow manually.
+**Run from:** PC terminal with GitHub CLI authenticated, or the GitHub Actions website if
+you prefer clicking the workflow manually.
 
 Run the Pages workflow:
 
@@ -499,8 +505,8 @@ not `*.supabase.co`.
 
 ## Phase 14: Controlled Scraper Run
 
-**Run from:** Local computer with GitHub CLI authenticated, or the GitHub Actions browser
-dashboard if you prefer clicking the workflow manually.
+**Run from:** PC terminal with GitHub CLI authenticated, or the GitHub Actions website if
+you prefer clicking the workflow manually.
 
 Run the scraper workflow once:
 
@@ -524,8 +530,8 @@ gh workflow run nextjs.yml --repo ZDOSS/Avanguardia-Publica
 
 ## Phase 15: Rollback Plan
 
-**Run from:** Local computer for GitHub secret/workflow commands, browser dashboard for
-GitHub Actions toggles, and managed Supabase dashboard only if you are checking old data.
+**Run from:** PC terminal for GitHub secret/workflow commands, PC web browser for GitHub
+Actions toggles, and managed Supabase dashboard only if you are checking old data.
 
 Rollback is simple only until new scraper writes happen on the VPS.
 
@@ -548,8 +554,8 @@ After the first VPS scraper run:
 
 ## Phase 16: Post-Cutover Operations
 
-**Run from:** VPS SSH session for Docker/log commands, VPS provider dashboard for snapshots,
-and local computer for notes or cleanup of local dump files.
+**Run from:** VPS SSH terminal for Docker/log commands, VPS company website for snapshots,
+and PC terminal for notes or cleanup of local dump files.
 
 Minimum follow-up tasks after the migration:
 
