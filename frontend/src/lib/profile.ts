@@ -91,9 +91,7 @@ export async function fetchContactInfo(politicianId: string): Promise<ContactInf
   const { data, error } = await supabase
     .from('contact_info')
     .select('politician_id, office_address, phone_number, official_website, last_updated')
-    .in('politician_id', legacyPoliticianIds)
-    .order('last_updated', { ascending: false, nullsFirst: false })
-    .limit(50);
+    .in('politician_id', legacyPoliticianIds);
 
   if (error) {
     if (typeof canonicalEmptyResult !== 'undefined') return canonicalEmptyResult;
