@@ -80,20 +80,20 @@ AS $$
     ),
     ranked_headers AS (
         SELECT
-            l.person_id,
+            i.person_id,
             p.full_name,
             p.current_office,
             p.party,
             row_number() OVER (
-                PARTITION BY l.person_id
+                PARTITION BY i.person_id
                 ORDER BY
-                    (l.legacy_politician_id = l.canonical_politician_id) DESC,
+                    COALESCE(l.legacy_politician_id = l.canonical_politician_id, false) DESC,
                     p.last_updated DESC NULLS LAST,
                     p.id
             ) AS profile_rank
         FROM involved_people AS i
-        JOIN public.legacy_profile_redirects AS l ON l.person_id = i.person_id
-        JOIN public.politicians AS p ON p.id = l.legacy_politician_id
+        LEFT JOIN public.legacy_profile_redirects AS l ON l.person_id = i.person_id
+        LEFT JOIN public.politicians AS p ON p.id = l.legacy_politician_id
     )
     SELECT
         theirs.person_id AS politician_id,
