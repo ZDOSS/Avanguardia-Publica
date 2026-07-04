@@ -131,6 +131,9 @@ financial disclosures are not yet covered.
 | `SUPABASE_URL`                  | scraper  | yes      | Supabase project URL                                 |
 | `SUPABASE_KEY`                  | scraper  | yes      | Service-role key (writes)                            |
 | `FEC_API_KEY`                   | scraper  | no       | data.gov key for campaign-donor enrichment           |
+| `OPENSTATES_API_KEY`            | scraper  | no       | OpenStates key for state roll-call votes             |
+| `STATE_UNVERIFIED_ENRICHMENT_LIMIT` | scraper | no    | Bounded count of state profiles to enrich via LittleSis |
+| `STATE_UNVERIFIED_ENRICHMENT_OFFSET` | scraper | no   | Zero-based start offset for rotating state LittleSis batches |
 | `CURRENTS_API_KEY`              | scraper  | no       | News tier 1                                          |
 | `NEWSDATA_API_KEY`              | scraper  | no       | News tier 2 (requires attribution)                   |
 | `THENEWSAPI_KEY`                | scraper  | no       | News tier 3                                          |

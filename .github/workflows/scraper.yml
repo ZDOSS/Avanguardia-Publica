@@ -4,7 +4,16 @@ on:
   schedule:
     # Run every day at 1:00 AM UTC
     - cron: '0 1 * * *'
-  workflow_dispatch: # Allows manual trigger
+  workflow_dispatch:
+    inputs:
+      state_unverified_enrichment_limit:
+        description: 'Optional state LittleSis profile count for this run'
+        required: false
+        default: ''
+      state_unverified_enrichment_offset:
+        description: 'Optional zero-based state LittleSis start offset for this run'
+        required: false
+        default: ''
 
 jobs:
   scrape-and-update:
@@ -34,6 +43,9 @@ jobs:
           FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
           # State roll-call votes via OpenStates API (optional; skipped if absent)
           OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
+          # Bounded state LittleSis enrichment (unverified; optional)
+          STATE_UNVERIFIED_ENRICHMENT_LIMIT: ${{ github.event.inputs.state_unverified_enrichment_limit || vars.STATE_UNVERIFIED_ENRICHMENT_LIMIT }}
+          STATE_UNVERIFIED_ENRICHMENT_OFFSET: ${{ github.event.inputs.state_unverified_enrichment_offset || vars.STATE_UNVERIFIED_ENRICHMENT_OFFSET }}
           # News API keys — all optional; aggregator falls back gracefully if absent
           CURRENTS_API_KEY: ${{ secrets.CURRENTS_API_KEY }}
           NEWSDATA_API_KEY: ${{ secrets.NEWSDATA_API_KEY }}

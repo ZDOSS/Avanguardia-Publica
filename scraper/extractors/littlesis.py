@@ -10,8 +10,8 @@ _TIMEOUT = 20
 # Bounded, resilient access — mirrors fec.py / govtrack.py. LittleSis is a free public API
 # with no key, hit a few times per Congress member, so a per-run request budget plus a
 # consecutive-failure / 429 circuit breaker keeps a LittleSis outage from hanging or
-# hammering the pipeline. State legislators + exec/judicial don't call LittleSis, so the
-# Congress loop is the only consumer; ~3 calls/member keeps us well under the budget.
+# hammering the pipeline. Congress is the main consumer; optional state enrichment is
+# separately bounded so the shared budget stays under control.
 _MAX_REQUESTS = 2500
 _MAX_CONSECUTIVE_FAILURES = 5
 _request_count = 0
