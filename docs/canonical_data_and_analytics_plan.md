@@ -145,6 +145,11 @@ Remaining profile UX improvements should happen after the reads are identity-awa
 
 Stop letting scraper upserts create identity implicitly through `upsert_politician`.
 
+Before starting Phase 3, complete the managed Supabase to VPS cutover described in
+[`self_hosted_supabase_migration.md`](self_hosted_supabase_migration.md). The frontend and
+scraper rely on Supabase-compatible REST/RPC behavior, so the VPS target should be
+self-hosted Supabase or an explicitly compatible API stack, not bare Postgres alone.
+
 Add identity modules:
 
 - `scraper/identity/types.py`
