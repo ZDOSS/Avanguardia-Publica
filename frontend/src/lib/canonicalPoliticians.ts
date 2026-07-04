@@ -1,3 +1,6 @@
+import { isUuid } from './ids';
+import { supabase } from './supabase';
+
 const CANONICAL_POLITICIAN_RPC_NAMES = [
   'resolve_canonical_politician_ids',
   'get_canonical_politician_summaries',
@@ -15,6 +18,11 @@ interface SupabaseErrorLike {
   message?: string;
   details?: string;
   hint?: string;
+}
+
+export interface CanonicalLegacyPoliticianRef {
+  legacy_politician_id: string;
+  is_canonical: boolean;
 }
 
 export function missingCanonicalPoliticianRpc(error: SupabaseErrorLike | null): boolean {
@@ -41,4 +49,38 @@ export function missingCanonicalPoliticianRpc(error: SupabaseErrorLike | null): 
     text.includes('schema cache');
 
   return referencesCanonicalRpc && missingFunction;
+}
+
+export async function fetchCanonicalLegacyPoliticianRefs(profileId: string): Promise<CanonicalLegacyPoliticianRef[]> {
+  if (!isUuid(profileId)) return [];
+
+  try {
+    const { data, error } = await supabase.rpc('get_canonical_person_legacy_ids', {
+      profile_id: profileId,
+    });
+
+    if (error) throw error;
+
+    const seen = new Set<string>();
+    const refs = ((data ?? []) as { legacy_politician_id?: string | null; is_canonical?: boolean | null }[])
+      .filter((row) => typeof row.legacy_politician_id === 'string' && isUuid(row.legacy_politician_id))
+      .flatMap((row) => {
+        const id = row.legacy_politician_id as string;
+        if (seen.has(id)) return [];
+        seen.add(id);
+        return [{ legacy_politician_id: id, is_canonical: row.is_canonical === true }];
+      });
+
+    return refs.length > 0 ? refs : [{ legacy_politician_id: profileId, is_canonical: true }];
+  } catch (error) {
+    if (missingCanonicalPoliticianRpc(error as SupabaseErrorLike)) {
+      return [{ legacy_politician_id: profileId, is_canonical: true }];
+    }
+    throw error;
+  }
+}
+
+export async function fetchCanonicalLegacyPoliticianIds(profileId: string): Promise<string[]> {
+  const refs = await fetchCanonicalLegacyPoliticianRefs(profileId);
+  return refs.map((ref) => ref.legacy_politician_id);
 }

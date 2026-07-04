@@ -1,4 +1,4 @@
-import { missingCanonicalPoliticianRpc } from './canonicalPoliticians';
+import { fetchCanonicalLegacyPoliticianIds, missingCanonicalPoliticianRpc } from './canonicalPoliticians';
 import { isUuid } from './ids';
 import { pageRange, type PageResult } from './pagination';
 import { supabase } from './supabase';
@@ -28,23 +28,34 @@ export async function fetchMediaMentions(
 ): Promise<PageResult<MediaMention>> {
   if (!isUuid(politicianId)) return { rows: [], count: 0, page, pageSize: pageSize ?? 25 };
   const range = pageRange(page, pageSize);
+  let canonicalEmptyResult: PageResult<MediaMention> | null = null;
 
   try {
-    return await fetchCanonicalMediaMentions(politicianId, range);
+    const canonicalResult = await fetchCanonicalMediaMentions(politicianId, range);
+    if (canonicalResult.rows.length > 0 || canonicalResult.hasMore) return canonicalResult;
+    canonicalEmptyResult = canonicalResult;
   } catch (error) {
     if (!missingCanonicalPoliticianRpc(error as { code?: string; message?: string; details?: string; hint?: string })) {
       throw error;
     }
   }
 
+  const legacyPoliticianIds = await fetchCanonicalLegacyPoliticianIds(politicianId);
+  if (legacyPoliticianIds.length === 0) {
+    return canonicalEmptyResult ?? { rows: [], count: 0, page, pageSize: range.pageSize };
+  }
+
   const { data, error, count } = await supabase
     .from('unconfirmed_mentions')
     .select('id, source_api, sentiment_score, content_summary, url, created_at')
-    .eq('politician_id', politicianId)
+    .in('politician_id', legacyPoliticianIds)
     .order('created_at', { ascending: false })
     .range(range.from, range.to + 1);
 
-  if (error) throw error;
+  if (error) {
+    if (canonicalEmptyResult) return canonicalEmptyResult;
+    throw error;
+  }
   const rows = ((data ?? []) as MediaMention[]).map(normalizeMention);
   return {
     rows: rows.slice(0, range.pageSize),
