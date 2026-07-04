@@ -64,6 +64,12 @@ in the new `relationships` table; `related_politician_id` is filled **only on an
 full_name match** to a tracked politician (never fuzzy — the loader's identity rule), which
 is what lets a tie link to an internal profile instead of out to LittleSis.
 
+State officials can opt into the same unverified LittleSis lane with
+`STATE_UNVERIFIED_ENRICHMENT_LIMIT` and `STATE_UNVERIFIED_ENRICHMENT_OFFSET`. The default is
+disabled; batches are bounded and write only to `unconfirmed_mentions` and `relationships`
+with `person_id` stamped by the canonical bridge. These records must not drive canonical
+identity or verified office/contact fields.
+
 ## Display
 
 `PoliticianClient` tabs went from `… | Voting | Network & Media` to

@@ -16,6 +16,7 @@ from extractors.openstates import get_state_politicians
 from extractors.openstates_votes import get_state_voting_records
 from extractors.federal import get_federal_exec_judicial
 from extractors.financial_disclosures import get_house_disclosure_index, lookup_disclosures
+from unverified_enrichment import state_unverified_enrichment_config, should_enrich_state_profile
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,6 +67,40 @@ def main():
         summary.skip("FEC", "FEC_API_KEY not set or DEMO_KEY")
         print("Note: FEC_API_KEY not set (or DEMO_KEY) — skipping campaign-donor enrichment.")
     
+    try:
+        state_unverified_config = state_unverified_enrichment_config(os.environ)
+    except ValueError as e:
+        summary.error("configuration", e)
+        summary.print(success=False)
+        sys.exit(str(e))
+
+    if state_unverified_config["limit"] <= 0:
+        summary.skip(
+            "State unverified enrichment",
+            "STATE_UNVERIFIED_ENRICHMENT_LIMIT not set",
+        )
+        print(
+            "Note: state LittleSis enrichment disabled; set "
+            "STATE_UNVERIFIED_ENRICHMENT_LIMIT to run a bounded batch."
+        )
+    else:
+        if state_unverified_config["capped"]:
+            summary.increment("state_unverified_limit_cap_applied")
+            summary.increment(
+                "state_unverified_requested_profiles_over_cap",
+                state_unverified_config["requested_limit"] - state_unverified_config["limit"],
+            )
+            print(
+                "Note: requested state LittleSis enrichment limit "
+                f"{state_unverified_config['requested_limit']} exceeds the cap; "
+                f"running {state_unverified_config['limit']} profiles."
+            )
+        print(
+            "State LittleSis enrichment enabled for "
+            f"{state_unverified_config['limit']} profiles starting at offset "
+            f"{state_unverified_config['offset']}."
+        )
+
     # 1. Fetch active Congress members
     members = get_congress_members()
     print(f"Found {len(members)} Congress members.")
@@ -153,9 +188,11 @@ def main():
             # Respect API rate limits for downstream services
             time.sleep(1)
 
-    # 3. State legislators + governors (OpenStates). Hub + official contact only —
-    # the federal-only enrichment (FEC/GovTrack/news) does not apply to state races
-    # and would blow free news quotas across ~8,000 additional people.
+    # 3. State legislators + governors (OpenStates). Hub + official contact by default.
+    # Optional LittleSis enrichment is bounded and writes only to unverified spokes
+    # (unconfirmed_mentions / relationships). FEC/GovTrack/news stay out of this loop:
+    # they either do not apply to state races or would blow free quotas across ~8,000
+    # additional people.
     print("\n=== State legislators + governors (OpenStates) ===")
     try:
         state_people = get_state_politicians()
@@ -168,6 +205,7 @@ def main():
     # ocd-person id -> politician_id, built as we upsert so state roll-call votes
     # (joined on the OpenStates ocd-person id) can be attached without re-querying.
     ocd_to_pid = {}
+    state_unverified_checked = 0
     for index, person in enumerate(state_people, start=1):
         try:
             if index % 500 == 0:
@@ -175,6 +213,19 @@ def main():
             politician_id = loader.upsert_politician(person)
             if politician_id and politician_id != "dummy-uuid":
                 loader.upsert_contact_info(politician_id, person.get('contact', {}))
+                state_position = index - 1
+                if should_enrich_state_profile(
+                    state_position,
+                    limit=state_unverified_config["limit"],
+                    offset=state_unverified_config["offset"],
+                ):
+                    print("  [*] Fetching state LittleSis data (unverified)...")
+                    ls_data, ls_rels = get_littlesis(person['full_name'])
+                    loader.process_mentions(politician_id, ls_data, 'LittleSis')
+                    loader.upsert_relationships(politician_id, ls_rels)
+                    state_unverified_checked += 1
+                    summary.increment("state_unverified_profiles_checked")
+                    time.sleep(0.5)
                 ocd = (person.get('external_ids') or {}).get('openstates')
                 if ocd:
                     ocd_to_pid[ocd] = politician_id
@@ -187,6 +238,10 @@ def main():
             # saturate the Supabase connection pool / free-tier request limits.
             if index % 100 == 0:
                 time.sleep(0.1)
+
+    skipped_by_limit = max(0, state_total - state_unverified_checked)
+    if state_unverified_config["limit"] > 0 and skipped_by_limit:
+        summary.increment("state_unverified_profiles_skipped_by_limit", skipped_by_limit)
 
     # Verified spoke: state-legislature roll-call votes from the OpenStates API,
     # joined on the ocd-person id (no fuzzy names). Gated on OPENSTATES_API_KEY — with
