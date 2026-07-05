@@ -75,6 +75,58 @@ class LoaderRetryTests(unittest.TestCase):
         self.assertEqual(attempts["count"], 1)
         self.assertNotIn("supabase_transient_retries", summary.counts)
 
+    def test_execute_supabase_does_not_retry_duplicate_conflicts(self):
+        summary = SummaryStub()
+        loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+        attempts = {"count": 0}
+
+        def operation():
+            attempts["count"] += 1
+            raise Exception(
+                "{'message': 'duplicate key value violates unique constraint', "
+                "'code': '23505'} HTTP/2 409 Conflict"
+            )
+
+        with self.assertRaisesRegex(Exception, "23505"):
+            loader.execute_supabase(operation, "duplicate mention")
+
+        self.assertEqual(attempts["count"], 1)
+        self.assertNotIn("supabase_transient_retries", summary.counts)
+
+    def test_execute_supabase_retries_generic_conflict_transport_errors(self):
+        summary = SummaryStub()
+        loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+        attempts = {"count": 0}
+
+        def operation():
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise Exception("HTTP/2 stream reset after 409 Conflict")
+            return "ok"
+
+        result = loader.execute_supabase(operation, "temporary conflict")
+
+        self.assertEqual("ok", result)
+        self.assertEqual(attempts["count"], 2)
+        self.assertEqual(summary.counts["supabase_transient_retries"], 1)
+
+    def test_execute_supabase_retries_plain_conflict_transport_errors(self):
+        summary = SummaryStub()
+        loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+        attempts = {"count": 0}
+
+        def operation():
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise Exception("409 Conflict")
+            return "ok"
+
+        result = loader.execute_supabase(operation, "temporary plain conflict")
+
+        self.assertEqual("ok", result)
+        self.assertEqual(attempts["count"], 2)
+        self.assertEqual(summary.counts["supabase_transient_retries"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
