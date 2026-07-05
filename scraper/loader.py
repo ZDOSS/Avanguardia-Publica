@@ -46,7 +46,6 @@ class SupabaseLoader:
             "duplicate key value violates unique constraint",
             "'code': '23505'",
             '"code": "23505"',
-            "409 conflict",
         )
         return any(marker in message for marker in non_retryable_markers)
 

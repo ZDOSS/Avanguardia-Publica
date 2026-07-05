@@ -54,6 +54,28 @@ class IdentityResolverTests(unittest.TestCase):
             keys,
         )
 
+    def test_trusted_external_keys_from_legacy_row_ignore_untrusted_ids(self):
+        keys = self.identity.trusted_external_keys(
+            {
+                "id": "legacy-1",
+                "bioguide_id": "B000001",
+                "external_ids": {
+                    "fec": [" H0CA00001 ", ""],
+                    "twitter": "not-deterministic",
+                    "wikidata": "Q123",
+                },
+            }
+        )
+
+        self.assertEqual(
+            (
+                self.identity.IdentityKey("bioguide", "bioguide_id", "B000001"),
+                self.identity.IdentityKey("fec", "fec_candidate_id", "H0CA00001"),
+                self.identity.IdentityKey("wikidata", "wikidata_qid", "Q123"),
+            ),
+            keys,
+        )
+
     def test_packet_from_legacy_politician_preserves_role_context(self):
         packet = self.identity.packet_from_legacy_politician(
             {
@@ -146,6 +168,118 @@ class IdentityResolverTests(unittest.TestCase):
             ["jane public"],
             resolution.pending_candidate.evidence["normalized_names"],
         )
+
+    def test_existing_legacy_mapping_matches_without_deterministic_keys(self):
+        summary = SummaryStub()
+        resolver = self.identity.IdentityResolver(
+            [
+                self.identity.ExistingIdentity(
+                    person_id="person-1",
+                    legacy_politician_id="legacy-1",
+                )
+            ],
+            summary=summary,
+        )
+
+        resolution = resolver.resolve(
+            self.identity.IdentityPacket(
+                source_system_key="legacy",
+                legacy_politician_id="legacy-1",
+                names=("Legacy Only",),
+            )
+        )
+
+        self.assertEqual("matched_existing_person", resolution.action)
+        self.assertEqual("person-1", resolution.person_id)
+        self.assertEqual(1, summary.counts["identity_legacy_rows_mapped"])
+        self.assertNotIn("identity_pending_candidates", summary.counts)
+
+    def test_existing_legacy_mapping_matches_new_deterministic_key(self):
+        summary = SummaryStub()
+        resolver = self.identity.IdentityResolver(
+            [
+                self.identity.ExistingIdentity(
+                    person_id="person-1",
+                    legacy_politician_id="legacy-1",
+                )
+            ],
+            summary=summary,
+        )
+
+        resolution = resolver.resolve(
+            self.identity.IdentityPacket(
+                source_system_key="legacy",
+                legacy_politician_id="legacy-1",
+                external_ids={"bioguide": "B000001"},
+            )
+        )
+
+        self.assertEqual("matched_existing_person", resolution.action)
+        self.assertEqual("person-1", resolution.person_id)
+        self.assertEqual(1, summary.counts["identity_legacy_rows_mapped"])
+        self.assertNotIn("identity_people_created", summary.counts)
+
+    def test_deterministic_key_conflicting_with_legacy_mapping_is_blocked(self):
+        summary = SummaryStub()
+        key = self.identity.IdentityKey("bioguide", "bioguide_id", "B000001")
+        resolver = self.identity.IdentityResolver(
+            [
+                self.identity.ExistingIdentity(
+                    person_id="person-1",
+                    legacy_politician_id="legacy-1",
+                ),
+                self.identity.ExistingIdentity(
+                    person_id="person-2",
+                    deterministic_keys=(key,),
+                ),
+            ],
+            summary=summary,
+        )
+
+        resolution = resolver.resolve(
+            self.identity.IdentityPacket(
+                source_system_key="legacy",
+                legacy_politician_id="legacy-1",
+                external_ids={"bioguide": "B000001"},
+            )
+        )
+
+        self.assertEqual("blocked_conflict", resolution.action)
+        self.assertEqual(
+            "deterministic_keys_conflict_with_legacy_mapping",
+            resolution.blocked_reason,
+        )
+        self.assertEqual(1, summary.counts["identity_blocked_conflicts"])
+
+    def test_conflicting_legacy_mappings_are_blocked(self):
+        summary = SummaryStub()
+        resolver = self.identity.IdentityResolver(
+            [
+                self.identity.ExistingIdentity(
+                    person_id="person-1",
+                    legacy_politician_id="legacy-1",
+                ),
+                self.identity.ExistingIdentity(
+                    person_id="person-2",
+                    legacy_politician_id="legacy-1",
+                ),
+            ],
+            summary=summary,
+        )
+
+        resolution = resolver.resolve(
+            self.identity.IdentityPacket(
+                source_system_key="legacy",
+                legacy_politician_id="legacy-1",
+            )
+        )
+
+        self.assertEqual("blocked_conflict", resolution.action)
+        self.assertEqual(
+            "legacy_politician_id_matches_multiple_people",
+            resolution.blocked_reason,
+        )
+        self.assertEqual(1, summary.counts["identity_blocked_conflicts"])
 
     def test_conflicting_deterministic_matches_are_blocked(self):
         summary = SummaryStub()

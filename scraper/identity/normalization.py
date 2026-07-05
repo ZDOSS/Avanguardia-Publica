@@ -42,6 +42,21 @@ def identity_keys_from_packet(packet: IdentityPacket) -> tuple[IdentityKey, ...]
     return tuple(sorted(dict.fromkeys(keys)))
 
 
+def trusted_external_keys(row: dict) -> tuple[IdentityKey, ...]:
+    external_ids = dict(row.get("external_ids") or {})
+    if row.get("bioguide_id"):
+        external_ids["bioguide"] = row["bioguide_id"]
+
+    return identity_keys_from_packet(
+        IdentityPacket(
+            source_system_key="avanguardia-legacy-profile",
+            source_record_key=row.get("id"),
+            legacy_politician_id=row.get("id"),
+            external_ids=external_ids,
+        )
+    )
+
+
 def packet_from_legacy_politician(row: dict) -> IdentityPacket:
     external_ids = dict(row.get("external_ids") or {})
     if row.get("bioguide_id"):

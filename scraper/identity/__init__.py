@@ -3,6 +3,7 @@ from .normalization import (
     identity_keys_from_packet,
     normalize_identity_name,
     packet_from_legacy_politician,
+    trusted_external_keys,
 )
 from .resolver import IdentityResolver
 from .types import (
@@ -24,4 +25,5 @@ __all__ = [
     "identity_keys_from_packet",
     "normalize_identity_name",
     "packet_from_legacy_politician",
+    "trusted_external_keys",
 ]

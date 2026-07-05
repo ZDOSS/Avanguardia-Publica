@@ -93,6 +93,23 @@ class LoaderRetryTests(unittest.TestCase):
         self.assertEqual(attempts["count"], 1)
         self.assertNotIn("supabase_transient_retries", summary.counts)
 
+    def test_execute_supabase_retries_generic_conflict_transport_errors(self):
+        summary = SummaryStub()
+        loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+        attempts = {"count": 0}
+
+        def operation():
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise Exception("HTTP/2 stream reset after 409 Conflict")
+            return "ok"
+
+        result = loader.execute_supabase(operation, "temporary conflict")
+
+        self.assertEqual("ok", result)
+        self.assertEqual(attempts["count"], 2)
+        self.assertEqual(summary.counts["supabase_transient_retries"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
