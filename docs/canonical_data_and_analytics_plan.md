@@ -4,9 +4,10 @@ This is the active roadmap for remaining data-model, scraper, profile, search, d
 and analytics work. It supersedes the former separate roadmap docs, which were removed to
 avoid split-source planning.
 
-This plan tracks the current implementation frontier. Phase 1 is retained because Phase 2
-depends on its compatibility contract, but new implementation should start from the first
-unfinished Phase 2 item unless the Phase 1 bridge needs a bug fix.
+This plan tracks the current implementation frontier. Phases 1 and 2 are retained because
+Phase 3 depends on their compatibility contract, but new implementation should start from
+the first unfinished Phase 3 item unless the identity bridge or profile spokes need a bug
+fix.
 
 ## Goal
 
@@ -99,7 +100,7 @@ Merge and redirect rules:
 - Do not move child spoke rows destructively until Phase 2 has a tested `person_id`
   backfill path.
 
-## Phase 2: Person-Aware Profile Spokes (Current)
+## Phase 2: Person-Aware Profile Spokes (Implemented)
 
 The first Phase 2 slice is `migrations/0012_person_aware_profile_spokes.sql`: add nullable
 `person_id` columns to existing spoke tables, backfill them from `legacy_profile_redirects`,
@@ -141,7 +142,7 @@ Remaining profile UX improvements should happen after the reads are identity-awa
   data
 - source/freshness labels that use the provenance fields added by this roadmap
 
-## Phase 3: Scraper Identity Resolver
+## Phase 3: Scraper Identity Resolver (Current)
 
 Stop letting scraper upserts create identity implicitly through `upsert_politician`.
 
@@ -149,6 +150,10 @@ Before starting Phase 3, complete the managed Supabase to VPS cutover described 
 [`self_hosted_supabase_migration.md`](self_hosted_supabase_migration.md). The frontend and
 scraper rely on Supabase-compatible REST/RPC behavior, so the VPS target should be
 self-hosted Supabase or an explicitly compatible API stack, not bare Postgres alone.
+
+The VPS cutover is complete enough to start this phase: the frontend public bundle points
+at the VPS Supabase URL, the scraper smoke run completed successfully, and the Phase 2
+spoke backfill has been applied.
 
 Add identity modules:
 
@@ -316,10 +321,10 @@ Every schema change in this plan must follow these rules:
 
 ## Next PR
 
-The current implementation PR should stay Phase 2 only: nullable `person_id` columns on
-existing profile spokes, deterministic backfill from the identity bridge, ETL writes that
-stamp `person_id`, preflight checks for the new columns, and compatibility RPCs that keep
-legacy `politician_id` fallbacks.
+The current implementation PR should start Phase 3 in a deliberately small slice: add the
+pure scraper identity packet/resolver modules, deterministic trusted-ID matching rules,
+identity summary counters, and tests. It should also harden any scraper retry behavior
+found during the VPS smoke run.
 
-Do not remove legacy `politician_id`, add new analytics features, or add the full
-role/entity taxonomy in that PR.
+Do not remove legacy `politician_id`, switch all loader writes to the new resolver in one
+shot, add new analytics features, or add the full role/entity taxonomy in that PR.

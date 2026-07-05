@@ -38,7 +38,23 @@ class SupabaseLoader:
             self.supabase = create_client(self.url, self.key)
 
     @staticmethod
+    def _is_non_retryable_supabase_error(exc: Exception) -> bool:
+        message = str(exc).lower()
+        non_retryable_markers = (
+            # Unique violations are expected for idempotent mention inserts. They often
+            # include an HTTP/2 transport string, so check them before transient markers.
+            "duplicate key value violates unique constraint",
+            "'code': '23505'",
+            '"code": "23505"',
+            "409 conflict",
+        )
+        return any(marker in message for marker in non_retryable_markers)
+
+    @staticmethod
     def _is_transient_supabase_error(exc: Exception) -> bool:
+        if SupabaseLoader._is_non_retryable_supabase_error(exc):
+            return False
+
         message = str(exc).lower()
         transient_markers = (
             "connectionterminated",

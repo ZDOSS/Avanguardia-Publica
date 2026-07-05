@@ -75,6 +75,24 @@ class LoaderRetryTests(unittest.TestCase):
         self.assertEqual(attempts["count"], 1)
         self.assertNotIn("supabase_transient_retries", summary.counts)
 
+    def test_execute_supabase_does_not_retry_duplicate_conflicts(self):
+        summary = SummaryStub()
+        loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+        attempts = {"count": 0}
+
+        def operation():
+            attempts["count"] += 1
+            raise Exception(
+                "{'message': 'duplicate key value violates unique constraint', "
+                "'code': '23505'} HTTP/2 409 Conflict"
+            )
+
+        with self.assertRaisesRegex(Exception, "23505"):
+            loader.execute_supabase(operation, "duplicate mention")
+
+        self.assertEqual(attempts["count"], 1)
+        self.assertNotIn("supabase_transient_retries", summary.counts)
+
 
 if __name__ == "__main__":
     unittest.main()
