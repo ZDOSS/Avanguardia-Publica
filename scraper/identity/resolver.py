@@ -68,6 +68,15 @@ class IdentityResolver:
         legacy_person_ids = self._person_ids_for_legacy_id(packet)
 
         if len(matching_person_ids) == 1:
+            if len(legacy_person_ids) > 1:
+                self._increment("identity_blocked_conflicts")
+                return IdentityResolution(
+                    action="blocked_conflict",
+                    deterministic_keys=keys,
+                    legacy_politician_id=packet.legacy_politician_id,
+                    blocked_reason="legacy_politician_id_matches_multiple_people",
+                )
+
             if len(legacy_person_ids) == 1 and legacy_person_ids != matching_person_ids:
                 self._increment("identity_blocked_conflicts")
                 return IdentityResolution(

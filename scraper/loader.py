@@ -69,6 +69,7 @@ class SupabaseLoader:
             "service unavailable",
             "gateway timeout",
             "http/2",
+            "409 conflict",
             "503",
             "504",
             "502",

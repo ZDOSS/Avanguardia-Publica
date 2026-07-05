@@ -251,6 +251,42 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertEqual(1, summary.counts["identity_blocked_conflicts"])
 
+    def test_deterministic_key_with_ambiguous_legacy_mapping_is_blocked(self):
+        summary = SummaryStub()
+        key = self.identity.IdentityKey("bioguide", "bioguide_id", "B000001")
+        resolver = self.identity.IdentityResolver(
+            [
+                self.identity.ExistingIdentity(
+                    person_id="person-1",
+                    deterministic_keys=(key,),
+                ),
+                self.identity.ExistingIdentity(
+                    person_id="person-2",
+                    legacy_politician_id="legacy-1",
+                ),
+                self.identity.ExistingIdentity(
+                    person_id="person-3",
+                    legacy_politician_id="legacy-1",
+                ),
+            ],
+            summary=summary,
+        )
+
+        resolution = resolver.resolve(
+            self.identity.IdentityPacket(
+                source_system_key="legacy",
+                legacy_politician_id="legacy-1",
+                external_ids={"bioguide": "B000001"},
+            )
+        )
+
+        self.assertEqual("blocked_conflict", resolution.action)
+        self.assertEqual(
+            "legacy_politician_id_matches_multiple_people",
+            resolution.blocked_reason,
+        )
+        self.assertEqual(1, summary.counts["identity_blocked_conflicts"])
+
     def test_conflicting_legacy_mappings_are_blocked(self):
         summary = SummaryStub()
         resolver = self.identity.IdentityResolver(
