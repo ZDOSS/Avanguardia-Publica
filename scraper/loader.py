@@ -146,19 +146,19 @@ class SupabaseLoader:
 
         for row in external_rows:
             person_id = row.get("person_id")
-            source_system_key = row.get("source_system_key")
-            external_id_type = row.get("external_id_type")
-            external_id = row.get("external_id")
+            source_system_key = str(row.get("source_system_key") or "").strip()
+            external_id_type = str(row.get("external_id_type") or "").strip()
+            external_id = str(row.get("external_id") or "").strip()
             if not person_id or not source_system_key or not external_id_type or not external_id:
                 continue
             identity_data[person_id]["keys"].add(
-                (source_system_key, external_id_type, str(external_id))
+                (source_system_key, external_id_type, external_id)
             )
             loaded_external_ids += 1
 
         for row in legacy_rows:
             person_id = row.get("person_id")
-            legacy_politician_id = row.get("legacy_politician_id")
+            legacy_politician_id = str(row.get("legacy_politician_id") or "").strip()
             if not person_id or not legacy_politician_id:
                 continue
             identity_data[person_id]["legacy_ids"].add(legacy_politician_id)
@@ -379,9 +379,9 @@ class SupabaseLoader:
                 )
                 self._increment("hub_rows_updated")
                 print(f"  [+] Updated Hub for {member_data['full_name']}")
-                self.observe_politician_identity(existing_id, member_data)
                 person_id = self.sync_legacy_profile_identity(existing_id)
                 self._record_identity_observer_mapping(existing_id, member_data, person_id)
+                self.observe_politician_identity(existing_id, member_data)
                 return existing_id
 
             insert_resp = self.execute_supabase(
@@ -392,9 +392,9 @@ class SupabaseLoader:
                 p_id = insert_resp.data[0]["id"]
                 self._increment("hub_rows_inserted")
                 print(f"  [+] Inserted new Hub for {member_data['full_name']}")
-                self.observe_politician_identity(p_id, member_data)
                 person_id = self.sync_legacy_profile_identity(p_id)
                 self._record_identity_observer_mapping(p_id, member_data, person_id)
+                self.observe_politician_identity(p_id, member_data)
                 return p_id
         except Exception as e:
             # Re-raise instead of swallowing. The Hub upsert is the root of every spoke

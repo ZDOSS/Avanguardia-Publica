@@ -59,6 +59,8 @@ class FakeQuery:
     def execute(self):
         if self.rpc_name == "sync_legacy_profile_identity":
             politician_id = self.rpc_args["p_politician_id"]
+            person_id = self.client.rpc_person_ids.get(politician_id, "person-new")
+            self.client.sync_identity(politician_id, person_id)
             self.client.operations.append(
                 {
                     "type": "rpc",
@@ -66,9 +68,7 @@ class FakeQuery:
                     "args": self.rpc_args,
                 }
             )
-            return FakeResponse(
-                [{"person_id": self.client.rpc_person_ids.get(politician_id, "person-new")}]
-            )
+            return FakeResponse([{"person_id": person_id}])
 
         if self.action == "select":
             return FakeResponse(self.client.select_rows(self))
@@ -128,6 +128,36 @@ class FakeSupabase:
     def _contains(existing, expected):
         return all(existing.get(key) == value for key, value in expected.items())
 
+    def sync_identity(self, politician_id, person_id):
+        redirects = self.table_data.setdefault("legacy_profile_redirects", [])
+        if not any(row.get("legacy_politician_id") == politician_id for row in redirects):
+            redirects.append(
+                {
+                    "person_id": person_id,
+                    "legacy_politician_id": politician_id,
+                }
+            )
+
+        politicians = self.table_data.setdefault("politicians", [])
+        politician = next((row for row in politicians if row.get("id") == politician_id), None)
+        if not politician or not politician.get("bioguide_id"):
+            return
+
+        external_ids = self.table_data.setdefault("person_external_ids", [])
+        identity_row = {
+            "person_id": person_id,
+            "source_system_key": "bioguide",
+            "external_id_type": "bioguide_id",
+            "external_id": politician["bioguide_id"],
+        }
+        if not any(
+            row.get("source_system_key") == identity_row["source_system_key"]
+            and row.get("external_id_type") == identity_row["external_id_type"]
+            and str(row.get("external_id") or "").strip() == identity_row["external_id"]
+            for row in external_ids
+        ):
+            external_ids.append(identity_row)
+
 
 class LoaderIdentityObserverTests(unittest.TestCase):
     def setUp(self):
@@ -141,7 +171,7 @@ class LoaderIdentityObserverTests(unittest.TestCase):
                         "person_id": "person-1",
                         "source_system_key": "bioguide",
                         "external_id_type": "bioguide_id",
-                        "external_id": "B000001",
+                        "external_id": " B000001 ",
                     }
                 ],
                 "legacy_profile_redirects": [
@@ -258,6 +288,29 @@ class LoaderIdentityObserverTests(unittest.TestCase):
         self.assertEqual("person-new", resolution.person_id)
         self.assertEqual(1, summary.counts["identity_observer_create_person"])
         self.assertEqual(1, summary.counts["identity_observer_matched_existing_person"])
+
+    def test_upsert_first_seen_row_counts_post_sync_match_not_create(self):
+        self.fake_client.table_data["person_external_ids"] = []
+        self.fake_client.table_data["legacy_profile_redirects"] = []
+        self.fake_client.table_data["politicians"] = []
+        summary = SummaryStub()
+        loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+
+        politician_id = loader.upsert_politician(
+            {
+                "full_name": "New Person",
+                "current_office": "US Representative",
+                "bioguide_id": "B000999",
+                "external_ids": {},
+                "aliases": [],
+            }
+        )
+
+        self.assertEqual("pol-new", politician_id)
+        self.assertEqual(1, summary.counts["hub_rows_inserted"])
+        self.assertEqual(1, summary.counts["identity_observer_packets_checked"])
+        self.assertEqual(1, summary.counts["identity_observer_matched_existing_person"])
+        self.assertNotIn("identity_observer_create_person", summary.counts)
 
 
 if __name__ == "__main__":
