@@ -321,10 +321,10 @@ Every schema change in this plan must follow these rules:
 
 ## Next PR
 
-The current implementation PR should start Phase 3 in a deliberately small slice: add the
-pure scraper identity packet/resolver modules, deterministic trusted-ID matching rules,
-identity summary counters, and tests. It should also harden any scraper retry behavior
-found during the VPS smoke run.
+The current implementation PR should wire the Phase 3 identity resolver into the scraper
+in observer mode only: load existing `person_external_ids` and `legacy_profile_redirects`,
+resolve incoming politician packets, emit `identity_observer_*` counters, and keep the
+existing `upsert_politician` write path unchanged.
 
 Do not remove legacy `politician_id`, switch all loader writes to the new resolver in one
 shot, add new analytics features, or add the full role/entity taxonomy in that PR.
