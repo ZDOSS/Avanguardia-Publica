@@ -5,6 +5,13 @@ from datetime import datetime, timezone
 from supabase import create_client, Client
 
 from government_classification import normalize_government_classification, normalize_location_fields
+from identity import (
+    ExistingIdentity,
+    IdentityKey,
+    IdentityResolver,
+    packet_from_legacy_politician,
+    trusted_external_keys,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +35,8 @@ class SupabaseLoader:
             self.supabase = None
             print("Warning: SUPABASE_URL or SUPABASE_KEY is not set. Running in dry-run mode.")
         self.person_id_by_politician_id = {}
+        self.identity_resolver = IdentityResolver()
+        self.identity_observer_loaded = False
 
     def _increment(self, key: str, amount: int = 1) -> None:
         if self.summary:
@@ -100,6 +109,138 @@ class SupabaseLoader:
                 self._increment("supabase_transient_retries")
                 self._reset_client()
                 time.sleep(wait_seconds)
+
+    def _select_all_rows(self, table_name: str, columns: str, page_size: int = 1000) -> list[dict]:
+        rows = []
+        start = 0
+        while True:
+            end = start + page_size - 1
+            resp = self.execute_supabase(
+                lambda start=start, end=end: (
+                    self.supabase.table(table_name).select(columns).range(start, end).execute()
+                ),
+                f"load {table_name} identity observer rows",
+            )
+            batch = resp.data or []
+            rows.extend(batch)
+            if len(batch) < page_size:
+                return rows
+            start += page_size
+
+    def _ensure_identity_observer_loaded(self) -> None:
+        if self.identity_observer_loaded or not self.supabase:
+            return
+
+        external_rows = self._select_all_rows(
+            "person_external_ids",
+            "person_id,source_system_key,external_id_type,external_id",
+        )
+        legacy_rows = self._select_all_rows(
+            "legacy_profile_redirects",
+            "legacy_politician_id,person_id",
+        )
+
+        identity_data = defaultdict(lambda: {"keys": set(), "legacy_ids": set()})
+        loaded_external_ids = 0
+        loaded_legacy_redirects = 0
+
+        for row in external_rows:
+            person_id = row.get("person_id")
+            source_system_key = row.get("source_system_key")
+            external_id_type = row.get("external_id_type")
+            external_id = row.get("external_id")
+            if not person_id or not source_system_key or not external_id_type or not external_id:
+                continue
+            identity_data[person_id]["keys"].add(
+                (source_system_key, external_id_type, str(external_id))
+            )
+            loaded_external_ids += 1
+
+        for row in legacy_rows:
+            person_id = row.get("person_id")
+            legacy_politician_id = row.get("legacy_politician_id")
+            if not person_id or not legacy_politician_id:
+                continue
+            identity_data[person_id]["legacy_ids"].add(legacy_politician_id)
+            loaded_legacy_redirects += 1
+
+        resolver = IdentityResolver()
+        for person_id, data in identity_data.items():
+            deterministic_keys = tuple(
+                sorted(
+                    IdentityKey(
+                        source_system_key=source_system_key,
+                        external_id_type=external_id_type,
+                        external_id=external_id,
+                    )
+                    for source_system_key, external_id_type, external_id in data["keys"]
+                )
+            )
+            legacy_ids = sorted(data["legacy_ids"])
+            if legacy_ids:
+                for legacy_politician_id in legacy_ids:
+                    resolver.add_existing_identity(
+                        ExistingIdentity(
+                            person_id=person_id,
+                            legacy_politician_id=legacy_politician_id,
+                            deterministic_keys=deterministic_keys,
+                        )
+                    )
+            else:
+                resolver.add_existing_identity(
+                    ExistingIdentity(
+                        person_id=person_id,
+                        deterministic_keys=deterministic_keys,
+                    )
+                )
+
+        self.identity_resolver = resolver
+        self.identity_observer_loaded = True
+        self._increment("identity_observer_people_loaded", len(identity_data))
+        self._increment("identity_observer_external_ids_loaded", loaded_external_ids)
+        self._increment("identity_observer_legacy_redirects_loaded", loaded_legacy_redirects)
+
+    def observe_politician_identity(self, politician_id: str, member_data: dict):
+        if not self.supabase or not politician_id or politician_id == "dummy-uuid":
+            return None
+
+        try:
+            self._ensure_identity_observer_loaded()
+            row = dict(member_data)
+            row["id"] = politician_id
+            resolution = self.identity_resolver.resolve(packet_from_legacy_politician(row))
+        except Exception as e:
+            logger.warning("Identity observer failed for %s: %s", politician_id, e)
+            self._increment("identity_observer_errors")
+            return None
+
+        self._increment("identity_observer_packets_checked")
+        self._increment(f"identity_observer_{resolution.action}")
+        if resolution.blocked_reason:
+            self._increment(f"identity_observer_blocked_{resolution.blocked_reason}")
+        if resolution.action == "blocked_conflict":
+            logger.warning(
+                "Identity observer blocked %s for %s: %s",
+                resolution.blocked_reason,
+                member_data.get("full_name") or politician_id,
+                politician_id,
+            )
+        return resolution
+
+    def _record_identity_observer_mapping(
+        self, politician_id: str, member_data: dict, person_id: str | None
+    ) -> None:
+        if not self.identity_observer_loaded or not politician_id or not person_id:
+            return
+        row = dict(member_data)
+        row["id"] = politician_id
+        self.identity_resolver.add_existing_identity(
+            ExistingIdentity(
+                person_id=person_id,
+                legacy_politician_id=politician_id,
+                deterministic_keys=trusted_external_keys(row),
+            )
+        )
 
     def upsert_politician(self, member_data: dict):
         """
@@ -238,7 +379,9 @@ class SupabaseLoader:
                 )
                 self._increment("hub_rows_updated")
                 print(f"  [+] Updated Hub for {member_data['full_name']}")
-                self.sync_legacy_profile_identity(existing_id)
+                self.observe_politician_identity(existing_id, member_data)
+                person_id = self.sync_legacy_profile_identity(existing_id)
+                self._record_identity_observer_mapping(existing_id, member_data, person_id)
                 return existing_id
 
             insert_resp = self.execute_supabase(
@@ -249,7 +392,9 @@ class SupabaseLoader:
                 p_id = insert_resp.data[0]["id"]
                 self._increment("hub_rows_inserted")
                 print(f"  [+] Inserted new Hub for {member_data['full_name']}")
-                self.sync_legacy_profile_identity(p_id)
+                self.observe_politician_identity(p_id, member_data)
+                person_id = self.sync_legacy_profile_identity(p_id)
+                self._record_identity_observer_mapping(p_id, member_data, person_id)
                 return p_id
         except Exception as e:
             # Re-raise instead of swallowing. The Hub upsert is the root of every spoke
