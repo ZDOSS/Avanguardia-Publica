@@ -231,8 +231,8 @@ Rules:
 A July 2026 source inventory identified 97 U.S. government API and dataset candidates:
 21 P0, 28 P1, 29 P2, and 19 P3. Treat it as a source-catalog backlog for this phase,
 not as permission to add dozens of extractors. The inventory belongs inside this roadmap:
-it feeds the source/provenance model here, source-quality workflow in Phase 6, and
-canonical analytics in Phase 7.
+it feeds the source/provenance model here, the Phase 6 review workflow for source
+mismatches and stale source records, and canonical analytics in Phase 7.
 
 Before importing the inventory into schema or scraper code, reconcile it against sources
 already wired in the repo. The inventory correctly marks `api.data.gov`, OpenFEC, and
@@ -320,6 +320,8 @@ Track:
 - pending identity candidates
 - suspected duplicates
 - source mismatches
+- source-catalog review status for candidate, approved, deferred, duplicate, retired,
+  and blocked source inventory rows
 - unresolved relationship names
 - failed enrichments
 - stale source records
