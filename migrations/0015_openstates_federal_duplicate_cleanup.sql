@@ -3,7 +3,9 @@
 -- Resolve the deterministic duplicate people caused by OpenStates `data/us` records
 -- being ingested as state officials before PR60 excluded that dataset. The bad
 -- legacy profile UUIDs are preserved through redirects; only the canonical person
--- mapping and person-aware spoke IDs are moved to the existing federal survivor.
+-- mapping, identity metadata, and review status are moved to the existing federal
+-- survivor. Stale duplicate spoke rows are deleted so canonical reads do not show
+-- bad OpenStates federal-as-state profile data.
 
 SET statement_timeout = '30s';
 
@@ -92,24 +94,36 @@ FROM targets;
 
 DO $$
 DECLARE
-    pending_candidate_count integer;
-    target_count integer;
+    duplicate_target_count integer;
 BEGIN
     SELECT count(*)
-    INTO pending_candidate_count
-    FROM public.identity_resolution_candidates
-    WHERE candidate_type = 'identity_observer_blocked_deterministic_keys_match_multiple_people'
-      AND status = 'pending';
+    INTO duplicate_target_count
+    FROM (
+        SELECT candidate_id
+        FROM _0015_openstates_federal_duplicate_targets
+        GROUP BY candidate_id
+        HAVING count(*) > 1
 
-    SELECT count(*)
-    INTO target_count
-    FROM _0015_openstates_federal_duplicate_targets;
+        UNION ALL
 
-    IF pending_candidate_count <> target_count THEN
+        SELECT stale_legacy_politician_id
+        FROM _0015_openstates_federal_duplicate_targets
+        GROUP BY stale_legacy_politician_id
+        HAVING count(*) > 1
+
+        UNION ALL
+
+        SELECT stale_person_id
+        FROM _0015_openstates_federal_duplicate_targets
+        GROUP BY stale_person_id
+        HAVING count(*) > 1
+
+    ) AS duplicate_targets;
+
+    IF duplicate_target_count <> 0 THEN
         RAISE EXCEPTION
-            '0015 guarded cleanup expected pending candidate count (%) to match target count (%)',
-            pending_candidate_count,
-            target_count;
+            '0015 guarded cleanup found % duplicate candidate or stale targets',
+            duplicate_target_count;
     END IF;
 END $$;
 
@@ -209,59 +223,35 @@ WHERE l.legacy_politician_id = t.stale_legacy_politician_id
       OR l.confidence IS DISTINCT FROM 1.000
   );
 
-UPDATE public.contact_info AS ci
-SET person_id = t.survivor_person_id
-FROM _0015_openstates_federal_duplicate_targets AS t
-WHERE (
-      ci.politician_id = t.stale_legacy_politician_id
-      OR ci.person_id = t.stale_person_id
-  )
-  AND ci.person_id IS DISTINCT FROM t.survivor_person_id;
+DELETE FROM public.contact_info AS ci
+USING _0015_openstates_federal_duplicate_targets AS t
+WHERE ci.politician_id = t.stale_legacy_politician_id
+   OR ci.person_id = t.stale_person_id;
 
-UPDATE public.financial_disclosures AS fd
-SET person_id = t.survivor_person_id
-FROM _0015_openstates_federal_duplicate_targets AS t
-WHERE (
-      fd.politician_id = t.stale_legacy_politician_id
-      OR fd.person_id = t.stale_person_id
-  )
-  AND fd.person_id IS DISTINCT FROM t.survivor_person_id;
+DELETE FROM public.financial_disclosures AS fd
+USING _0015_openstates_federal_duplicate_targets AS t
+WHERE fd.politician_id = t.stale_legacy_politician_id
+   OR fd.person_id = t.stale_person_id;
 
-UPDATE public.campaign_donors AS cd
-SET person_id = t.survivor_person_id
-FROM _0015_openstates_federal_duplicate_targets AS t
-WHERE (
-      cd.politician_id = t.stale_legacy_politician_id
-      OR cd.person_id = t.stale_person_id
-  )
-  AND cd.person_id IS DISTINCT FROM t.survivor_person_id;
+DELETE FROM public.campaign_donors AS cd
+USING _0015_openstates_federal_duplicate_targets AS t
+WHERE cd.politician_id = t.stale_legacy_politician_id
+   OR cd.person_id = t.stale_person_id;
 
-UPDATE public.voting_records AS vr
-SET person_id = t.survivor_person_id
-FROM _0015_openstates_federal_duplicate_targets AS t
-WHERE (
-      vr.politician_id = t.stale_legacy_politician_id
-      OR vr.person_id = t.stale_person_id
-  )
-  AND vr.person_id IS DISTINCT FROM t.survivor_person_id;
+DELETE FROM public.voting_records AS vr
+USING _0015_openstates_federal_duplicate_targets AS t
+WHERE vr.politician_id = t.stale_legacy_politician_id
+   OR vr.person_id = t.stale_person_id;
 
-UPDATE public.unconfirmed_mentions AS um
-SET person_id = t.survivor_person_id
-FROM _0015_openstates_federal_duplicate_targets AS t
-WHERE (
-      um.politician_id = t.stale_legacy_politician_id
-      OR um.person_id = t.stale_person_id
-  )
-  AND um.person_id IS DISTINCT FROM t.survivor_person_id;
+DELETE FROM public.unconfirmed_mentions AS um
+USING _0015_openstates_federal_duplicate_targets AS t
+WHERE um.politician_id = t.stale_legacy_politician_id
+   OR um.person_id = t.stale_person_id;
 
-UPDATE public.relationships AS r
-SET person_id = t.survivor_person_id
-FROM _0015_openstates_federal_duplicate_targets AS t
-WHERE (
-      r.politician_id = t.stale_legacy_politician_id
-      OR r.person_id = t.stale_person_id
-  )
-  AND r.person_id IS DISTINCT FROM t.survivor_person_id;
+DELETE FROM public.relationships AS r
+USING _0015_openstates_federal_duplicate_targets AS t
+WHERE r.politician_id = t.stale_legacy_politician_id
+   OR r.person_id = t.stale_person_id;
 
 UPDATE public.people AS pe
 SET
@@ -298,50 +288,91 @@ WHERE c.id = t.candidate_id
 DO $$
 DECLARE
     remaining_pending_count integer;
-    remaining_unresolved_duplicate_count integer;
+    remaining_unresolved_target_count integer;
+    remaining_stale_spoke_count integer;
 BEGIN
     SELECT count(*)
     INTO remaining_pending_count
-    FROM public.identity_resolution_candidates
-    WHERE candidate_type = 'identity_observer_blocked_deterministic_keys_match_multiple_people'
-      AND status = 'pending';
+    FROM public.identity_resolution_candidates AS c
+    JOIN _0015_openstates_federal_duplicate_targets AS t
+      ON t.candidate_id = c.id
+    WHERE c.status = 'pending';
 
-    WITH bad_profiles AS (
-        SELECT
-            p.id AS stale_legacy_politician_id,
-            l.person_id AS stale_person_id,
-            nullif(btrim(p.external_ids ->> 'bioguide'), '') AS bioguide_id,
-            nullif(btrim(p.external_ids ->> 'openstates'), '') AS openstates_person_id
-        FROM public.politicians AS p
-        JOIN public.legacy_profile_redirects AS l
-          ON l.legacy_politician_id = p.id
-        JOIN public.people AS pe
-          ON pe.id = l.person_id
-         AND pe.status = 'active'
-        WHERE (
-            p.current_office LIKE 'State Representative from US District%'
-            OR p.current_office LIKE 'State Senator from US District%'
-        )
-    )
     SELECT count(*)
-    INTO remaining_unresolved_duplicate_count
-    FROM bad_profiles AS bp
-    JOIN public.person_external_ids AS survivor
-      ON survivor.source_system_key = 'bioguide'
-     AND survivor.external_id_type = 'bioguide_id'
-     AND survivor.external_id = bp.bioguide_id
-     AND survivor.person_id <> bp.stale_person_id
-    JOIN public.people AS survivor_person
-      ON survivor_person.id = survivor.person_id
-     AND survivor_person.status = 'active'
-    WHERE bp.bioguide_id IS NOT NULL
-      AND bp.openstates_person_id IS NOT NULL;
+    INTO remaining_unresolved_target_count
+    FROM _0015_openstates_federal_duplicate_targets AS t
+    JOIN public.people AS pe
+      ON pe.id = t.stale_person_id
+    JOIN public.legacy_profile_redirects AS l
+      ON l.legacy_politician_id = t.stale_legacy_politician_id
+    JOIN public.identity_resolution_candidates AS c
+      ON c.id = t.candidate_id
+    WHERE pe.status IS DISTINCT FROM 'merged'
+       OR pe.merged_into_person_id IS DISTINCT FROM t.survivor_person_id
+       OR l.person_id IS DISTINCT FROM t.survivor_person_id
+       OR l.canonical_politician_id IS DISTINCT FROM t.survivor_canonical_politician_id
+       OR c.status IS DISTINCT FROM 'approved'
+       OR c.candidate_person_id IS DISTINCT FROM t.survivor_person_id;
+
+    SELECT sum(row_count)
+    INTO remaining_stale_spoke_count
+    FROM (
+        SELECT count(*) AS row_count
+        FROM public.contact_info AS ci
+        JOIN _0015_openstates_federal_duplicate_targets AS t
+          ON ci.politician_id = t.stale_legacy_politician_id
+          OR ci.person_id = t.stale_person_id
+
+        UNION ALL
+
+        SELECT count(*)
+        FROM public.financial_disclosures AS fd
+        JOIN _0015_openstates_federal_duplicate_targets AS t
+          ON fd.politician_id = t.stale_legacy_politician_id
+          OR fd.person_id = t.stale_person_id
+
+        UNION ALL
+
+        SELECT count(*)
+        FROM public.campaign_donors AS cd
+        JOIN _0015_openstates_federal_duplicate_targets AS t
+          ON cd.politician_id = t.stale_legacy_politician_id
+          OR cd.person_id = t.stale_person_id
+
+        UNION ALL
+
+        SELECT count(*)
+        FROM public.voting_records AS vr
+        JOIN _0015_openstates_federal_duplicate_targets AS t
+          ON vr.politician_id = t.stale_legacy_politician_id
+          OR vr.person_id = t.stale_person_id
+
+        UNION ALL
+
+        SELECT count(*)
+        FROM public.unconfirmed_mentions AS um
+        JOIN _0015_openstates_federal_duplicate_targets AS t
+          ON um.politician_id = t.stale_legacy_politician_id
+          OR um.person_id = t.stale_person_id
+
+        UNION ALL
+
+        SELECT count(*)
+        FROM public.relationships AS r
+        JOIN _0015_openstates_federal_duplicate_targets AS t
+          ON r.politician_id = t.stale_legacy_politician_id
+          OR r.person_id = t.stale_person_id
+    ) AS stale_spoke_rows;
 
     IF remaining_pending_count <> 0 THEN
-        RAISE EXCEPTION '0015 cleanup left % pending OpenStates federal duplicate candidates', remaining_pending_count;
+        RAISE EXCEPTION '0015 cleanup left % target candidates pending', remaining_pending_count;
     END IF;
 
-    IF remaining_unresolved_duplicate_count <> 0 THEN
-        RAISE EXCEPTION '0015 cleanup left % unresolved active OpenStates federal duplicate people', remaining_unresolved_duplicate_count;
+    IF remaining_unresolved_target_count <> 0 THEN
+        RAISE EXCEPTION '0015 cleanup left % target people unresolved', remaining_unresolved_target_count;
+    END IF;
+
+    IF COALESCE(remaining_stale_spoke_count, 0) <> 0 THEN
+        RAISE EXCEPTION '0015 cleanup left % stale duplicate spoke rows', remaining_stale_spoke_count;
     END IF;
 END $$;

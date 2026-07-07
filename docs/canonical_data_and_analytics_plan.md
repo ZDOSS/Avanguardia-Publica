@@ -170,9 +170,9 @@ records being ingested as state officials even though those people are already c
 the federal `congress-legislators` path. The extractor now excludes OpenStates federal
 dataset records before they reach the loader, and the next cleanup slice is
 `migrations/0015_openstates_federal_duplicate_cleanup.sql`: it redirects the 80 stale
-legacy profile UUIDs to their existing Bioguide-backed federal survivor people, moves any
-person-aware spoke rows to the survivor `person_id`, records `person_merge_events`, and
-marks the matching observer candidates `approved`.
+legacy profile UUIDs to their existing Bioguide-backed federal survivor people, removes
+stale duplicate spoke rows that would otherwise leak into canonical reads, records
+`person_merge_events`, and marks the matching observer candidates `approved`.
 
 There are more legacy rows with OpenStates `data/us`-style office text, but most are
 already aliases of the same canonical person as their federal profile. This cleanup should
