@@ -74,6 +74,8 @@ class IdentityResolver:
                     action="blocked_conflict",
                     deterministic_keys=keys,
                     legacy_politician_id=packet.legacy_politician_id,
+                    matching_person_ids=tuple(matching_person_ids),
+                    legacy_person_ids=tuple(legacy_person_ids),
                     blocked_reason="legacy_politician_id_matches_multiple_people",
                 )
 
@@ -83,6 +85,8 @@ class IdentityResolver:
                     action="blocked_conflict",
                     deterministic_keys=keys,
                     legacy_politician_id=packet.legacy_politician_id,
+                    matching_person_ids=tuple(matching_person_ids),
+                    legacy_person_ids=tuple(legacy_person_ids),
                     blocked_reason="deterministic_keys_conflict_with_legacy_mapping",
                 )
 
@@ -93,6 +97,8 @@ class IdentityResolver:
                 deterministic_keys=keys,
                 person_id=matching_person_ids[0],
                 legacy_politician_id=packet.legacy_politician_id,
+                matching_person_ids=tuple(matching_person_ids),
+                legacy_person_ids=tuple(legacy_person_ids),
             )
 
         if len(matching_person_ids) > 1:
@@ -101,6 +107,8 @@ class IdentityResolver:
                 action="blocked_conflict",
                 deterministic_keys=keys,
                 legacy_politician_id=packet.legacy_politician_id,
+                matching_person_ids=tuple(matching_person_ids),
+                legacy_person_ids=tuple(legacy_person_ids),
                 blocked_reason="deterministic_keys_match_multiple_people",
             )
 
@@ -111,6 +119,8 @@ class IdentityResolver:
                 deterministic_keys=keys,
                 person_id=legacy_person_ids[0],
                 legacy_politician_id=packet.legacy_politician_id,
+                matching_person_ids=tuple(matching_person_ids),
+                legacy_person_ids=tuple(legacy_person_ids),
             )
 
         if len(legacy_person_ids) > 1:
@@ -119,6 +129,8 @@ class IdentityResolver:
                 action="blocked_conflict",
                 deterministic_keys=keys,
                 legacy_politician_id=packet.legacy_politician_id,
+                matching_person_ids=tuple(matching_person_ids),
+                legacy_person_ids=tuple(legacy_person_ids),
                 blocked_reason="legacy_politician_id_matches_multiple_people",
             )
 
@@ -128,6 +140,8 @@ class IdentityResolver:
             action="create_person",
             deterministic_keys=keys,
             legacy_politician_id=packet.legacy_politician_id,
+            matching_person_ids=tuple(matching_person_ids),
+            legacy_person_ids=tuple(legacy_person_ids),
         )
 
     def _resolve_by_legacy_id(self, packet: IdentityPacket) -> IdentityResolution | None:
@@ -138,6 +152,7 @@ class IdentityResolver:
                 action="matched_existing_person",
                 legacy_politician_id=packet.legacy_politician_id,
                 person_id=matching_person_ids[0],
+                legacy_person_ids=tuple(matching_person_ids),
             )
 
         if len(matching_person_ids) > 1:
@@ -145,6 +160,7 @@ class IdentityResolver:
             return IdentityResolution(
                 action="blocked_conflict",
                 legacy_politician_id=packet.legacy_politician_id,
+                legacy_person_ids=tuple(matching_person_ids),
                 blocked_reason="legacy_politician_id_matches_multiple_people",
             )
 

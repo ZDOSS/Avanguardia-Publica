@@ -29,6 +29,7 @@ class FakeQuery:
         self.filters = []
         self.contains_filters = []
         self.range_bounds = None
+        self.limit_count = None
 
     def select(self, _columns):
         self.action = "select"
@@ -36,6 +37,10 @@ class FakeQuery:
 
     def range(self, start, end):
         self.range_bounds = (start, end)
+        return self
+
+    def limit(self, count):
+        self.limit_count = count
         return self
 
     def eq(self, column, value):
@@ -74,6 +79,7 @@ class FakeQuery:
             return FakeResponse(self.client.select_rows(self))
 
         if self.action == "update":
+            updated_rows = self.client.update_rows(self)
             self.client.operations.append(
                 {
                     "type": "update",
@@ -82,12 +88,16 @@ class FakeQuery:
                     "payload": self.payload,
                 }
             )
-            return FakeResponse([])
+            return FakeResponse(updated_rows)
 
         if self.action == "insert":
             row = dict(self.payload)
-            row.setdefault("id", self.client.next_insert_id)
-            self.client.table_data.setdefault(self.table_name, []).append(row)
+            table_rows = self.client.table_data.setdefault(self.table_name, [])
+            if self.table_name == "politicians":
+                row.setdefault("id", self.client.next_insert_id)
+            else:
+                row.setdefault("id", f"{self.table_name}-{len(table_rows) + 1}")
+            table_rows.append(row)
             self.client.operations.append(
                 {
                     "type": "insert",
@@ -122,11 +132,21 @@ class FakeSupabase:
         if query.range_bounds:
             start, end = query.range_bounds
             rows = rows[start : end + 1]
+        if query.limit_count is not None:
+            rows = rows[: query.limit_count]
         return rows
 
     @staticmethod
     def _contains(existing, expected):
         return all(existing.get(key) == value for key, value in expected.items())
+
+    def update_rows(self, query):
+        updated_rows = []
+        for row in self.table_data.get(query.table_name, []):
+            if all(row.get(column) == value for column, value in query.filters):
+                row.update(query.payload)
+                updated_rows.append(dict(row))
+        return updated_rows
 
     def sync_identity(self, politician_id, person_id):
         redirects = self.table_data.setdefault("legacy_profile_redirects", [])
@@ -205,6 +225,34 @@ class LoaderIdentityObserverTests(unittest.TestCase):
             sys.path.remove(str(self.scraper_dir))
         except ValueError:
             pass
+
+    def use_conflicting_identity_snapshot(self):
+        self.fake_client.table_data["person_external_ids"] = [
+            {
+                "person_id": "person-1",
+                "source_system_key": "bioguide",
+                "external_id_type": "bioguide_id",
+                "external_id": "B000001",
+            },
+            {
+                "person_id": "person-2",
+                "source_system_key": "fec",
+                "external_id_type": "fec_candidate_id",
+                "external_id": "H0CA00001",
+            },
+        ]
+        self.fake_client.table_data["legacy_profile_redirects"] = []
+
+    def observe_conflicting_identity(self, loader):
+        return loader.observe_politician_identity(
+            "pol-conflict",
+            {
+                "full_name": "Jane Conflict",
+                "current_office": "US Representative",
+                "bioguide_id": "B000001",
+                "external_ids": {"fec": "H0CA00001"},
+            },
+        )
 
     def test_observer_loads_identity_snapshot_and_counts_match(self):
         summary = SummaryStub()
@@ -311,6 +359,146 @@ class LoaderIdentityObserverTests(unittest.TestCase):
         self.assertEqual(1, summary.counts["identity_observer_packets_checked"])
         self.assertEqual(1, summary.counts["identity_observer_matched_existing_person"])
         self.assertNotIn("identity_observer_create_person", summary.counts)
+
+    def test_observer_records_blocked_conflict_as_review_candidate(self):
+        self.use_conflicting_identity_snapshot()
+        summary = SummaryStub()
+        loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+
+        resolution = self.observe_conflicting_identity(loader)
+
+        self.assertEqual("blocked_conflict", resolution.action)
+        self.assertEqual(
+            "deterministic_keys_match_multiple_people",
+            resolution.blocked_reason,
+        )
+        self.assertEqual(("person-1", "person-2"), resolution.matching_person_ids)
+        rows = self.fake_client.table_data["identity_resolution_candidates"]
+        self.assertEqual(1, len(rows))
+        self.assertEqual(
+            "identity_observer_blocked_deterministic_keys_match_multiple_people",
+            rows[0]["candidate_type"],
+        )
+        self.assertEqual("blocked", rows[0]["status"])
+        self.assertEqual("pol-conflict", rows[0]["source_legacy_politician_id"])
+        self.assertIsNone(rows[0]["source_person_id"])
+        self.assertIsNone(rows[0]["candidate_person_id"])
+        evidence = rows[0]["evidence"]
+        self.assertEqual("Jane Conflict", evidence["full_name"])
+        self.assertEqual(["person-1", "person-2"], evidence["matching_person_ids"])
+        self.assertEqual(
+            [
+                {
+                    "source_system_key": "bioguide",
+                    "external_id_type": "bioguide_id",
+                    "external_id": "B000001",
+                },
+                {
+                    "source_system_key": "fec",
+                    "external_id_type": "fec_candidate_id",
+                    "external_id": "H0CA00001",
+                },
+            ],
+            evidence["deterministic_keys"],
+        )
+        self.assertEqual(1, summary.counts["identity_observer_candidates_inserted"])
+        self.assertEqual(1, summary.counts["identity_observer_candidates_recorded"])
+
+    def test_observer_updates_existing_blocked_conflict_candidate(self):
+        self.use_conflicting_identity_snapshot()
+        self.fake_client.table_data["identity_resolution_candidates"] = [
+            {
+                "id": "candidate-existing",
+                "candidate_type": (
+                    "identity_observer_blocked_deterministic_keys_match_multiple_people"
+                ),
+                "source_legacy_politician_id": "pol-conflict",
+                "status": "pending",
+                "evidence": {"old": True},
+            }
+        ]
+        summary = SummaryStub()
+        loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+
+        self.observe_conflicting_identity(loader)
+
+        rows = self.fake_client.table_data["identity_resolution_candidates"]
+        self.assertEqual(1, len(rows))
+        self.assertEqual("candidate-existing", rows[0]["id"])
+        self.assertEqual("blocked", rows[0]["status"])
+        self.assertEqual("Jane Conflict", rows[0]["evidence"]["full_name"])
+        self.assertNotIn("old", rows[0]["evidence"])
+        candidate_operations = [
+            item["type"]
+            for item in self.fake_client.operations
+            if item.get("table") == "identity_resolution_candidates"
+        ]
+        self.assertEqual(["update"], candidate_operations)
+        self.assertEqual(1, summary.counts["identity_observer_candidates_updated"])
+        self.assertEqual(1, summary.counts["identity_observer_candidates_recorded"])
+
+    def test_observer_preserves_reviewed_candidate_status(self):
+        self.use_conflicting_identity_snapshot()
+        self.fake_client.table_data["identity_resolution_candidates"] = [
+            {
+                "id": "candidate-reviewed",
+                "candidate_type": (
+                    "identity_observer_blocked_deterministic_keys_match_multiple_people"
+                ),
+                "source_legacy_politician_id": "pol-conflict",
+                "status": "approved",
+                "evidence": {"reviewed": True},
+            }
+        ]
+        summary = SummaryStub()
+        loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+
+        self.observe_conflicting_identity(loader)
+
+        rows = self.fake_client.table_data["identity_resolution_candidates"]
+        self.assertEqual(1, len(rows))
+        self.assertEqual("approved", rows[0]["status"])
+        self.assertEqual({"reviewed": True}, rows[0]["evidence"])
+        candidate_operations = [
+            item["type"]
+            for item in self.fake_client.operations
+            if item.get("table") == "identity_resolution_candidates"
+        ]
+        self.assertEqual([], candidate_operations)
+        self.assertEqual(1, summary.counts["identity_observer_candidates_skipped_reviewed"])
+
+    def test_observer_records_missing_deterministic_key_as_pending_candidate(self):
+        self.fake_client.table_data["person_external_ids"] = []
+        self.fake_client.table_data["legacy_profile_redirects"] = []
+        summary = SummaryStub()
+        loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+
+        resolution = loader.observe_politician_identity(
+            "pol-pending",
+            {
+                "full_name": "Name Only",
+                "external_ids": {"twitter": "not-deterministic"},
+            },
+        )
+
+        self.assertEqual("pending_review", resolution.action)
+        rows = self.fake_client.table_data["identity_resolution_candidates"]
+        self.assertEqual(1, len(rows))
+        self.assertEqual(
+            "identity_observer_pending_missing_deterministic_identity",
+            rows[0]["candidate_type"],
+        )
+        self.assertEqual("pending", rows[0]["status"])
+        evidence = rows[0]["evidence"]
+        self.assertEqual(
+            "missing_deterministic_identity",
+            evidence["pending_candidate"]["candidate_type"],
+        )
+        self.assertEqual(
+            ["name only"],
+            evidence["pending_candidate"]["evidence"]["normalized_names"],
+        )
+        self.assertEqual(1, summary.counts["identity_observer_candidates_inserted"])
 
 
 if __name__ == "__main__":

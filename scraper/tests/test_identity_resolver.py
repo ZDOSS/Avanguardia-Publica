@@ -124,6 +124,7 @@ class IdentityResolverTests(unittest.TestCase):
 
         self.assertEqual("matched_existing_person", resolution.action)
         self.assertEqual("person-1", resolution.person_id)
+        self.assertEqual(("person-1",), resolution.matching_person_ids)
         self.assertEqual(1, summary.counts["identity_deterministic_matches"])
         self.assertEqual(1, summary.counts["identity_legacy_rows_mapped"])
 
@@ -191,6 +192,7 @@ class IdentityResolverTests(unittest.TestCase):
 
         self.assertEqual("matched_existing_person", resolution.action)
         self.assertEqual("person-1", resolution.person_id)
+        self.assertEqual(("person-1",), resolution.legacy_person_ids)
         self.assertEqual(1, summary.counts["identity_legacy_rows_mapped"])
         self.assertNotIn("identity_pending_candidates", summary.counts)
 
@@ -249,6 +251,8 @@ class IdentityResolverTests(unittest.TestCase):
             "deterministic_keys_conflict_with_legacy_mapping",
             resolution.blocked_reason,
         )
+        self.assertEqual(("person-2",), resolution.matching_person_ids)
+        self.assertEqual(("person-1",), resolution.legacy_person_ids)
         self.assertEqual(1, summary.counts["identity_blocked_conflicts"])
 
     def test_deterministic_key_with_ambiguous_legacy_mapping_is_blocked(self):
@@ -285,6 +289,8 @@ class IdentityResolverTests(unittest.TestCase):
             "legacy_politician_id_matches_multiple_people",
             resolution.blocked_reason,
         )
+        self.assertEqual(("person-1",), resolution.matching_person_ids)
+        self.assertEqual(("person-2", "person-3"), resolution.legacy_person_ids)
         self.assertEqual(1, summary.counts["identity_blocked_conflicts"])
 
     def test_conflicting_legacy_mappings_are_blocked(self):
@@ -315,6 +321,7 @@ class IdentityResolverTests(unittest.TestCase):
             "legacy_politician_id_matches_multiple_people",
             resolution.blocked_reason,
         )
+        self.assertEqual(("person-1", "person-2"), resolution.legacy_person_ids)
         self.assertEqual(1, summary.counts["identity_blocked_conflicts"])
 
     def test_conflicting_deterministic_matches_are_blocked(self):
@@ -347,6 +354,7 @@ class IdentityResolverTests(unittest.TestCase):
             "deterministic_keys_match_multiple_people",
             resolution.blocked_reason,
         )
+        self.assertEqual(("person-1", "person-2"), resolution.matching_person_ids)
         self.assertEqual(1, summary.counts["identity_blocked_conflicts"])
 
 

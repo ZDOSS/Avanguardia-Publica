@@ -155,6 +155,14 @@ The VPS cutover is complete enough to start this phase: the frontend public bund
 at the VPS Supabase URL, the scraper smoke run completed successfully, and the Phase 2
 spoke backfill has been applied.
 
+The current Phase 3 slice keeps the resolver in observer mode while making the observer
+actionable: blocked deterministic conflicts and missing-key packets are written to
+`identity_resolution_candidates` with deterministic keys, matching person IDs, legacy
+person IDs, source profile context, and pending-candidate evidence. These rows are
+idempotently updated on repeated scraper runs while preserving reviewed
+`approved`/`rejected` decisions. The resolver still does not take over canonical writes
+or auto-merge fuzzy candidates.
+
 Add identity modules:
 
 - `scraper/identity/types.py`
