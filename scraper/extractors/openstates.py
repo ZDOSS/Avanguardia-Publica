@@ -130,7 +130,14 @@ def _state_from_path(path: str) -> str:
         return ""
 
 
+def _is_state_dataset_code(state: str) -> bool:
+    return bool(state) and state.lower() != "us"
+
+
 def _map_person(person: dict, state: str) -> dict | None:
+    if not _is_state_dataset_code(state):
+        return None
+
     # The ocd-person id is the identity key the loader matches on. Without it a
     # state legislator would fall through to unsafe name matching, so skip the
     # record entirely if it is missing.
@@ -177,12 +184,15 @@ def get_state_politicians() -> list:
                 continue
             if "/legislature/" not in path and "/executive/" not in path:
                 continue
+            state = _state_from_path(path)
+            if not _is_state_dataset_code(state):
+                continue
             try:
                 f = tar.extractfile(member)
                 if f is None:
                     continue
                 person = yaml.safe_load(f.read())
-                mapped = _map_person(person, _state_from_path(path))
+                mapped = _map_person(person, state)
                 if mapped:
                     people.append(mapped)
             except Exception as exc:
