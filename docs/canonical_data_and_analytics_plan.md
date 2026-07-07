@@ -161,6 +161,8 @@ actionable: blocked deterministic conflicts and missing-key packets are queued a
 person IDs, legacy person IDs, source profile context, and pending-candidate evidence.
 These rows fill the existing legacy-pair key columns so repeated scraper runs can update
 the same unresolved candidate while preserving reviewed `approved`/`rejected` decisions.
+The update path also recognizes earlier observer rows where the candidate legacy key was
+not yet filled, so reviewed null-key rows are not re-queued.
 The resolver still does not take over canonical writes or auto-merge fuzzy candidates.
 
 Add identity modules:

@@ -332,19 +332,38 @@ class SupabaseLoader:
             existing = self.execute_supabase(
                 lambda: (
                     self.supabase.table("identity_resolution_candidates")
-                    .select("id,status")
+                    .select("id,status,candidate_legacy_politician_id")
                     .eq("candidate_type", candidate_type)
                     .eq("source_legacy_politician_id", politician_id)
-                    .eq("candidate_legacy_politician_id", politician_id)
-                    .limit(1)
                     .execute()
                 ),
                 f"select identity resolution candidate {candidate_type} for {politician_id}",
             )
-            existing_row = (existing.data or [{}])[0]
+            matching_rows = [
+                row
+                for row in (existing.data or [])
+                if row.get("candidate_legacy_politician_id") in (None, politician_id)
+            ]
+            reviewed_row = next(
+                (
+                    row
+                    for row in matching_rows
+                    if row.get("status") in ("approved", "rejected")
+                ),
+                None,
+            )
+            existing_row = reviewed_row or next(
+                (
+                    row
+                    for row in matching_rows
+                    if row.get("candidate_legacy_politician_id") == politician_id
+                ),
+                None,
+            )
+            existing_row = existing_row or next(iter(matching_rows), {})
             existing_id = existing_row.get("id")
             if existing_id:
-                if existing_row.get("status") in ("approved", "rejected"):
+                if reviewed_row:
                     self._increment("identity_observer_candidates_skipped_reviewed")
                     return
                 self.execute_supabase(
