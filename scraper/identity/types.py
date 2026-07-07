@@ -62,5 +62,7 @@ class IdentityResolution:
     deterministic_keys: tuple[IdentityKey, ...] = ()
     person_id: str | None = None
     legacy_politician_id: str | None = None
+    matching_person_ids: tuple[str, ...] = ()
+    legacy_person_ids: tuple[str, ...] = ()
     pending_candidate: PendingIdentityCandidate | None = None
     blocked_reason: str | None = None

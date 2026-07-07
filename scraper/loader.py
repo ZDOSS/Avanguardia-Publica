@@ -8,6 +8,7 @@ from government_classification import normalize_government_classification, norma
 from identity import (
     ExistingIdentity,
     IdentityKey,
+    IdentityResolution,
     IdentityResolver,
     packet_from_legacy_politician,
     trusted_external_keys,
@@ -225,7 +226,170 @@ class SupabaseLoader:
                 member_data.get("full_name") or politician_id,
                 politician_id,
             )
+        if resolution.action in ("blocked_conflict", "pending_review"):
+            self.record_identity_resolution_candidate(politician_id, member_data, resolution)
         return resolution
+
+    @staticmethod
+    def _identity_key_evidence(keys: tuple[IdentityKey, ...]) -> list[dict]:
+        return [
+            {
+                "source_system_key": key.source_system_key,
+                "external_id_type": key.external_id_type,
+                "external_id": key.external_id,
+            }
+            for key in keys
+        ]
+
+    @staticmethod
+    def _identity_candidate_type(resolution: IdentityResolution) -> str:
+        if resolution.action == "blocked_conflict":
+            reason = resolution.blocked_reason or "unknown"
+            return f"identity_observer_blocked_{reason}"
+        if resolution.pending_candidate:
+            return f"identity_observer_pending_{resolution.pending_candidate.candidate_type}"
+        return f"identity_observer_{resolution.action}"
+
+    @staticmethod
+    def _identity_candidate_status(_resolution: IdentityResolution) -> str:
+        return "pending"
+
+    @staticmethod
+    def _identity_candidate_person_fields(resolution: IdentityResolution) -> dict:
+        source_person_id = None
+        candidate_person_id = None
+
+        if len(resolution.legacy_person_ids) == 1:
+            source_person_id = resolution.legacy_person_ids[0]
+        elif resolution.person_id:
+            source_person_id = resolution.person_id
+
+        if len(resolution.matching_person_ids) == 1:
+            candidate_person_id = resolution.matching_person_ids[0]
+
+        return {
+            "source_person_id": source_person_id,
+            "candidate_person_id": candidate_person_id,
+        }
+
+    def _identity_candidate_evidence(
+        self,
+        politician_id: str,
+        member_data: dict,
+        resolution: IdentityResolution,
+    ) -> dict:
+        evidence = {
+            "source": "scraper_identity_observer",
+            "observer_action": resolution.action,
+            "blocked_reason": resolution.blocked_reason,
+            "legacy_politician_id": politician_id,
+            "full_name": member_data.get("full_name"),
+            "current_office": member_data.get("current_office"),
+            "party": member_data.get("party"),
+            "state": member_data.get("state"),
+            "district": member_data.get("district"),
+            "deterministic_keys": self._identity_key_evidence(resolution.deterministic_keys),
+            "matching_person_ids": list(resolution.matching_person_ids),
+            "legacy_person_ids": list(resolution.legacy_person_ids),
+        }
+        if resolution.pending_candidate:
+            evidence["pending_candidate"] = {
+                "candidate_type": resolution.pending_candidate.candidate_type,
+                "evidence": resolution.pending_candidate.evidence,
+                "score": resolution.pending_candidate.score,
+            }
+        return evidence
+
+    def record_identity_resolution_candidate(
+        self,
+        politician_id: str,
+        member_data: dict,
+        resolution: IdentityResolution,
+    ) -> None:
+        if not self.supabase or not politician_id:
+            return
+
+        try:
+            candidate_type = self._identity_candidate_type(resolution)
+            score = (
+                resolution.pending_candidate.score
+                if resolution.pending_candidate
+                else None
+            )
+            payload = {
+                "candidate_type": candidate_type,
+                "source_legacy_politician_id": politician_id,
+                "candidate_legacy_politician_id": politician_id,
+                "status": self._identity_candidate_status(resolution),
+                "score": score,
+                "evidence": self._identity_candidate_evidence(
+                    politician_id,
+                    member_data,
+                    resolution,
+                ),
+                **self._identity_candidate_person_fields(resolution),
+            }
+            existing = self.execute_supabase(
+                lambda: (
+                    self.supabase.table("identity_resolution_candidates")
+                    .select("id,status,candidate_legacy_politician_id")
+                    .eq("candidate_type", candidate_type)
+                    .eq("source_legacy_politician_id", politician_id)
+                    .execute()
+                ),
+                f"select identity resolution candidate {candidate_type} for {politician_id}",
+            )
+            matching_rows = [
+                row
+                for row in (existing.data or [])
+                if row.get("candidate_legacy_politician_id") in (None, politician_id)
+            ]
+            reviewed_row = next(
+                (
+                    row
+                    for row in matching_rows
+                    if row.get("status") in ("approved", "rejected")
+                ),
+                None,
+            )
+            existing_row = reviewed_row or next(
+                (
+                    row
+                    for row in matching_rows
+                    if row.get("candidate_legacy_politician_id") == politician_id
+                ),
+                None,
+            )
+            existing_row = existing_row or next(iter(matching_rows), {})
+            existing_id = existing_row.get("id")
+            if existing_id:
+                if reviewed_row:
+                    self._increment("identity_observer_candidates_skipped_reviewed")
+                    return
+                self.execute_supabase(
+                    lambda: (
+                        self.supabase.table("identity_resolution_candidates")
+                        .update(payload)
+                        .eq("id", existing_id)
+                        .execute()
+                    ),
+                    f"update identity resolution candidate {existing_id}",
+                )
+                self._increment("identity_observer_candidates_updated")
+            else:
+                self.execute_supabase(
+                    lambda: (
+                        self.supabase.table("identity_resolution_candidates")
+                        .insert(payload)
+                        .execute()
+                    ),
+                    f"insert identity resolution candidate {candidate_type}",
+                )
+                self._increment("identity_observer_candidates_inserted")
+            self._increment("identity_observer_candidates_recorded")
+        except Exception as e:
+            logger.warning("Identity observer candidate write failed for %s: %s", politician_id, e)
+            self._increment("identity_observer_candidate_write_errors")
 
     def _record_identity_observer_mapping(
         self, politician_id: str, member_data: dict, person_id: str | None
