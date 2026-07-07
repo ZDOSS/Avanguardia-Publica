@@ -251,9 +251,7 @@ class SupabaseLoader:
         return f"identity_observer_{resolution.action}"
 
     @staticmethod
-    def _identity_candidate_status(resolution: IdentityResolution) -> str:
-        if resolution.action == "blocked_conflict":
-            return "blocked"
+    def _identity_candidate_status(_resolution: IdentityResolution) -> str:
         return "pending"
 
     @staticmethod
@@ -321,6 +319,7 @@ class SupabaseLoader:
             payload = {
                 "candidate_type": candidate_type,
                 "source_legacy_politician_id": politician_id,
+                "candidate_legacy_politician_id": politician_id,
                 "status": self._identity_candidate_status(resolution),
                 "score": score,
                 "evidence": self._identity_candidate_evidence(
@@ -336,6 +335,7 @@ class SupabaseLoader:
                     .select("id,status")
                     .eq("candidate_type", candidate_type)
                     .eq("source_legacy_politician_id", politician_id)
+                    .eq("candidate_legacy_politician_id", politician_id)
                     .limit(1)
                     .execute()
                 ),

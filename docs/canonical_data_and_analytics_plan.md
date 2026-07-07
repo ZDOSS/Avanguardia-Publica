@@ -156,12 +156,12 @@ at the VPS Supabase URL, the scraper smoke run completed successfully, and the P
 spoke backfill has been applied.
 
 The current Phase 3 slice keeps the resolver in observer mode while making the observer
-actionable: blocked deterministic conflicts and missing-key packets are written to
-`identity_resolution_candidates` with deterministic keys, matching person IDs, legacy
-person IDs, source profile context, and pending-candidate evidence. These rows are
-idempotently updated on repeated scraper runs while preserving reviewed
-`approved`/`rejected` decisions. The resolver still does not take over canonical writes
-or auto-merge fuzzy candidates.
+actionable: blocked deterministic conflicts and missing-key packets are queued as
+`pending` rows in `identity_resolution_candidates` with deterministic keys, matching
+person IDs, legacy person IDs, source profile context, and pending-candidate evidence.
+These rows fill the existing legacy-pair key columns so repeated scraper runs can update
+the same unresolved candidate while preserving reviewed `approved`/`rejected` decisions.
+The resolver still does not take over canonical writes or auto-merge fuzzy candidates.
 
 Add identity modules:
 

@@ -379,8 +379,9 @@ class LoaderIdentityObserverTests(unittest.TestCase):
             "identity_observer_blocked_deterministic_keys_match_multiple_people",
             rows[0]["candidate_type"],
         )
-        self.assertEqual("blocked", rows[0]["status"])
+        self.assertEqual("pending", rows[0]["status"])
         self.assertEqual("pol-conflict", rows[0]["source_legacy_politician_id"])
+        self.assertEqual("pol-conflict", rows[0]["candidate_legacy_politician_id"])
         self.assertIsNone(rows[0]["source_person_id"])
         self.assertIsNone(rows[0]["candidate_person_id"])
         evidence = rows[0]["evidence"]
@@ -413,6 +414,7 @@ class LoaderIdentityObserverTests(unittest.TestCase):
                     "identity_observer_blocked_deterministic_keys_match_multiple_people"
                 ),
                 "source_legacy_politician_id": "pol-conflict",
+                "candidate_legacy_politician_id": "pol-conflict",
                 "status": "pending",
                 "evidence": {"old": True},
             }
@@ -425,7 +427,7 @@ class LoaderIdentityObserverTests(unittest.TestCase):
         rows = self.fake_client.table_data["identity_resolution_candidates"]
         self.assertEqual(1, len(rows))
         self.assertEqual("candidate-existing", rows[0]["id"])
-        self.assertEqual("blocked", rows[0]["status"])
+        self.assertEqual("pending", rows[0]["status"])
         self.assertEqual("Jane Conflict", rows[0]["evidence"]["full_name"])
         self.assertNotIn("old", rows[0]["evidence"])
         candidate_operations = [
@@ -446,6 +448,7 @@ class LoaderIdentityObserverTests(unittest.TestCase):
                     "identity_observer_blocked_deterministic_keys_match_multiple_people"
                 ),
                 "source_legacy_politician_id": "pol-conflict",
+                "candidate_legacy_politician_id": "pol-conflict",
                 "status": "approved",
                 "evidence": {"reviewed": True},
             }
@@ -489,6 +492,7 @@ class LoaderIdentityObserverTests(unittest.TestCase):
             rows[0]["candidate_type"],
         )
         self.assertEqual("pending", rows[0]["status"])
+        self.assertEqual("pol-pending", rows[0]["candidate_legacy_politician_id"])
         evidence = rows[0]["evidence"]
         self.assertEqual(
             "missing_deterministic_identity",
