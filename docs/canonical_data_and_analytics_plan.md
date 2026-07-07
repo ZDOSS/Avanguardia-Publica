@@ -226,6 +226,75 @@ Rules:
 - Hard constraints that assume perfect seat modeling should begin as validation queries
   until the source data is reliable enough to enforce them.
 
+### Source Inventory Intake
+
+A July 2026 source inventory identified 97 U.S. government API and dataset candidates:
+21 P0, 28 P1, 29 P2, and 19 P3. Treat it as a source-catalog backlog for this phase,
+not as permission to add dozens of extractors. The inventory belongs inside this roadmap:
+it feeds the source/provenance model here, the Phase 6 review workflow for source
+mismatches and stale source records, and canonical analytics in Phase 7.
+
+Before importing the inventory into schema or scraper code, reconcile it against sources
+already wired in the repo. The inventory correctly marks `api.data.gov`, OpenFEC, and
+House Clerk financial disclosures as used, but it does not account for every active
+source. Current wired sources include:
+
+- `congress-legislators` YAML for active congressional rosters, contact data, aliases,
+  and crosswalk IDs.
+- OpenStates people YAML and OpenStates API v3 votes for state officials and state
+  roll-call votes.
+- GovTrack federal votes, joined by GovTrack person ID.
+- OpenFEC campaign donors, joined by FEC candidate ID.
+- House Clerk financial disclosure index, filing-level only.
+- Federal executive and Supreme Court seed data keyed by trusted Wikidata QIDs.
+- LittleSis, Currents, NewsData.io, TheNewsAPI, and GDELT as unverified mention/network
+  sources.
+
+Add a source-catalog schema only when needed by an extractor or review workflow. The
+current `source_systems` table is enough for identity provenance, but the inventory needs
+a broader source endpoint model before it can be represented cleanly:
+
+- source slug, name, agency, sub-agency, branch, category, source type, access level,
+  auth type, credential provider, base URL, docs URL, formats, coverage, update cadence,
+  priority, status, verified date, and repo fit.
+- endpoint/distribution records, because one source can expose multiple APIs, bulk files,
+  feeds, and documentation pages.
+- source review status, including `candidate`, `approved`, `deferred`, `duplicate`,
+  `retired`, and `blocked`.
+- credential requirements without storing secrets in the database.
+- provenance fields on loaded source records: source slug, endpoint slug, fetched URL,
+  source record ID, fetched timestamp, payload hash, verified/unverified lane, and raw
+  payload reference.
+
+Use this intake order:
+
+1. **Discovery and registry backbone first:** `api.data.gov`, Data.gov Catalog API v4,
+   Data.gov Harvester API, DCAT-US agency `data.json` feeds, and the GSA Open Technology
+   API Directory. These help find, verify, and track official source endpoints; they are
+   not public profile facts.
+2. **Official legislative facts next:** Congress.gov API v3, House Clerk roll-call XML,
+   Senate roll-call XML, and GovInfo. These can replace or reconcile GovTrack-derived
+   federal votes and add official bills, amendments, nominations, committees, public
+   laws, Congressional Record, and bill text.
+3. **Influence and organization graph after source records exist:** LDA.gov,
+   USAspending, SAM.gov entity management, SAM.gov contract awards, and SAM.gov
+   opportunities. These should wait for organization identity and source-record tables;
+   do not attach them directly to `people` by fuzzy names.
+4. **Jurisdiction and normalization context:** Census Data API, Census Geocoder,
+   TIGERweb, FCC area/census-block API, and GSA Site Scanning. These are supporting
+   sources for districts, jurisdictions, official domains, geocoding, and context, not
+   profile facts.
+5. **Rulemaking and executive action:** Federal Register and Regulations.gov. These
+   should land as verified agency/action/source records before they are used for public
+   analytics.
+6. **Domain context later:** economy, health, grants, environment, broadband, public
+   safety, sanctions, and similar P1-P3 sources should remain deferred until a specific
+   analytics view needs them.
+
+Do not ingest all 97 rows into public-facing tabs. Many sources are discovery,
+normalization, or context sources. Public profile facts should come only from verified
+official records or explicitly labeled unverified lanes.
+
 ## Phase 5: Canonical Search, Directory, And Filters
 
 Replace legacy search/directory compatibility with canonical person read surfaces.
@@ -251,6 +320,8 @@ Track:
 - pending identity candidates
 - suspected duplicates
 - source mismatches
+- source-catalog review status for candidate, approved, deferred, duplicate, retired,
+  and blocked source inventory rows
 - unresolved relationship names
 - failed enrichments
 - stale source records
@@ -331,10 +402,11 @@ Every schema change in this plan must follow these rules:
 
 ## Next PR
 
-The current implementation PR should wire the Phase 3 identity resolver into the scraper
-in observer mode only: load existing `person_external_ids` and `legacy_profile_redirects`,
-resolve incoming politician packets, emit `identity_observer_*` counters, and keep the
-existing `upsert_politician` write path unchanged.
+The current documentation PR should incorporate the attached source inventory into Phase
+4 as intake guidance only. It should reconcile the inventory with sources already wired
+in the repo and define which source groups belong in later schema/extractor work.
 
-Do not remove legacy `politician_id`, switch all loader writes to the new resolver in one
-shot, add new analytics features, or add the full role/entity taxonomy in that PR.
+Do not add a migration, new extractor, new credential, analytics feature, or public UI in
+this PR. Source implementation should wait until the Phase 3 identity resolver and the
+Phase 4 source/provenance schema have the narrow table shape needed by the first chosen
+source group.
