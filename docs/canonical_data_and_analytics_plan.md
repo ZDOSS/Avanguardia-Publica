@@ -167,10 +167,18 @@ The resolver still does not take over canonical writes or auto-merge fuzzy candi
 
 A post-observer scraper run found 80 pending conflicts caused by OpenStates `data/us`
 records being ingested as state officials even though those people are already covered by
-the federal `congress-legislators` path. The active fix is to exclude OpenStates federal
-dataset records before they reach the loader. Existing duplicate canonical people and
-pending candidates still need a separate, explicit cleanup step after the extractor fix
-has been deployed and the scraper has run cleanly.
+the federal `congress-legislators` path. The extractor now excludes OpenStates federal
+dataset records before they reach the loader, and the next cleanup slice is
+`migrations/0015_openstates_federal_duplicate_cleanup.sql`: it redirects the 80 stale
+legacy profile UUIDs to their existing Bioguide-backed federal survivor people, removes
+stale duplicate spoke rows that would otherwise leak into canonical reads, records
+`person_merge_events`, and marks the matching observer candidates `approved`.
+
+There are more legacy rows with OpenStates `data/us`-style office text, but most are
+already aliases of the same canonical person as their federal profile. This cleanup should
+target only unresolved duplicate `people` rows with deterministic Bioguide survivors; do
+not suppress or merge the remaining legacy rows without a separate source-quality rule or
+role-model migration.
 
 Add identity modules:
 
