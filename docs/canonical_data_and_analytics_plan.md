@@ -165,6 +165,13 @@ The update path also recognizes earlier observer rows where the candidate legacy
 not yet filled, so reviewed null-key rows are not re-queued.
 The resolver still does not take over canonical writes or auto-merge fuzzy candidates.
 
+A post-observer scraper run found 80 pending conflicts caused by OpenStates `data/us`
+records being ingested as state officials even though those people are already covered by
+the federal `congress-legislators` path. The active fix is to exclude OpenStates federal
+dataset records before they reach the loader. Existing duplicate canonical people and
+pending candidates still need a separate, explicit cleanup step after the extractor fix
+has been deployed and the scraper has run cleanly.
+
 Add identity modules:
 
 - `scraper/identity/types.py`
@@ -402,11 +409,11 @@ Every schema change in this plan must follow these rules:
 
 ## Next PR
 
-The current documentation PR should incorporate the attached source inventory into Phase
-4 as intake guidance only. It should reconcile the inventory with sources already wired
-in the repo and define which source groups belong in later schema/extractor work.
+The current implementation PR should stop OpenStates `data/us` records from entering the
+state-politician loader and add regression coverage for the `State Representative from US
+District ...` shape that produced the observer conflicts.
 
-Do not add a migration, new extractor, new credential, analytics feature, or public UI in
-this PR. Source implementation should wait until the Phase 3 identity resolver and the
-Phase 4 source/provenance schema have the narrow table shape needed by the first chosen
-source group.
+Do not merge or delete existing people, auto-approve identity candidates, add new source
+APIs, or add public UI in this PR. The already-created 80 duplicate/conflict cases should
+be handled by a follow-up migration or review workflow after this source bug is fixed and
+verified.
