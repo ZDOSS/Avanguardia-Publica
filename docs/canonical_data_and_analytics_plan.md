@@ -281,7 +281,9 @@ does not add public profile facts or make the scraper depend on the new tables y
 first inventory seed is `migrations/0017_source_inventory_p0_seed.sql`: it adds nine P0
 review candidates covering the source-discovery backbone and official federal
 legislative/publication sources. Those rows stay private `candidate` records until a later
-extractor or review workflow promotes them.
+extractor or review workflow promotes them. The private reporting slice is
+`migrations/0018_source_catalog_reports.sql`: it adds service-role-only views for source
+catalog health, candidate next actions, endpoint rollups, and latest review events.
 
 - source slug, name, agency, sub-agency, branch, category, source type, access level,
   auth type, credential provider, base URL, docs URL, formats, coverage, update cadence,
@@ -431,8 +433,7 @@ Every schema change in this plan must follow these rules:
 
 ## Next PR
 
-After `0017` is applied, the next safe slice should still stay out of the two-hour scraper
-path: add a source-catalog health report or SQL report that groups candidate sources by
-priority, category, status, and next action. Do not ingest all 97 inventory rows as public
-facts, add new source APIs, or expose a source-review UI until the catalog review status
-is useful to maintainers.
+After `0018` is applied, the next safe slice can either seed the next small reviewed
+source-inventory batch or start source-catalog review tooling around the private report
+views. Do not ingest all 97 inventory rows as public facts, add new source APIs, or expose
+a source-review UI until the catalog review status is useful to maintainers.
