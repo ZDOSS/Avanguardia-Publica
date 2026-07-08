@@ -6,6 +6,7 @@ from datetime import date
 from dotenv import load_dotenv
 from loader import SupabaseLoader
 from etl_summary import ETLRunSummary
+from identity_health import run_identity_health_check
 from schema_preflight import SchemaPreflightError, run_schema_preflight
 from extractors.gov_api import get_congress_members
 from extractors.littlesis import get_littlesis
@@ -282,6 +283,14 @@ def main():
             errors_caught += 1
 
     summary.set_news_providers(get_provider_status())
+    try:
+        run_identity_health_check(loader, summary)
+    except Exception as e:
+        print(f"[!] Identity health check failed: {e}")
+        summary.set_identity_health("failed", warnings=[str(e)])
+        summary.error("identity_health", e)
+        errors_caught += 1
+
     if errors_caught == 0:
         print("\nPipeline finished successfully.")
         summary.print(success=True)

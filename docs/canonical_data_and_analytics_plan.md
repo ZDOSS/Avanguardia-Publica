@@ -209,6 +209,13 @@ ETL reporting should include identity-specific counts:
 - pending candidates
 - blocked conflicts
 
+The current reporting slice adds an end-of-run identity health block to
+`ETL_SUMMARY_JSON`. It reports pending observer candidates, pending/approved OpenStates
+federal duplicate candidates, total legacy rows with OpenStates `data/us`-style office
+text, and whether any of those stale office rows were refreshed during the current run.
+These checks are warnings for now; they should become fatal only after the remaining
+legacy source-quality cleanup is explicitly modeled.
+
 ## Phase 4: Role And Source Model
 
 Add the broader government model only after canonical identity and person-aware spokes are
