@@ -283,7 +283,10 @@ review candidates covering the source-discovery backbone and official federal
 legislative/publication sources. Those rows stay private `candidate` records until a later
 extractor or review workflow promotes them. The private reporting slice is
 `migrations/0018_source_catalog_reports.sql`: it adds service-role-only views for source
-catalog health, candidate next actions, endpoint rollups, and latest review events.
+catalog health, candidate next actions, endpoint rollups, and latest review events. The
+second inventory seed is `migrations/0019_source_inventory_influence_spending_seed.sql`:
+it adds seven P0 review candidates for official lobbying, rulemaking, spending, entity,
+and procurement sources.
 
 - source slug, name, agency, sub-agency, branch, category, source type, access level,
   auth type, credential provider, base URL, docs URL, formats, coverage, update cadence,
@@ -433,7 +436,9 @@ Every schema change in this plan must follow these rules:
 
 ## Next PR
 
-After `0018` is applied, the next safe slice can either seed the next small reviewed
-source-inventory batch or start source-catalog review tooling around the private report
-views. Do not ingest all 97 inventory rows as public facts, add new source APIs, or expose
-a source-review UI until the catalog review status is useful to maintainers.
+After `0019` is applied, the next safe slice can seed the remaining small P0
+jurisdiction/context batch, including Census Data API, Census Geocoder, and TIGERweb, and
+reconcile inventory rows that duplicate already wired sources such as OpenFEC and House
+Clerk financial disclosures. Do not ingest all 97 inventory rows as public facts, add new
+source APIs, or expose a source-review UI until the catalog review status is useful to
+maintainers.
