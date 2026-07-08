@@ -274,7 +274,10 @@ source. Current wired sources include:
 
 Add a source-catalog schema only when needed by an extractor or review workflow. The
 current `source_systems` table is enough for identity provenance, but the inventory needs
-a broader source endpoint model before it can be represented cleanly:
+a broader source endpoint model before it can be represented cleanly. The first backbone
+slice is `migrations/0016_source_catalog_backbone.sql`: it keeps the catalog private,
+tracks source/endpoints/review events, links the currently wired `source_systems`, and
+does not add public profile facts or make the scraper depend on the new tables yet.
 
 - source slug, name, agency, sub-agency, branch, category, source type, access level,
   auth type, credential provider, base URL, docs URL, formats, coverage, update cadence,
@@ -424,11 +427,8 @@ Every schema change in this plan must follow these rules:
 
 ## Next PR
 
-The current implementation PR should stop OpenStates `data/us` records from entering the
-state-politician loader and add regression coverage for the `State Representative from US
-District ...` shape that produced the observer conflicts.
-
-Do not merge or delete existing people, auto-approve identity candidates, add new source
-APIs, or add public UI in this PR. The already-created 80 duplicate/conflict cases should
-be handled by a follow-up migration or review workflow after this source bug is fixed and
-verified.
+After `0016` is applied, the next safe slice should stay out of the two-hour scraper path:
+import or hand-seed only a small reviewed set of source-inventory candidates into the
+private catalog, then add validation queries that show pending/blocked/duplicate sources.
+Do not ingest all 97 inventory rows as public facts, add new source APIs, or expose a
+source-review UI until the catalog review status is useful to maintainers.
