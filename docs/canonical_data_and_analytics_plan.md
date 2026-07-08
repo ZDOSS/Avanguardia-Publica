@@ -277,7 +277,11 @@ current `source_systems` table is enough for identity provenance, but the invent
 a broader source endpoint model before it can be represented cleanly. The first backbone
 slice is `migrations/0016_source_catalog_backbone.sql`: it keeps the catalog private,
 tracks source/endpoints/review events, links the currently wired `source_systems`, and
-does not add public profile facts or make the scraper depend on the new tables yet.
+does not add public profile facts or make the scraper depend on the new tables yet. The
+first inventory seed is `migrations/0017_source_inventory_p0_seed.sql`: it adds nine P0
+review candidates covering the source-discovery backbone and official federal
+legislative/publication sources. Those rows stay private `candidate` records until a later
+extractor or review workflow promotes them.
 
 - source slug, name, agency, sub-agency, branch, category, source type, access level,
   auth type, credential provider, base URL, docs URL, formats, coverage, update cadence,
@@ -427,8 +431,8 @@ Every schema change in this plan must follow these rules:
 
 ## Next PR
 
-After `0016` is applied, the next safe slice should stay out of the two-hour scraper path:
-import or hand-seed only a small reviewed set of source-inventory candidates into the
-private catalog, then add validation queries that show pending/blocked/duplicate sources.
-Do not ingest all 97 inventory rows as public facts, add new source APIs, or expose a
-source-review UI until the catalog review status is useful to maintainers.
+After `0017` is applied, the next safe slice should still stay out of the two-hour scraper
+path: add a source-catalog health report or SQL report that groups candidate sources by
+priority, category, status, and next action. Do not ingest all 97 inventory rows as public
+facts, add new source APIs, or expose a source-review UI until the catalog review status
+is useful to maintainers.
