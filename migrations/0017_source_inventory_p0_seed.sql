@@ -321,9 +321,9 @@ ON CONFLICT (slug) DO UPDATE SET
     coverage = EXCLUDED.coverage,
     update_cadence = EXCLUDED.update_cadence,
     priority = EXCLUDED.priority,
-    status = EXCLUDED.status,
+    status = public.source_catalog_sources.status,
     verified_lane = EXCLUDED.verified_lane,
-    repo_fit = EXCLUDED.repo_fit,
+    repo_fit = public.source_catalog_sources.repo_fit,
     verified_at = EXCLUDED.verified_at,
     notes = EXCLUDED.notes,
     metadata = public.source_catalog_sources.metadata || EXCLUDED.metadata;
@@ -363,7 +363,7 @@ ON CONFLICT (source_slug, endpoint_slug) DO UPDATE SET
     auth_type = EXCLUDED.auth_type,
     credential_provider = EXCLUDED.credential_provider,
     update_cadence = EXCLUDED.update_cadence,
-    status = EXCLUDED.status,
+    status = public.source_catalog_endpoints.status,
     notes = EXCLUDED.notes,
     metadata = public.source_catalog_endpoints.metadata || EXCLUDED.metadata;
 
