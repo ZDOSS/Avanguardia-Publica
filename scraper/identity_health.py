@@ -11,11 +11,39 @@ OPENSTATES_FEDERAL_OFFICE_PATTERNS = (
 )
 
 
-def _response_count(resp) -> int:
+def _response_count(resp) -> int | None:
     count = getattr(resp, "count", None)
     if count is not None:
         return int(count)
-    return len(resp.data or [])
+    return None
+
+
+def _count_rows_by_pages(
+    loader,
+    table_name: str,
+    description: str,
+    configure_query,
+    page_size: int = 1000,
+) -> int:
+    total = 0
+    start = 0
+    while True:
+        end = start + page_size - 1
+
+        def operation(start=start, end=end):
+            query = loader.supabase.table(table_name).select("id")
+            query = configure_query(query)
+            return query.range(start, end).execute()
+
+        resp = loader.execute_supabase(
+            operation,
+            f"{description} fallback rows {start}-{end}",
+        )
+        batch = resp.data or []
+        total += len(batch)
+        if len(batch) < page_size:
+            return total
+        start += page_size
 
 
 def _count_rows(loader, table_name: str, description: str, configure_query) -> int:
@@ -24,7 +52,11 @@ def _count_rows(loader, table_name: str, description: str, configure_query) -> i
         query = configure_query(query)
         return query.limit(1).execute()
 
-    return _response_count(loader.execute_supabase(operation, description))
+    count = _response_count(loader.execute_supabase(operation, description))
+    if count is not None:
+        return count
+
+    return _count_rows_by_pages(loader, table_name, description, configure_query)
 
 
 def _count_bad_openstates_federal_profiles(loader, *, since: datetime | None = None) -> int:

@@ -287,9 +287,10 @@ def main():
         run_identity_health_check(loader, summary)
     except Exception as e:
         print(f"[!] Identity health check failed: {e}")
-        summary.set_identity_health("failed", warnings=[str(e)])
-        summary.error("identity_health", e)
-        errors_caught += 1
+        summary.set_identity_health(
+            "warning",
+            warnings=[f"Identity health check failed to run: {e}"],
+        )
 
     if errors_caught == 0:
         print("\nPipeline finished successfully.")

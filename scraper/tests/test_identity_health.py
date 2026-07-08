@@ -28,6 +28,7 @@ class FakeQuery:
         self.like_filters = []
         self.gte_filters = []
         self.limit_count = None
+        self.range_bounds = None
         self.count_requested = False
 
     def select(self, _columns, count=None):
@@ -50,6 +51,10 @@ class FakeQuery:
         self.limit_count = count
         return self
 
+    def range(self, start, end):
+        self.range_bounds = (start, end)
+        return self
+
     def execute(self):
         rows = list(self.client.table_data.get(self.table_name, []))
         for column, value in self.filters:
@@ -60,9 +65,13 @@ class FakeQuery:
             rows = [row for row in rows if str(row.get(column) or "") >= str(value)]
 
         total_count = len(rows)
+        if self.range_bounds is not None:
+            start, end = self.range_bounds
+            rows = rows[start : end + 1]
         if self.limit_count is not None:
             rows = rows[: self.limit_count]
-        return FakeResponse(rows, count=total_count if self.count_requested else None)
+        count = total_count if self.count_requested and self.client.expose_counts else None
+        return FakeResponse(rows, count=count)
 
     @staticmethod
     def _matches_like(value, pattern):
@@ -73,8 +82,9 @@ class FakeQuery:
 
 
 class FakeSupabase:
-    def __init__(self, table_data=None):
+    def __init__(self, table_data=None, expose_counts=True):
         self.table_data = table_data or {}
+        self.expose_counts = expose_counts
 
     def table(self, table_name):
         return FakeQuery(self, table_name)
@@ -151,6 +161,37 @@ class IdentityHealthTests(unittest.TestCase):
         self.assertEqual(
             0,
             health["checks"]["openstates_federal_legacy_profiles_refreshed_this_run"],
+        )
+
+    def test_count_fallback_pages_when_exact_count_is_missing(self):
+        summary = SummaryStub()
+        loader = FakeLoader(
+            FakeSupabase(
+                {
+                    "identity_resolution_candidates": [
+                        {
+                            "id": "candidate-1",
+                            "candidate_type": "identity_observer_pending_missing_deterministic_identity",
+                            "status": "pending",
+                        },
+                        {
+                            "id": "candidate-2",
+                            "candidate_type": "identity_observer_pending_missing_deterministic_identity",
+                            "status": "pending",
+                        },
+                    ],
+                    "politicians": [],
+                },
+                expose_counts=False,
+            )
+        )
+
+        health = self.identity_health.run_identity_health_check(loader, summary)
+
+        self.assertEqual("warning", health["status"])
+        self.assertEqual(2, health["checks"]["pending_identity_observer_candidates"])
+        self.assertTrue(
+            any("fallback rows" in description for description in loader.descriptions)
         )
 
     def test_warns_on_pending_candidates_and_refreshed_bad_profiles(self):
