@@ -286,7 +286,11 @@ extractor or review workflow promotes them. The private reporting slice is
 catalog health, candidate next actions, endpoint rollups, and latest review events. The
 second inventory seed is `migrations/0019_source_inventory_influence_spending_seed.sql`:
 it adds seven P0 review candidates for official lobbying, rulemaking, spending, entity,
-and procurement sources.
+and procurement sources. The jurisdiction/context seed is
+`migrations/0020_source_inventory_jurisdiction_context_seed.sql`: it adds three Census P0
+review candidates for demographics, geocoding, and boundaries, and reconciles the
+inventory's OpenFEC and House Clerk financial disclosure rows to the existing wired
+catalog sources instead of creating duplicates.
 
 - source slug, name, agency, sub-agency, branch, category, source type, access level,
   auth type, credential provider, base URL, docs URL, formats, coverage, update cadence,
@@ -436,9 +440,8 @@ Every schema change in this plan must follow these rules:
 
 ## Next PR
 
-After `0019` is applied, the next safe slice can seed the remaining small P0
-jurisdiction/context batch, including Census Data API, Census Geocoder, and TIGERweb, and
-reconcile inventory rows that duplicate already wired sources such as OpenFEC and House
-Clerk financial disclosures. Do not ingest all 97 inventory rows as public facts, add new
-source APIs, or expose a source-review UI until the catalog review status is useful to
-maintainers.
+After `0020` is applied, the next safe slice can either seed another small reviewed
+inventory batch from the remaining P1/P2 context sources or start maintainer-facing review
+tooling around the private report views. Do not ingest all 97 inventory rows as public
+facts, add new source APIs, or expose a source-review UI until the catalog review status
+is useful to maintainers.
