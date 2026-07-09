@@ -209,7 +209,10 @@ ON CONFLICT (slug) DO UPDATE SET
     verified_lane = EXCLUDED.verified_lane,
     repo_fit = public.source_catalog_sources.repo_fit,
     verified_at = EXCLUDED.verified_at,
-    notes = EXCLUDED.notes,
+    notes = CASE
+        WHEN NULLIF(btrim(public.source_catalog_sources.notes), '') IS NULL THEN EXCLUDED.notes
+        ELSE public.source_catalog_sources.notes
+    END,
     metadata = public.source_catalog_sources.metadata || EXCLUDED.metadata;
 
 INSERT INTO public.source_catalog_endpoints (
@@ -244,7 +247,10 @@ ON CONFLICT (source_slug, endpoint_slug) DO UPDATE SET
     credential_provider = EXCLUDED.credential_provider,
     update_cadence = EXCLUDED.update_cadence,
     status = public.source_catalog_endpoints.status,
-    notes = EXCLUDED.notes,
+    notes = CASE
+        WHEN NULLIF(btrim(public.source_catalog_endpoints.notes), '') IS NULL THEN EXCLUDED.notes
+        ELSE public.source_catalog_endpoints.notes
+    END,
     metadata = public.source_catalog_endpoints.metadata || EXCLUDED.metadata;
 
 WITH review_seed(source_slug, previous_status, new_status, reason, evidence) AS (
@@ -254,6 +260,20 @@ WITH review_seed(source_slug, previous_status, new_status, reason, evidence) AS 
         ('census-tigerweb-geoservices', NULL, 'candidate', 'Seeded from July 2026 source inventory for Census boundary/context review.', jsonb_build_object('migration', '0020_source_inventory_jurisdiction_context_seed', 'inventory_file', 'us_government_api_seed_inventory_repo_status', 'inventory_slug', 'census-tigerweb-geoservices')),
         ('openfec', NULL, 'approved', 'Reconciled July 2026 inventory slug fec-openfec-api to existing wired OpenFEC catalog source.', jsonb_build_object('migration', '0020_source_inventory_jurisdiction_context_seed', 'inventory_file', 'us_government_api_seed_inventory_repo_status', 'inventory_slug', 'fec-openfec-api', 'reconciled_to_source_slug', 'openfec')),
         ('house-clerk', NULL, 'approved', 'Reconciled July 2026 inventory slug house-clerk-financial-disclosures to existing wired House Clerk catalog source.', jsonb_build_object('migration', '0020_source_inventory_jurisdiction_context_seed', 'inventory_file', 'us_government_api_seed_inventory_repo_status', 'inventory_slug', 'house-clerk-financial-disclosures', 'reconciled_to_source_slug', 'house-clerk'))
+),
+review_rows AS (
+    SELECT
+        review_seed.source_slug,
+        CASE
+            WHEN review_seed.source_slug IN ('openfec', 'house-clerk') THEN current_source.status
+            ELSE review_seed.previous_status
+        END AS previous_status,
+        review_seed.new_status,
+        review_seed.reason,
+        review_seed.evidence
+    FROM review_seed
+    LEFT JOIN public.source_catalog_sources AS current_source
+      ON current_source.slug = review_seed.source_slug
 )
 INSERT INTO public.source_catalog_review_events (
     source_slug,
@@ -264,20 +284,20 @@ INSERT INTO public.source_catalog_review_events (
     evidence
 )
 SELECT
-    review_seed.source_slug,
-    review_seed.previous_status,
-    review_seed.new_status,
+    review_rows.source_slug,
+    review_rows.previous_status,
+    review_rows.new_status,
     'source-inventory-2026-07',
-    review_seed.reason,
-    review_seed.evidence
-FROM review_seed
+    review_rows.reason,
+    review_rows.evidence
+FROM review_rows
 WHERE NOT EXISTS (
     SELECT 1
     FROM public.source_catalog_review_events AS existing
-    WHERE existing.source_slug = review_seed.source_slug
+    WHERE existing.source_slug = review_rows.source_slug
       AND existing.endpoint_slug IS NULL
-      AND existing.new_status = review_seed.new_status
-      AND existing.reason = review_seed.reason
+      AND existing.new_status = review_rows.new_status
+      AND existing.reason = review_rows.reason
 );
 
 NOTIFY pgrst, 'reload schema';
