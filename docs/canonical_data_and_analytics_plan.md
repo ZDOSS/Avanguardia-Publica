@@ -290,7 +290,10 @@ and procurement sources. The jurisdiction/context seed is
 `migrations/0020_source_inventory_jurisdiction_context_seed.sql`: it adds three Census P0
 review candidates for demographics, geocoding, and boundaries, and reconciles the
 inventory's OpenFEC and House Clerk financial disclosure rows to the existing wired
-catalog sources instead of creating duplicates.
+catalog sources instead of creating duplicates. The review tooling slice is
+`migrations/0021_source_catalog_review_tools.sql`: it adds a private service-role
+worklist view and service-role-only review RPCs that update source/endpoint status while
+recording audit events.
 
 - source slug, name, agency, sub-agency, branch, category, source type, access level,
   auth type, credential provider, base URL, docs URL, formats, coverage, update cadence,
@@ -440,8 +443,8 @@ Every schema change in this plan must follow these rules:
 
 ## Next PR
 
-After `0020` is applied, the next safe slice can either seed another small reviewed
-inventory batch from the remaining P1/P2 context sources or start maintainer-facing review
-tooling around the private report views. Do not ingest all 97 inventory rows as public
-facts, add new source APIs, or expose a source-review UI until the catalog review status
-is useful to maintainers.
+After `0021` is applied, the next safe slice can use the private review worklist to triage
+the existing catalog candidates or seed another small reviewed inventory batch from the
+remaining P1/P2 context sources. Do not ingest all 97 inventory rows as public facts, add
+new source APIs, or expose a source-review UI until source review decisions are being
+recorded consistently.
