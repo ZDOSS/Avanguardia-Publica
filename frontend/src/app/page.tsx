@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { isCanonicalPoliticianRpcUnavailableError } from '@/lib/canonicalPoliticians';
 import { fetchPoliticianSummaries, searchPoliticians, type PoliticianSummary } from '@/lib/politicians';
 import { profilePath } from '@/lib/routes';
 
@@ -19,12 +20,21 @@ function mockPolitician(data: Pick<Politician, "id" | "full_name" | "current_off
   };
 }
 
+function dataUnavailableMessage(error: unknown): string {
+  if (isCanonicalPoliticianRpcUnavailableError(error)) {
+    return 'The canonical profile index is temporarily unavailable. To avoid showing duplicate entries, politician results are paused.';
+  }
+  return 'Politician data is temporarily unavailable. Please try again later.';
+}
+
 export default function Home() {
   const [search, setSearch] = useState("");
   const [featured, setFeatured] = useState<Politician[]>([]);
   const [searchResults, setSearchResults] = useState<Politician[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [featuredError, setFeaturedError] = useState<string | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchFeatured() {
@@ -39,8 +49,13 @@ export default function Home() {
         const data = await fetchPoliticianSummaries(6);
         setFeatured(data);
       } catch (e) {
-        console.warn("Falling back to mock data. Supabase connection failed:", e);
-        setFeatured(mockData);
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn("Falling back to mock data. Supabase connection failed:", e);
+          setFeatured(mockData);
+        } else {
+          console.error("Failed to load canonical featured profiles:", e);
+          setFeaturedError(dataUnavailableMessage(e));
+        }
       } finally {
         setLoading(false);
       }
@@ -56,18 +71,24 @@ export default function Home() {
 
     let cancelled = false;
     const timeout = window.setTimeout(() => {
-      setSearchLoading(true);
       searchPoliticians(trimmed)
         .then((results) => {
-          if (!cancelled) setSearchResults(results);
+          if (!cancelled) {
+            setSearchError(null);
+            setSearchResults(results);
+          }
         })
         .catch((e) => {
           console.warn("Supabase search failed:", e);
           if (!cancelled) {
-            const fallback = featured.filter((p) =>
-              p.full_name.toLowerCase().includes(trimmed.toLowerCase())
-            );
-            setSearchResults(fallback);
+            if (process.env.NODE_ENV !== 'production') {
+              const fallback = featured.filter((p) =>
+                p.full_name.toLowerCase().includes(trimmed.toLowerCase())
+              );
+              setSearchResults(fallback);
+            } else {
+              setSearchError(dataUnavailableMessage(e));
+            }
           }
         })
         .finally(() => {
@@ -80,6 +101,13 @@ export default function Home() {
       window.clearTimeout(timeout);
     };
   }, [featured, search]);
+
+  const changeSearch = (nextSearch: string) => {
+    setSearch(nextSearch);
+    setSearchResults([]);
+    setSearchError(null);
+    setSearchLoading(Boolean(nextSearch.trim()));
+  };
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center p-4">
@@ -96,17 +124,24 @@ export default function Home() {
         </div>
 
         <div className="relative premium-card p-2 md:p-4 bg-[var(--color-official-bg)]/80 backdrop-blur-md">
-          <input 
+          <label htmlFor="politician-search" className="sr-only">Search politicians by name</label>
+          <input
+            id="politician-search"
             type="text" 
             placeholder="Search politicians by name..." 
             className="w-full p-4 bg-transparent border-b-2 border-transparent focus:border-[var(--color-official-link)] text-xl focus:outline-none transition-colors dark:text-white"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => changeSearch(e.target.value)}
           />
           
-          {search && (
-            <div className="absolute left-0 right-0 mt-4 bg-[var(--color-official-bg)] border border-[var(--color-official-border)] rounded-xl shadow-2xl text-left overflow-hidden z-20">
-              {searchLoading ? (
+          {search.trim() && (
+            <div
+              className="absolute left-0 right-0 mt-4 bg-[var(--color-official-bg)] border border-[var(--color-official-border)] rounded-xl shadow-2xl text-left overflow-hidden z-20"
+              aria-live="polite"
+            >
+              {searchError ? (
+                <div className="p-6 text-center text-[var(--color-warning-badge)]" role="alert">{searchError}</div>
+              ) : searchLoading ? (
                 <div className="p-6 text-center text-[var(--color-official-text-muted)]">Searching...</div>
               ) : searchResults.length > 0 ? (
                 searchResults.map(p => (
@@ -138,6 +173,10 @@ export default function Home() {
                 <div className="h-4 bg-[var(--color-official-border)] rounded w-3/4"></div>
                 <div className="h-4 bg-[var(--color-official-border)] rounded w-1/2"></div>
               </div>
+            </div>
+          ) : featuredError ? (
+            <div className="premium-card p-6 text-center" role="alert">
+              <p className="font-semibold text-[var(--color-warning-badge)]">{featuredError}</p>
             </div>
           ) : (
             <>

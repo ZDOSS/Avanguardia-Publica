@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   fetchConnections,
+  type ConnectionLaneFailure,
   type ConnectionsBundle,
   type CoVoteConnection,
 } from '@/lib/connections';
@@ -147,7 +148,37 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   return <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--color-official-text-muted)] mb-4">{children}</h3>;
 }
 
-const EMPTY_BUNDLE: ConnectionsBundle = { sharedDonors: [], coVotes: [], networkTies: [] };
+function PartialConnectionsNotice({
+  failures,
+  onRetry,
+}: {
+  failures: ConnectionLaneFailure[];
+  onRetry: () => void;
+}) {
+  if (!failures.length) return null;
+
+  return (
+    <div
+      className="premium-card border-[var(--color-warning-badge)]/40 p-4 text-sm"
+      role="status"
+      aria-live="polite"
+    >
+      <p className="font-semibold text-[var(--color-warning-badge)]">Some connection data could not be loaded.</p>
+      <p className="mt-1 text-[var(--color-official-text-muted)]">
+        Missing: {failures.map((failure) => failure.label).join(', ')}. The sections below may be incomplete.
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-3 min-h-11 rounded-full border border-[var(--color-official-border)] px-4 text-sm font-bold text-[var(--color-official-link)] transition-colors hover:border-[var(--color-official-link)] cursor-pointer"
+      >
+        Retry connections
+      </button>
+    </div>
+  );
+}
+
+const EMPTY_BUNDLE: ConnectionsBundle = { sharedDonors: [], coVotes: [], networkTies: [], failures: [] };
 
 export default function ConnectionsTab({ politicianId, politicianName }: { politicianId: string; politicianName: string }) {
   // Mock/non-UUID profiles have no DB row, so the RPCs would error — start them in a
@@ -157,6 +188,19 @@ export default function ConnectionsTab({ politicianId, politicianName }: { polit
   const [data, setData] = useState<ConnectionsBundle | null>(hasLiveProfileId ? null : EMPTY_BUNDLE);
   const [loading, setLoading] = useState(hasLiveProfileId);
   const [error, setError] = useState(false);
+
+  const retry = useCallback(() => {
+    if (!hasLiveProfileId) return;
+    setLoading(true);
+    setError(false);
+    fetchConnections(politicianId)
+      .then(setData)
+      .catch((e) => {
+        console.error('Failed to load connections:', e);
+        setError(true);
+      })
+      .finally(() => setLoading(false));
+  }, [hasLiveProfileId, politicianId]);
 
   useEffect(() => {
     if (!hasLiveProfileId) return;
@@ -177,7 +221,18 @@ export default function ConnectionsTab({ politicianId, politicianName }: { polit
   }
 
   if (error) {
-    return <div className="p-8 premium-card text-center text-[var(--color-warning-badge)]">Could not load connections. Please try again later.</div>;
+    return (
+      <div className="p-8 premium-card text-center" role="alert">
+        <p className="text-[var(--color-warning-badge)]">Could not load connections. Please try again later.</p>
+        <button
+          type="button"
+          onClick={retry}
+          className="mt-4 min-h-11 rounded-full border border-[var(--color-official-border)] px-4 text-sm font-bold text-[var(--color-official-link)] transition-colors hover:border-[var(--color-official-link)] cursor-pointer"
+        >
+          Retry
+        </button>
+      </div>
+    );
   }
 
   // After the loading/error guards above, data is set; this explicit check avoids a
@@ -191,15 +246,20 @@ export default function ConnectionsTab({ politicianId, politicianName }: { polit
 
   if (isEmpty) {
     return (
-      <div className="p-8 premium-card text-center text-[var(--color-official-text-muted)]">
-        No cross-referenced connections found yet. Co-voting connections appear once roll-call data has been
-        re-ingested with stable roll-call ids; shared-donor links require overlapping FEC donors.
+      <div className="space-y-4">
+        <PartialConnectionsNotice failures={bundle.failures} onRetry={retry} />
+        <div className="p-8 premium-card text-center text-[var(--color-official-text-muted)]">
+          No cross-referenced connections found yet. Co-voting connections appear once roll-call data has been
+          re-ingested with stable roll-call ids; shared-donor links require overlapping FEC donors.
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-10">
+      <PartialConnectionsNotice failures={bundle.failures} onRetry={retry} />
+
       {/* At-a-glance mini-graph */}
       {graphNodes.length > 0 && (
         <div className="premium-card p-4">
@@ -251,6 +311,11 @@ export default function ConnectionsTab({ politicianId, politicianName }: { polit
             <span className="warning-badge">Third-Party Data - Unverified</span>
             <p className="text-sm opacity-80 mt-2 max-w-3xl">
               Network ties are ingested from LittleSis by name matching and have not been verified against official records.
+            </p>
+            <p className="text-xs opacity-80 mt-2 max-w-3xl">
+              Data source: <a href="https://littlesis.org/" target="_blank" rel="noreferrer" className="underline font-semibold">LittleSis</a>,
+              {' '}a project of the Public Accountability Initiative. LittleSis API metadata identifies its dataset as{' '}
+              <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noreferrer" className="underline font-semibold">CC BY-SA 4.0</a>.
             </p>
           </div>
           <div className="grid gap-4 md:grid-cols-2">

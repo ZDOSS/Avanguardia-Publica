@@ -27,6 +27,7 @@ class FakeQuery:
         self.filters = []
         self.like_filters = []
         self.gte_filters = []
+        self.contains_filters = []
         self.limit_count = None
         self.range_bounds = None
         self.count_requested = False
@@ -47,6 +48,10 @@ class FakeQuery:
         self.gte_filters.append((column, value))
         return self
 
+    def contains(self, column, value):
+        self.contains_filters.append((column, value))
+        return self
+
     def limit(self, count):
         self.limit_count = count
         return self
@@ -63,6 +68,8 @@ class FakeQuery:
             rows = [row for row in rows if self._matches_like(row.get(column), pattern)]
         for column, value in self.gte_filters:
             rows = [row for row in rows if str(row.get(column) or "") >= str(value)]
+        for column, value in self.contains_filters:
+            rows = [row for row in rows if self._contains(row.get(column), value)]
 
         total_count = len(rows)
         if self.range_bounds is not None:
@@ -79,6 +86,20 @@ class FakeQuery:
         if pattern.endswith("%"):
             return value.startswith(pattern[:-1])
         return value == pattern
+
+    @classmethod
+    def _contains(cls, actual, expected):
+        if isinstance(expected, dict):
+            return isinstance(actual, dict) and all(
+                key in actual and cls._contains(actual[key], value)
+                for key, value in expected.items()
+            )
+        if isinstance(expected, list):
+            return isinstance(actual, list) and all(
+                any(cls._contains(item, wanted) for item in actual)
+                for wanted in expected
+            )
+        return actual == expected
 
 
 class FakeSupabase:
@@ -127,6 +148,11 @@ class IdentityHealthTests(unittest.TestCase):
                             "id": "candidate-1",
                             "candidate_type": self.identity_health.OPENSTATES_DUPLICATE_CANDIDATE_TYPE,
                             "status": "approved",
+                            "evidence": {
+                                "deterministic_keys": [
+                                    {"source_system_key": "openstates"}
+                                ]
+                            },
                         }
                     ],
                     "politicians": [
@@ -173,6 +199,11 @@ class IdentityHealthTests(unittest.TestCase):
                             "id": "candidate-1",
                             "candidate_type": "identity_observer_pending_missing_deterministic_identity",
                             "status": "pending",
+                            "evidence": {
+                                "deterministic_keys": [
+                                    {"source_system_key": "openstates"}
+                                ]
+                            },
                         },
                         {
                             "id": "candidate-2",
@@ -204,11 +235,27 @@ class IdentityHealthTests(unittest.TestCase):
                             "id": "candidate-1",
                             "candidate_type": self.identity_health.OPENSTATES_DUPLICATE_CANDIDATE_TYPE,
                             "status": "pending",
+                            "evidence": {
+                                "deterministic_keys": [
+                                    {"source_system_key": "openstates"}
+                                ]
+                            },
                         },
                         {
                             "id": "candidate-2",
                             "candidate_type": "identity_observer_pending_missing_deterministic_identity",
                             "status": "pending",
+                        },
+                        {
+                            "id": "candidate-3",
+                            "candidate_type": self.identity_health.OPENSTATES_DUPLICATE_CANDIDATE_TYPE,
+                            "status": "pending",
+                            "evidence": {
+                                "deterministic_keys": [
+                                    {"source_system_key": "bioguide"},
+                                    {"source_system_key": "fec"},
+                                ]
+                            },
                         },
                     ],
                     "politicians": [
@@ -225,7 +272,7 @@ class IdentityHealthTests(unittest.TestCase):
         health = self.identity_health.run_identity_health_check(loader, summary)
 
         self.assertEqual("warning", health["status"])
-        self.assertEqual(2, health["checks"]["pending_identity_observer_candidates"])
+        self.assertEqual(3, health["checks"]["pending_identity_observer_candidates"])
         self.assertEqual(
             1,
             health["checks"]["pending_openstates_federal_duplicate_candidates"],

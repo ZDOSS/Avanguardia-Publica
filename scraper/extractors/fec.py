@@ -17,7 +17,10 @@ api.data.gov key allows ~1,000 requests/hour, so we deliberately bound the work:
 
 import os
 import logging
+import time
 import requests
+
+from source_health import SourceHealthTracker
 
 logger = logging.getLogger(__name__)
 
@@ -55,43 +58,82 @@ def _api_key() -> str:
     return os.environ.get("FEC_API_KEY") or "DEMO_KEY"
 
 
-def _get(path: str, params: dict):
+def _get(path: str, params: dict, health: SourceHealthTracker | None = None):
     """Single budgeted GET against OpenFEC. Returns parsed JSON or None on failure."""
     global _request_count, _breaker_tripped, _consecutive_failures
 
     if _breaker_tripped or _request_count >= _MAX_REQUESTS:
         _breaker_tripped = True
+        if health:
+            health.record_skip(
+                "request_budget_exhausted"
+                if _request_count >= _MAX_REQUESTS
+                else "breaker_open"
+            )
         return None
 
     params = dict(params)
     params["api_key"] = _api_key()
-    # Count the attempt before issuing it, so timeouts/connection errors also draw
-    # down the budget (otherwise a sustained outage never trips the count breaker).
     _request_count += 1
+    if health:
+        health.record_attempt()
+    started_at = time.monotonic()
+
     try:
         resp = requests.get(f"{_BASE}{path}", params=params, timeout=_TIMEOUT)
-        if resp.status_code == 429:
-            logger.warning("[FEC] Rate limit (429) hit — tripping breaker for this run.")
-            _breaker_tripped = True
+        elapsed = time.monotonic() - started_at
+        if not resp.ok:
+            reason = f"http_{resp.status_code}"
+            if health:
+                health.record_failure(reason, elapsed)
+            _consecutive_failures += 1
+            if resp.status_code in (401, 403, 429):
+                logger.warning("[FEC] HTTP %s; tripping breaker for this run.", resp.status_code)
+                _breaker_tripped = True
+                if health:
+                    health.trip_breaker(reason)
+            elif _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                _breaker_tripped = True
+                if health:
+                    health.trip_breaker("consecutive_failures")
+            elif health and health.breaker_tripped:
+                _breaker_tripped = True
             return None
-        resp.raise_for_status()
+
+        payload = resp.json()
         _consecutive_failures = 0
-        return resp.json()
+        if health:
+            health.record_success(elapsed)
+        return payload
     except Exception as exc:
         logger.warning("[FEC] Request failed for %s: %s", path, exc)
         _consecutive_failures += 1
+        if health:
+            reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
+            health.record_failure(reason, time.monotonic() - started_at)
         if _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
             logger.warning(
-                "[FEC] %d consecutive failures — tripping breaker for this run.",
+                "[FEC] %d consecutive failures; tripping breaker for this run.",
                 _consecutive_failures,
             )
+            _breaker_tripped = True
+            if health:
+                health.trip_breaker("consecutive_failures")
+        elif health and health.breaker_tripped:
+            logger.warning("[FEC] Health threshold exceeded; tripping breaker for this run.")
             _breaker_tripped = True
         return None
 
 
-def _most_active_principal_committee(candidate_id: str):
+def _most_active_principal_committee(
+    candidate_id: str, health: SourceHealthTracker | None = None
+):
     """Return the principal campaign committee id with the most recent filing activity."""
-    data = _get(f"/candidate/{candidate_id}/committees/", {"designation": "P"})
+    data = _get(
+        f"/candidate/{candidate_id}/committees/",
+        {"designation": "P"},
+        health=health,
+    )
     if not data:
         return None
     committees = data.get("results", [])
@@ -103,7 +145,11 @@ def _most_active_principal_committee(candidate_id: str):
     return committees[0].get("committee_id")
 
 
-def _recent_receipts(committee_id: str, limit: int) -> list:
+def _recent_receipts(
+    committee_id: str,
+    limit: int,
+    health: SourceHealthTracker | None = None,
+) -> list:
     data = _get(
         "/schedules/schedule_a/",
         {
@@ -111,6 +157,7 @@ def _recent_receipts(committee_id: str, limit: int) -> list:
             "per_page": min(limit, 100),
             "sort": "-contribution_receipt_date",
         },
+        health=health,
     )
     if not data:
         return []
@@ -142,7 +189,11 @@ def _map_receipt(receipt: dict) -> dict | None:
     }
 
 
-def get_campaign_donors(fec_ids: list, limit: int = _DONORS_PER_POLITICIAN) -> list:
+def get_campaign_donors(
+    fec_ids: list,
+    limit: int = _DONORS_PER_POLITICIAN,
+    health: SourceHealthTracker | None = None,
+) -> list:
     """
     Returns recent itemized campaign donors for a politician, keyed by their FEC
     candidate IDs (politicians.external_ids["fec"]). Bounded and rate-limit aware;
@@ -151,15 +202,19 @@ def get_campaign_donors(fec_ids: list, limit: int = _DONORS_PER_POLITICIAN) -> l
     """
     if not fec_ids:
         return []
+    if _breaker_tripped:
+        if health:
+            health.record_skip("breaker_open", len(fec_ids))
+        return []
 
     donors: dict[str, dict] = {}
     for candidate_id in fec_ids:
         if _breaker_tripped:
             break
-        committee_id = _most_active_principal_committee(candidate_id)
+        committee_id = _most_active_principal_committee(candidate_id, health=health)
         if not committee_id:
             continue
-        for receipt in _recent_receipts(committee_id, limit):
+        for receipt in _recent_receipts(committee_id, limit, health=health):
             mapped = _map_receipt(receipt)
             if mapped:
                 # Dedup across a candidate's committees by the unique FEC sub_id.

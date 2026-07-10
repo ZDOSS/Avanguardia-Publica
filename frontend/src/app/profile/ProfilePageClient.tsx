@@ -4,13 +4,26 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import PoliticianClient from '@/app/[politician_id]/PoliticianClient';
+import { isCanonicalPoliticianRpcUnavailableError } from '@/lib/canonicalPoliticians';
 import { isUuid } from '@/lib/ids';
 import { fetchProfileHeader, type ProfileHeader } from '@/lib/profile';
 
-export default function ProfilePageClient() {
+export default function ProfilePageClient({ profileId }: { profileId?: string }) {
+  if (typeof profileId === 'string') {
+    return <ProfileById id={profileId} />;
+  }
+
+  return <ProfileFromSearchParams />;
+}
+
+function ProfileFromSearchParams() {
   const searchParams = useSearchParams();
   const id = searchParams.get('id') ?? '';
 
+  return <ProfileById id={id} />;
+}
+
+function ProfileById({ id }: { id: string }) {
   if (!id) {
     return <ProfileUnavailable message="No politician was found for this live profile link." />;
   }
@@ -41,7 +54,11 @@ function LiveProfile({ id }: { id: string }) {
       .catch((e) => {
         if (!cancelled) {
           console.error('Failed to load live profile:', e);
-          setError('Could not load this live profile. Please try again later.');
+          setError(
+            isCanonicalPoliticianRpcUnavailableError(e)
+              ? 'Canonical profile data is temporarily unavailable. To avoid showing a duplicate or incomplete record, this profile is paused.'
+              : 'Could not load this live profile. Please try again later.'
+          );
         }
       });
 

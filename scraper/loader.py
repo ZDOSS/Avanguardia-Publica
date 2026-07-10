@@ -1,7 +1,7 @@
 import logging
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from supabase import create_client, Client
 
 from government_classification import normalize_government_classification, normalize_location_fields
@@ -24,6 +24,10 @@ logger = logging.getLogger(__name__)
 _STABLE_SCHEMES = ("openstates", "wikidata")
 
 
+class IdentityResolutionConflict(RuntimeError):
+    """Raised before a hub mutation when deterministic identity evidence conflicts."""
+
+
 class SupabaseLoader:
     def __init__(self, url: str, key: str, summary=None):
         self.url = url
@@ -36,7 +40,7 @@ class SupabaseLoader:
             self.supabase = None
             print("Warning: SUPABASE_URL or SUPABASE_KEY is not set. Running in dry-run mode.")
         self.person_id_by_politician_id = {}
-        self.identity_resolver = IdentityResolver()
+        self.identity_resolver = IdentityResolver(summary=self.summary)
         self.identity_observer_loaded = False
 
     def _increment(self, key: str, amount: int = 1) -> None:
@@ -111,15 +115,25 @@ class SupabaseLoader:
                 self._reset_client()
                 time.sleep(wait_seconds)
 
-    def _select_all_rows(self, table_name: str, columns: str, page_size: int = 1000) -> list[dict]:
+    def _select_all_rows(
+        self,
+        table_name: str,
+        columns: str,
+        page_size: int = 1000,
+        eq_filters: tuple[tuple[str, object], ...] = (),
+    ) -> list[dict]:
         rows = []
         start = 0
         while True:
             end = start + page_size - 1
+            def operation(start=start, end=end):
+                query = self.supabase.table(table_name).select(columns)
+                for column, value in eq_filters:
+                    query = query.eq(column, value)
+                return query.range(start, end).execute()
+
             resp = self.execute_supabase(
-                lambda start=start, end=end: (
-                    self.supabase.table(table_name).select(columns).range(start, end).execute()
-                ),
+                operation,
                 f"load {table_name} identity observer rows",
             )
             batch = resp.data or []
@@ -132,9 +146,16 @@ class SupabaseLoader:
         if self.identity_observer_loaded or not self.supabase:
             return
 
+        active_people = self._select_all_rows(
+            "people",
+            "id",
+            eq_filters=(("status", "active"),),
+        )
+        active_person_ids = {row.get("id") for row in active_people if row.get("id")}
         external_rows = self._select_all_rows(
             "person_external_ids",
-            "person_id,source_system_key,external_id_type,external_id",
+            "person_id,source_system_key,external_id_type,external_id,is_trusted",
+            eq_filters=(("is_trusted", True),),
         )
         legacy_rows = self._select_all_rows(
             "legacy_profile_redirects",
@@ -147,6 +168,8 @@ class SupabaseLoader:
 
         for row in external_rows:
             person_id = row.get("person_id")
+            if person_id not in active_person_ids:
+                continue
             source_system_key = str(row.get("source_system_key") or "").strip()
             external_id_type = str(row.get("external_id_type") or "").strip()
             external_id = str(row.get("external_id") or "").strip()
@@ -159,13 +182,15 @@ class SupabaseLoader:
 
         for row in legacy_rows:
             person_id = row.get("person_id")
+            if person_id not in active_person_ids:
+                continue
             legacy_politician_id = str(row.get("legacy_politician_id") or "").strip()
             if not person_id or not legacy_politician_id:
                 continue
             identity_data[person_id]["legacy_ids"].add(legacy_politician_id)
             loaded_legacy_redirects += 1
 
-        resolver = IdentityResolver()
+        resolver = IdentityResolver(summary=self.summary)
         for person_id, data in identity_data.items():
             deterministic_keys = tuple(
                 sorted(
@@ -274,7 +299,7 @@ class SupabaseLoader:
 
     def _identity_candidate_evidence(
         self,
-        politician_id: str,
+        politician_id: str | None,
         member_data: dict,
         resolution: IdentityResolution,
     ) -> dict:
@@ -283,6 +308,9 @@ class SupabaseLoader:
             "observer_action": resolution.action,
             "blocked_reason": resolution.blocked_reason,
             "legacy_politician_id": politician_id,
+            "source_system_key": member_data.get("source_system_key"),
+            "source_record_key": member_data.get("source_record_key"),
+            "source_url": member_data.get("source_url"),
             "full_name": member_data.get("full_name"),
             "current_office": member_data.get("current_office"),
             "party": member_data.get("party"),
@@ -302,11 +330,11 @@ class SupabaseLoader:
 
     def record_identity_resolution_candidate(
         self,
-        politician_id: str,
+        politician_id: str | None,
         member_data: dict,
         resolution: IdentityResolution,
     ) -> None:
-        if not self.supabase or not politician_id:
+        if not self.supabase:
             return
 
         try:
@@ -329,14 +357,27 @@ class SupabaseLoader:
                 ),
                 **self._identity_candidate_person_fields(resolution),
             }
-            existing = self.execute_supabase(
-                lambda: (
+
+            def select_existing_candidate():
+                query = (
                     self.supabase.table("identity_resolution_candidates")
                     .select("id,status,candidate_legacy_politician_id")
                     .eq("candidate_type", candidate_type)
-                    .eq("source_legacy_politician_id", politician_id)
-                    .execute()
-                ),
+                )
+                if politician_id:
+                    query = query.eq("source_legacy_politician_id", politician_id)
+                else:
+                    query = query.is_("source_legacy_politician_id", "null").contains(
+                        "evidence",
+                        {
+                            "source_system_key": member_data.get("source_system_key"),
+                            "source_record_key": member_data.get("source_record_key"),
+                        },
+                    )
+                return query.execute()
+
+            existing = self.execute_supabase(
+                select_existing_candidate,
                 f"select identity resolution candidate {candidate_type} for {politician_id}",
             )
             matching_rows = [
@@ -348,7 +389,7 @@ class SupabaseLoader:
                 (
                     row
                     for row in matching_rows
-                    if row.get("status") in ("approved", "rejected")
+                    if row.get("status") in ("approved", "rejected", "blocked")
                 ),
                 None,
             )
@@ -406,6 +447,270 @@ class SupabaseLoader:
             )
         )
 
+    def _source_native_legacy_id(self, member_data: dict) -> str | None:
+        """Find an existing compatibility profile without ever using a person's name."""
+        source_system_key = str(member_data.get("source_system_key") or "").strip()
+        source_record_key = str(member_data.get("source_record_key") or "").strip()
+        if source_system_key and source_record_key:
+            response = self.execute_supabase(
+                lambda: (
+                    self.supabase.table("source_records")
+                    .select("legacy_politician_id")
+                    .eq("source_system_key", source_system_key)
+                    .eq("source_record_key", source_record_key)
+                    .limit(2)
+                    .execute()
+                ),
+                f"resolve source-native legacy profile {source_system_key}:{source_record_key}",
+            )
+            ids = {
+                row.get("legacy_politician_id")
+                for row in (response.data or [])
+                if row.get("legacy_politician_id")
+            }
+            if len(ids) == 1:
+                return next(iter(ids))
+
+        external_ids = member_data.get("external_ids") or {}
+        openstates_id = external_ids.get("openstates")
+        if openstates_id:
+            response = self.execute_supabase(
+                lambda: (
+                    self.supabase.table("politicians")
+                    .select("id")
+                    .contains("external_ids", {"openstates": openstates_id})
+                    .limit(2)
+                    .execute()
+                ),
+                f"resolve OpenStates legacy profile {openstates_id}",
+            )
+            ids = {row.get("id") for row in (response.data or []) if row.get("id")}
+            return next(iter(ids)) if len(ids) == 1 else None
+
+        bioguide_id = member_data.get("bioguide_id")
+        if bioguide_id:
+            response = self.execute_supabase(
+                lambda: (
+                    self.supabase.table("politicians")
+                    .select("id")
+                    .eq("bioguide_id", bioguide_id)
+                    .limit(2)
+                    .execute()
+                ),
+                f"resolve Bioguide legacy profile {bioguide_id}",
+            )
+            ids = {row.get("id") for row in (response.data or []) if row.get("id")}
+            return next(iter(ids)) if len(ids) == 1 else None
+
+        wikidata_id = external_ids.get("wikidata")
+        branch = member_data.get("government_branch")
+        if wikidata_id and branch:
+            response = self.execute_supabase(
+                lambda: (
+                    self.supabase.table("politicians")
+                    .select("id")
+                    .contains("external_ids", {"wikidata": wikidata_id})
+                    .eq("government_branch", branch)
+                    .limit(2)
+                    .execute()
+                ),
+                f"resolve role-compatible Wikidata legacy profile {wikidata_id}",
+            )
+            ids = {row.get("id") for row in (response.data or []) if row.get("id")}
+            return next(iter(ids)) if len(ids) == 1 else None
+        return None
+
+    def _guard_identity_before_hub_write(
+        self, member_data: dict, existing_id: str | None
+    ) -> IdentityResolution:
+        """Block deterministic multi-person conflicts before changing ``politicians``.
+
+        The observer previously ran only after the hub write.  That made its strongest
+        outcome (``blocked_conflict``) diagnostic rather than protective: the legacy row
+        had already been changed.  Resolve against the start-of-run identity snapshot
+        first and fail the record before any update/insert.
+        """
+        self._ensure_identity_observer_loaded()
+        row = dict(member_data)
+        deterministic_keys = trusted_external_keys(row)
+        if existing_id and deterministic_keys:
+            row["id"] = existing_id
+        resolution = self.identity_resolver.resolve(packet_from_legacy_politician(row))
+        self._increment("identity_observer_packets_checked")
+        self._increment(f"identity_observer_{resolution.action}")
+        if resolution.action not in ("blocked_conflict", "pending_review"):
+            return resolution
+
+        self._increment("identity_prewrite_writes_blocked")
+        if resolution.blocked_reason:
+            self._increment(f"identity_prewrite_blocked_{resolution.blocked_reason}")
+        elif resolution.pending_candidate:
+            self._increment(
+                f"identity_prewrite_blocked_{resolution.pending_candidate.candidate_type}"
+            )
+        candidate_legacy_id = existing_id
+        if candidate_legacy_id is None and member_data.get("source_system_key"):
+            candidate_legacy_id = self._source_native_legacy_id(member_data)
+        self.record_identity_resolution_candidate(
+            candidate_legacy_id, member_data, resolution
+        )
+        raise IdentityResolutionConflict(
+            "Refusing hub mutation for "
+            f"{member_data.get('full_name') or existing_id}: "
+            f"{resolution.blocked_reason or 'missing deterministic identity'}"
+        )
+
+    def _upsert_source_profile_identity(
+        self,
+        member_data: dict,
+        profile_payload: dict,
+    ) -> str:
+        """Atomically resolve identity and write hub/source/term data via migration 0022.
+
+        There is intentionally no production fallback to separate table writes. If the
+        migration or RPC is missing, this record fails before a partial hub mutation.
+        """
+        source_system_key = str(member_data.get("source_system_key") or "").strip()
+        source_record_key = str(member_data.get("source_record_key") or "").strip()
+        if not source_system_key or not source_record_key:
+            raise ValueError("source profile packets require source_system_key and source_record_key")
+
+        trusted_ids = [
+            {
+                "source_system_key": key.source_system_key,
+                "external_id_type": key.external_id_type,
+                "external_id": key.external_id,
+            }
+            for key in trusted_external_keys(member_data)
+        ]
+        classification = normalize_government_classification(member_data)
+        location = normalize_location_fields(member_data)
+        office_term = {
+            "source_term_key": member_data.get("source_term_key") or "current-office",
+            "office_title": member_data.get("current_office") or "Public office",
+            "role_type": member_data.get("role_type") or "office",
+            "organization_name": member_data.get("organization_name"),
+            "government_level": classification["government_level"],
+            "government_branch": classification["government_branch"],
+            "office_type": classification["office_type"],
+            "jurisdiction": classification["jurisdiction"],
+            "state": location["state"],
+            "district": location["district"],
+            "term_start": member_data.get("term_start"),
+            "term_end": member_data.get("term_end"),
+            "term_status": member_data.get("term_status") or "current",
+            "metadata": {"source_system_key": source_system_key},
+        }
+        args = {
+            "p_source_system_key": source_system_key,
+            "p_source_record_key": source_record_key,
+            "p_profile": profile_payload,
+            "p_trusted_external_ids": trusted_ids,
+            "p_source_url": member_data.get("source_url"),
+            "p_raw_payload_ref": member_data.get("raw_payload_ref"),
+            "p_payload_hash": member_data.get("payload_hash"),
+            "p_verified_lane": member_data.get("verified_lane") or "unverified",
+            "p_office_term": office_term,
+            "p_source_catalog_slug": member_data.get("source_catalog_slug"),
+            "p_source_endpoint_slug": member_data.get("source_endpoint_slug"),
+            "p_source_updated_at": member_data.get("source_updated_at"),
+        }
+        resp = self.execute_supabase(
+            lambda: self.supabase.rpc("upsert_source_profile_identity", args).execute(),
+            f"transactional source profile upsert {source_system_key}:{source_record_key}",
+        )
+        result = (resp.data or [{}])[0]
+        politician_id = result.get("legacy_politician_id")
+        person_id = result.get("person_id")
+        if (
+            not politician_id
+            or not person_id
+            or not result.get("source_record_id")
+            or not result.get("office_term_id")
+        ):
+            raise RuntimeError(
+                "upsert_source_profile_identity returned an incomplete identity result"
+            )
+
+        self.person_id_by_politician_id[politician_id] = person_id
+        action = str(result.get("resolution_action") or "unknown").strip().lower()
+        self._increment(f"source_profile_identity_{action}")
+        self._increment("hub_rows_upserted")
+        self._increment("source_records_upserted")
+        self._increment("person_office_terms_upserted")
+        self._increment("identity_profiles_synced")
+        self._record_identity_observer_mapping(politician_id, member_data, person_id)
+        print(f"  [+] Transactionally synced source profile for {member_data['full_name']}")
+        return politician_id
+
+    def reconcile_source_snapshot(
+        self,
+        source_system_key: str,
+        seen_record_keys: set[str],
+        *,
+        record_key_prefix: str | None = None,
+    ) -> int:
+        """Retire records absent from a complete source snapshot, without deleting identity."""
+        if not self.supabase:
+            return 0
+
+        seen = {str(value).strip() for value in seen_record_keys if str(value).strip()}
+        rows = []
+        start = 0
+        page_size = 1000
+        while True:
+            end = start + page_size - 1
+            def load_page(start=start, end=end):
+                query = (
+                    self.supabase.table("source_records")
+                    .select("id,source_record_key")
+                    .eq("source_system_key", source_system_key)
+                    .eq("record_type", "person_profile")
+                    .eq("record_status", "active")
+                )
+                if record_key_prefix:
+                    query = query.like("source_record_key", f"{record_key_prefix}%")
+                return query.range(start, end).execute()
+
+            resp = self.execute_supabase(
+                load_page,
+                f"load active {source_system_key} source records for reconciliation",
+            )
+            batch = resp.data or []
+            rows.extend(batch)
+            if len(batch) < page_size:
+                break
+            start += page_size
+
+        missing = [row for row in rows if str(row.get("source_record_key")) not in seen]
+        retired_at = datetime.now(timezone.utc).isoformat()
+        term_end = date.today().isoformat()
+        retired_term_count = 0
+        for row in missing:
+            source_record_id = row.get("id")
+            if not source_record_id:
+                continue
+            response = self.execute_supabase(
+                lambda source_record_id=source_record_id: self.supabase.rpc(
+                    "retire_source_profile_record",
+                    {
+                        "p_source_record_id": source_record_id,
+                        "p_retired_at": retired_at,
+                        "p_term_end": term_end,
+                    },
+                ).execute(),
+                f"atomically retire absent {source_system_key} source record {source_record_id}",
+            )
+            result = (response.data or [{}])[0]
+            if result.get("record_status") != "retired":
+                raise RuntimeError(
+                    f"retire_source_profile_record did not retire {source_record_id}"
+                )
+            retired_term_count += int(result.get("retired_office_term_count") or 0)
+        self._increment("source_records_retired", len(missing))
+        self._increment("person_office_terms_historicized", retired_term_count)
+        return len(missing)
+
     def upsert_politician(self, member_data: dict):
         """
         Upserts a politician into the Hub table and returns the UUID.
@@ -459,6 +764,10 @@ class SupabaseLoader:
             data_to_write["bioguide_id"] = bioguide_id
 
         try:
+            if member_data.get("source_system_key") or member_data.get("source_record_key"):
+                self._guard_identity_before_hub_write(member_data, None)
+                return self._upsert_source_profile_identity(member_data, data_to_write)
+
             existing_id = None
 
             if bioguide_id:
@@ -531,6 +840,8 @@ class SupabaseLoader:
                 if resp.data:
                     existing_id = resp.data[0]["id"]
 
+            self._guard_identity_before_hub_write(member_data, existing_id)
+
             if existing_id is not None:
                 self.execute_supabase(
                     lambda: (
@@ -545,7 +856,6 @@ class SupabaseLoader:
                 print(f"  [+] Updated Hub for {member_data['full_name']}")
                 person_id = self.sync_legacy_profile_identity(existing_id)
                 self._record_identity_observer_mapping(existing_id, member_data, person_id)
-                self.observe_politician_identity(existing_id, member_data)
                 return existing_id
 
             insert_resp = self.execute_supabase(
@@ -558,7 +868,6 @@ class SupabaseLoader:
                 print(f"  [+] Inserted new Hub for {member_data['full_name']}")
                 person_id = self.sync_legacy_profile_identity(p_id)
                 self._record_identity_observer_mapping(p_id, member_data, person_id)
-                self.observe_politician_identity(p_id, member_data)
                 return p_id
         except Exception as e:
             # Re-raise instead of swallowing. The Hub upsert is the root of every spoke
@@ -650,6 +959,7 @@ class SupabaseLoader:
             print("  [+] Updated contact info")
         except Exception as e:
             print(f"  [!] Error upserting contact info for {politician_id}: {e}")
+            raise
 
     def upsert_financial_disclosures(self, politician_id: str, filings: list):
         """
@@ -740,6 +1050,7 @@ class SupabaseLoader:
             print(f"  [+] Upserted {len(rows)} campaign donors")
         except Exception as e:
             print(f"  [!] Error upserting campaign donors for {politician_id}: {e}")
+            raise
 
     def upsert_voting_records(self, politician_id: str, records: list):
         """
@@ -796,10 +1107,11 @@ class SupabaseLoader:
                     f"upsert {len(group)} voting records for {politician_id}",
                 )
                 upserted += len(group)
+                self._increment("voting_rows_written", len(group))
             except Exception as e:
                 print(f"  [!] Error upserting {len(group)} voting records for {politician_id}: {e}")
+                raise
         if upserted:
-            self._increment("voting_rows_written", upserted)
             print(f"  [+] Upserted {upserted} voting records")
 
     def upsert_relationships(self, politician_id: str, edges: list):
@@ -822,14 +1134,9 @@ class SupabaseLoader:
         names = {e.get("related_name") for e in edges if e.get("related_name")}
         if not names:
             return
-        # Resolve every related name to an internal id in ONE query, not one per edge.
-        # None signals the resolve query FAILED (vs an empty dict = ran fine, no matches).
+        # Resolve every related name in one query. A query failure raises before any
+        # relationship upsert, so existing internal links cannot be nulled by a partial run.
         name_to_id = self._resolve_exact_names(names)
-        # On a resolve failure we must NOT write related_politician_id: doing so would set
-        # it NULL for every existing tie and clobber valid internal profile links until the
-        # next clean run. Omitting the key leaves the column untouched on conflict (the
-        # presence is uniform across all rows, so PostgREST won't union-NULL it either).
-        resolved = name_to_id is not None
 
         person_id = self._person_id_for_politician(politician_id)
         rows = []
@@ -849,8 +1156,7 @@ class SupabaseLoader:
             }
             if person_id:
                 row["person_id"] = person_id
-            if resolved:
-                row["related_politician_id"] = name_to_id.get(related_name)
+            row["related_politician_id"] = name_to_id.get(related_name)
             rows.append(row)
         try:
             self.execute_supabase(
@@ -863,6 +1169,7 @@ class SupabaseLoader:
             print(f"  [+] Upserted {len(rows)} relationships")
         except Exception as e:
             print(f"  [!] Error upserting relationships for {politician_id}: {e}")
+            raise
 
     def _resolve_exact_names(self, names):
         """
@@ -871,9 +1178,8 @@ class SupabaseLoader:
         rule; a name that matches zero or MORE THAN ONE politician is omitted (resolves to
         None at the call site) rather than guessing.
 
-        Returns a dict on success (possibly empty — ran fine, no matches), or None if the
-        query FAILED. Callers must treat None differently from {}: a failure must not be
-        read as "nothing matched" and used to overwrite previously-resolved links.
+        Returns a dict on success (possibly empty — ran fine, no matches). Query failures
+        raise so callers cannot overwrite previously-resolved links with unresolved rows.
         """
         name_list = [n for n in names if n]
         if not self.supabase or not name_list:
@@ -889,11 +1195,10 @@ class SupabaseLoader:
                 f"resolve {len(name_list)} politician names",
             )
         except Exception as e:
-            # WARNING, not DEBUG: a resolve failure means this run skips internal-link
-            # resolution for these relationships (to avoid clobbering existing links), so
-            # it should be visible in production logs rather than silently swallowed.
+            # A failed resolve aborts the relationship write so valid internal links are
+            # never replaced by unresolved/null values.
             logger.warning("Bulk name resolve failed for %d names: %s", len(name_list), e)
-            return None
+            raise
 
         # Count matches per name so ambiguous names (>1 politician) are dropped.
         ids_by_name: dict[str, list] = {}
@@ -915,9 +1220,13 @@ class SupabaseLoader:
         person_id = self._person_id_for_politician(politician_id)
         inserted_count = 0
         for item in data_list:
+            # NewsAggregator returns provider-specific provenance per item. Preserve it
+            # in the existing source_api column instead of flattening every provider to
+            # the generic aggregator label. Other callers keep their explicit fallback.
+            item_source_api = item.get("source_api") or source_api
             mention_data = {
                 "politician_id": politician_id,
-                "source_api": source_api,
+                "source_api": item_source_api,
                 "content_summary": item.get("content_summary", ""),
                 "url": item.get("url"),
                 "sentiment_score": item.get("sentiment_score"),
@@ -929,14 +1238,24 @@ class SupabaseLoader:
                     lambda mention_data=mention_data: (
                         self.supabase.table("unconfirmed_mentions").insert(mention_data).execute()
                     ),
-                    f"insert {source_api} mention for {politician_id}",
+                    f"insert {item_source_api} mention for {politician_id}",
                 )
                 inserted_count += 1
             except Exception as e:
-                # Most commonly a UNIQUE(politician_id, source_api, url) violation on a
-                # mention we already stored — expected, so we keep going. Log at debug so
-                # genuine failures (schema/permission errors) are still discoverable.
-                logger.debug("Skipped mention from %s (%s): %s", source_api, item.get("url"), e)
+                if self._is_non_retryable_supabase_error(e):
+                    self._increment("media_mentions_duplicates")
+                    logger.debug(
+                        "Duplicate mention from %s (%s): %s",
+                        item_source_api,
+                        item.get("url"),
+                        e,
+                    )
+                    continue
+                print(
+                    f"  [!] Error inserting {item_source_api} mention for "
+                    f"{politician_id}: {e}"
+                )
+                raise
 
         self._increment("media_mentions_inserted", inserted_count)
         print(f"  [+] Added {inserted_count} new mentions from {source_api}")

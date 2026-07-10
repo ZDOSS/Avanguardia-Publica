@@ -11,6 +11,7 @@ const CANONICAL_POLITICIAN_RPC_NAMES = [
   'get_canonical_campaign_donors',
   'get_canonical_voting_records',
   'get_canonical_media_mentions',
+  'get_canonical_person_office_terms',
 ];
 
 interface SupabaseErrorLike {
@@ -18,6 +19,25 @@ interface SupabaseErrorLike {
   message?: string;
   details?: string;
   hint?: string;
+}
+
+export class CanonicalPoliticianRpcUnavailableError extends Error {
+  readonly rpcName: string;
+
+  constructor(rpcName: string, cause?: unknown) {
+    super(`Canonical politician data is unavailable because ${rpcName} is not installed.`);
+    this.name = 'CanonicalPoliticianRpcUnavailableError';
+    this.rpcName = rpcName;
+    if (typeof cause !== 'undefined') {
+      (this as Error & { cause?: unknown }).cause = cause;
+    }
+  }
+}
+
+export function isCanonicalPoliticianRpcUnavailableError(
+  error: unknown,
+): error is CanonicalPoliticianRpcUnavailableError {
+  return error instanceof CanonicalPoliticianRpcUnavailableError;
 }
 
 export interface CanonicalLegacyPoliticianRef {
@@ -51,6 +71,23 @@ export function missingCanonicalPoliticianRpc(error: SupabaseErrorLike | null): 
   return referencesCanonicalRpc && missingFunction;
 }
 
+/**
+ * Permit legacy-table compatibility reads during local development only.
+ *
+ * Production must fail closed when the canonical identity surface is missing. Falling
+ * back to raw politicians rows there would silently reintroduce duplicate profiles.
+ */
+export function allowMissingCanonicalPoliticianRpcFallback(
+  error: unknown,
+  rpcName: string,
+): boolean {
+  if (!missingCanonicalPoliticianRpc(error as SupabaseErrorLike)) return false;
+  if (process.env.NODE_ENV === 'production') {
+    throw new CanonicalPoliticianRpcUnavailableError(rpcName, error);
+  }
+  return true;
+}
+
 export async function fetchCanonicalLegacyPoliticianRefs(profileId: string): Promise<CanonicalLegacyPoliticianRef[]> {
   if (!isUuid(profileId)) return [];
 
@@ -73,7 +110,7 @@ export async function fetchCanonicalLegacyPoliticianRefs(profileId: string): Pro
 
     return refs.length > 0 ? refs : [{ legacy_politician_id: profileId, is_canonical: true }];
   } catch (error) {
-    if (missingCanonicalPoliticianRpc(error as SupabaseErrorLike)) {
+    if (allowMissingCanonicalPoliticianRpcFallback(error, 'get_canonical_person_legacy_ids')) {
       return [{ legacy_politician_id: profileId, is_canonical: true }];
     }
     throw error;

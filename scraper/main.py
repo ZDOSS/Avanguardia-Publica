@@ -24,10 +24,55 @@ logging.basicConfig(
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
 )
 
+_MIN_CONGRESS_RECONCILIATION_RECORDS = 500
+_MIN_OPENSTATES_RECONCILIATION_RECORDS = 5000
+
 def main():
     load_dotenv()
     print("Starting Avanguardia-Publica Phase 1 Scraper Pipeline...")
     summary = ETLRunSummary()
+    source_health = {
+        "congress_roster": summary.source_tracker(
+            "congress_roster", min_attempts_for_rate=1, max_failure_rate=0.5
+        ),
+        "openstates_people": summary.source_tracker(
+            "openstates_people", min_attempts_for_rate=1, max_failure_rate=0.5
+        ),
+        "federal_executives": summary.source_tracker(
+            "federal_executives", min_attempts_for_rate=1, max_failure_rate=0.5
+        ),
+        "scotus_seed": summary.source_tracker(
+            "scotus_seed", min_attempts_for_rate=1, max_failure_rate=0.5
+        ),
+        "openfec": summary.source_tracker("openfec", min_attempts_for_rate=10),
+        "govtrack": summary.source_tracker("govtrack", min_attempts_for_rate=10),
+        "openstates_votes": summary.source_tracker(
+            "openstates_votes", min_attempts_for_rate=5
+        ),
+        "house_disclosures": summary.source_tracker(
+            "house_disclosures", min_attempts_for_rate=2, max_failure_rate=0.75
+        ),
+        "littlesis": summary.source_tracker(
+            "littlesis",
+            min_attempts_for_rate=10,
+            max_failure_rate=0.5,
+            affects_run=False,
+        ),
+        # Unverified enrichment must stay observably degraded without taking down a
+        # healthy roster/verified-spoke run. Its failed status remains in ETL_SUMMARY_JSON.
+        "news": summary.source_tracker(
+            "news", min_attempts_for_rate=10, affects_run=False
+        ),
+    }
+    news_provider_health = {
+        provider: summary.source_tracker(
+            f"news_{provider}",
+            min_attempts_for_rate=5,
+            max_failure_rate=0.5,
+            affects_run=False,
+        )
+        for provider in ("newsapi", "currents", "newsdata", "thenewsapi", "gdelt")
+    }
     
     # Initialize DB connection
     supabase_url = os.environ.get("SUPABASE_URL")
@@ -66,6 +111,7 @@ def main():
     fec_enabled = bool(fec_key) and fec_key.strip().upper() != "DEMO_KEY"
     if not fec_enabled:
         summary.skip("FEC", "FEC_API_KEY not set or DEMO_KEY")
+        source_health["openfec"].record_skip("api_key_not_configured")
         print("Note: FEC_API_KEY not set (or DEMO_KEY) — skipping campaign-donor enrichment.")
     
     try:
@@ -103,21 +149,30 @@ def main():
         )
 
     # 1. Fetch active Congress members
-    members = get_congress_members()
+    try:
+        members = get_congress_members(health=source_health["congress_roster"])
+    except Exception as e:
+        summary.error("congress:fetch_roster", e)
+        summary.print(success=False)
+        sys.exit(f"FATAL: Congress roster fetch failed: {e}")
     print(f"Found {len(members)} Congress members.")
 
     # House financial-disclosure filings (verified spoke) from the official House Clerk bulk
     # feed — filing-level only (member/type/date + official PDF link), keyless. Built ONCE for
-    # the current + previous year and matched per-member by name below. Never fatal: an outage
-    # just yields an empty index (House members only — senators/state are not in this feed).
+    # the current + previous year and matched per-member by name below. One missing year is
+    # tolerated as degraded; failure of both years crosses the verified-source health
+    # threshold and fails the run (senators/state are not in this feed).
     fd_years = [date.today().year, date.today().year - 1]
     print(f"Building House financial-disclosure index for {fd_years}...")
-    house_fd_index = get_house_disclosure_index(fd_years)
+    house_fd_index = get_house_disclosure_index(
+        fd_years, health=source_health["house_disclosures"]
+    )
     print(f"  House FD index: {len(house_fd_index)} name keys.")
     
     # 2. Iterate through each member and scrape third-party data sequentially
     total = len(members)
     errors_caught = 0
+    congress_upsert_errors = 0
     for index, member in enumerate(members, start=1):
         try:
             print(f"\n--- [{index}/{total}] Scraping data for {member['full_name']} ---")
@@ -142,28 +197,42 @@ def main():
                     fec_ids = (member.get('external_ids') or {}).get('fec') or []
                     if fec_ids:
                         print("  [*] Fetching FEC campaign donors...")
-                        donors = get_campaign_donors(fec_ids)
+                        donors = get_campaign_donors(
+                            fec_ids, health=source_health["openfec"]
+                        )
                         loader.upsert_campaign_donors(politician_id, donors)
+                    else:
+                        source_health["openfec"].record_skip("missing_fec_join_key")
 
                 # Verified spoke: roll-call votes from GovTrack, joined by the
                 # govtrack person id in the crosswalk (free, no key).
                 govtrack_id = (member.get('external_ids') or {}).get('govtrack')
                 if govtrack_id is not None:
                     print("  [*] Fetching GovTrack voting records...")
-                    votes = get_voting_records(govtrack_id)
+                    votes = get_voting_records(
+                        govtrack_id, health=source_health["govtrack"]
+                    )
                     loader.upsert_voting_records(politician_id, votes)
+                else:
+                    source_health["govtrack"].record_skip("missing_govtrack_join_key")
 
                 # Scrape LittleSis in a single pass: name-matched mentions (unverified
                 # text) plus structured relationships (network ties for the Connections
                 # view) share one entity search.
                 print("  [*] Fetching LittleSis data...")
-                ls_data, ls_rels = get_littlesis(member['full_name'])
+                ls_data, ls_rels = get_littlesis(
+                    member['full_name'], health=source_health["littlesis"]
+                )
                 loader.process_mentions(politician_id, ls_data, 'LittleSis')
                 loader.upsert_relationships(politician_id, ls_rels)
                 
                 # Fetch news via multi-tier aggregator (Currents → NewsData → TheNewsAPI → GDELT)
                 print("  [*] Fetching news data (multi-tier aggregator)...")
-                news_data = get_news_data(member['full_name'])
+                news_data = get_news_data(
+                    member['full_name'],
+                    health=source_health["news"],
+                    provider_health=news_provider_health,
+                )
                 loader.process_mentions(politician_id, news_data, 'NewsAggregator')
 
                 # Verified spoke: House financial-disclosure filings, matched by name against
@@ -177,7 +246,11 @@ def main():
                 is_house_member = (member.get('current_office') or '').startswith('US Representative')
                 if is_house_member:
                     fd_filings = lookup_disclosures(
-                        house_fd_index, [member['full_name']] + (member.get('aliases') or [])
+                        house_fd_index,
+                        [member['full_name']] + (member.get('aliases') or []),
+                        state=member.get("state"),
+                        district=member.get("district"),
+                        health=source_health["house_disclosures"],
                     )
                     if fd_filings:
                         loader.upsert_financial_disclosures(politician_id, fd_filings)
@@ -185,9 +258,24 @@ def main():
             print(f"  [!] Error scraping {member['full_name']}: {e}")
             summary.error(f"congress:{member.get('full_name')}", e)
             errors_caught += 1
+            congress_upsert_errors += 1
         finally:
             # Respect API rate limits for downstream services
             time.sleep(1)
+
+    if loader.supabase:
+        join_key_sources = {
+            "govtrack": "missing_govtrack_join_key",
+            **({"openfec": "missing_fec_join_key"} if fec_enabled else {}),
+        }
+        for source_name, missing_reason in join_key_sources.items():
+            tracker = source_health[source_name]
+            if tracker.attempts == 0:
+                tracker.record_failure("no_eligible_records_or_join_keys")
+                tracker.trip_breaker("no_eligible_records_or_join_keys")
+            elif total and tracker.skip_reasons[missing_reason] / total > 0.10:
+                tracker.record_failure("join_key_coverage_below_90_percent")
+                tracker.trip_breaker("join_key_coverage_below_90_percent")
 
     # 3. State legislators + governors (OpenStates). Hub + official contact by default.
     # Optional LittleSis enrichment is bounded and writes only to unverified spokes
@@ -196,7 +284,7 @@ def main():
     # additional people.
     print("\n=== State legislators + governors (OpenStates) ===")
     try:
-        state_people = get_state_politicians()
+        state_people = get_state_politicians(health=source_health["openstates_people"])
     except Exception as e:
         print(f"[!] Failed to fetch state politicians: {e}")
         summary.error("openstates:fetch_state_politicians", e)
@@ -207,6 +295,7 @@ def main():
     # (joined on the OpenStates ocd-person id) can be attached without re-querying.
     ocd_to_pid = {}
     state_unverified_checked = 0
+    state_upsert_errors = 0
     for index, person in enumerate(state_people, start=1):
         try:
             if index % 500 == 0:
@@ -221,7 +310,9 @@ def main():
                     offset=state_unverified_config["offset"],
                 ):
                     print("  [*] Fetching state LittleSis data (unverified)...")
-                    ls_data, ls_rels = get_littlesis(person['full_name'])
+                    ls_data, ls_rels = get_littlesis(
+                        person['full_name'], health=source_health["littlesis"]
+                    )
                     loader.process_mentions(politician_id, ls_data, 'LittleSis')
                     loader.upsert_relationships(politician_id, ls_rels)
                     state_unverified_checked += 1
@@ -234,6 +325,7 @@ def main():
             print(f"  [!] Error upserting state politician {person.get('full_name')}: {e}")
             summary.error(f"state_politician:{person.get('full_name')}", e)
             errors_caught += 1
+            state_upsert_errors += 1
         finally:
             # Brief pause every 100 records so ~8,000 back-to-back upserts don't
             # saturate the Supabase connection pool / free-tier request limits.
@@ -244,17 +336,45 @@ def main():
     if state_unverified_config["limit"] > 0 and skipped_by_limit:
         summary.increment("state_unverified_profiles_skipped_by_limit", skipped_by_limit)
 
+    if state_people and len(state_people) < _MIN_OPENSTATES_RECONCILIATION_RECORDS:
+        source_health["openstates_people"].record_skip(
+            "snapshot_below_reconciliation_floor"
+        )
+    if (
+        source_health["openstates_people"].status == "healthy"
+        and state_upsert_errors == 0
+        and len(state_people) >= _MIN_OPENSTATES_RECONCILIATION_RECORDS
+    ):
+        try:
+            loader.reconcile_source_snapshot(
+                "openstates",
+                {
+                    person["source_record_key"]
+                    for person in state_people
+                    if person.get("source_record_key")
+                },
+            )
+        except Exception as e:
+            summary.error("source_reconciliation:openstates", e)
+            errors_caught += 1
+    else:
+        summary.increment("source_reconciliation_skipped_openstates")
+
     # Verified spoke: state-legislature roll-call votes from the OpenStates API,
     # joined on the ocd-person id (no fuzzy names). Gated on OPENSTATES_API_KEY — with
     # no key the call is a no-op. Roll-call-centric, so one bounded crawl fans out to
     # many legislators at once (see extractors/openstates_votes.py).
     if not os.environ.get("OPENSTATES_API_KEY"):
         summary.skip("OpenStates votes", "OPENSTATES_API_KEY not set")
+        source_health["openstates_votes"].record_skip("api_key_not_configured")
         print("Note: OPENSTATES_API_KEY not set — skipping state voting records.")
     elif ocd_to_pid:
         print("\n=== State voting records (OpenStates API) ===")
         try:
-            votes_by_ocd = get_state_voting_records(known_ocd_ids=set(ocd_to_pid))
+            votes_by_ocd = get_state_voting_records(
+                known_ocd_ids=set(ocd_to_pid),
+                health=source_health["openstates_votes"],
+            )
             for ocd, records in votes_by_ocd.items():
                 loader.upsert_voting_records(ocd_to_pid[ocd], records)
         except Exception as e:
@@ -265,13 +385,21 @@ def main():
     # 4. Federal executive (President, VP) + judicial (Supreme Court). Hub + official
     # contact only; identified by Wikidata QID.
     print("\n=== Federal executive + judicial ===")
+    fed_snapshot_complete = False
     try:
-        fed_people = get_federal_exec_judicial()
+        fed_people = get_federal_exec_judicial(
+            executive_health=source_health["federal_executives"],
+            scotus_health=source_health["scotus_seed"],
+        )
+        fed_snapshot_complete = True
     except Exception as e:
         print(f"[!] Failed to fetch federal exec/judicial: {e}")
         summary.error("federal_exec_judicial:fetch", e)
+        errors_caught += 1
         fed_people = []
 
+    federal_upsert_errors = 0
+    scotus_upsert_errors = 0
     for person in fed_people:
         try:
             politician_id = loader.upsert_politician(person)
@@ -281,6 +409,67 @@ def main():
             print(f"  [!] Error upserting federal official {person.get('full_name')}: {e}")
             summary.error(f"federal_exec_judicial:{person.get('full_name')}", e)
             errors_caught += 1
+            federal_upsert_errors += 1
+            if str(person.get("source_record_key") or "").startswith("scotus-seed:"):
+                scotus_upsert_errors += 1
+
+    congress_source_people = [
+        person
+        for person in [*members, *fed_people]
+        if person.get("source_system_key") == "congress-legislators"
+    ]
+    if members and len(members) < _MIN_CONGRESS_RECONCILIATION_RECORDS:
+        source_health["congress_roster"].record_skip(
+            "snapshot_below_reconciliation_floor"
+        )
+    if (
+        source_health["congress_roster"].status == "healthy"
+        and source_health["federal_executives"].status == "healthy"
+        and fed_snapshot_complete
+        and congress_upsert_errors == 0
+        and federal_upsert_errors == 0
+        and len(members) >= _MIN_CONGRESS_RECONCILIATION_RECORDS
+    ):
+        try:
+            loader.reconcile_source_snapshot(
+                "congress-legislators",
+                {
+                    person["source_record_key"]
+                    for person in congress_source_people
+                    if person.get("source_record_key")
+                },
+            )
+        except Exception as e:
+            summary.error("source_reconciliation:congress-legislators", e)
+            errors_caught += 1
+    else:
+        summary.increment("source_reconciliation_skipped_congress_legislators")
+
+    scotus_people = [
+        person
+        for person in fed_people
+        if str(person.get("source_record_key") or "").startswith("scotus-seed:")
+    ]
+    if (
+        source_health["scotus_seed"].status == "healthy"
+        and scotus_upsert_errors == 0
+        and len(scotus_people) == 9
+    ):
+        try:
+            loader.reconcile_source_snapshot(
+                "avanguardia-legacy-profile",
+                {
+                    person["source_record_key"]
+                    for person in scotus_people
+                    if person.get("source_record_key")
+                },
+                record_key_prefix="scotus-seed:",
+            )
+        except Exception as e:
+            summary.error("source_reconciliation:scotus_seed", e)
+            errors_caught += 1
+    else:
+        summary.increment("source_reconciliation_skipped_scotus_seed")
 
     summary.set_news_providers(get_provider_status())
     try:
@@ -291,6 +480,13 @@ def main():
             "warning",
             warnings=[f"Identity health check failed to run: {e}"],
         )
+
+    for source in summary.run_blocking_source_failures():
+        summary.error(
+            f"source_health:{source}",
+            f"severe degradation crossed the configured threshold for {source}",
+        )
+        errors_caught += 1
 
     if errors_caught == 0:
         print("\nPipeline finished successfully.")

@@ -29,7 +29,10 @@ even when multiple sources or legacy rows describe that person.
 - Do not build new analytics over raw `politicians.id` once the identity bridge starts.
   Use `person_id` or an identity-aware compatibility RPC.
 - Verified and unverified data must remain visually and semantically distinct.
-- Migrations are manual, idempotent, and must be safe to re-run.
+- Migrations are manual and forward-only. Apply each numbered migration once; migrations
+  starting at `0022` record themselves in `public.schema_migrations`. Use a new repair
+  migration when historical data decisions need correction. Do not replay the full
+  directory on an upgraded database.
 - New data sources must remain free-tier or open source.
 
 ## Phase 1: Canonical Identity Bridge (Implemented)
@@ -209,17 +212,20 @@ ETL reporting should include identity-specific counts:
 - pending candidates
 - blocked conflicts
 
-The current reporting slice adds an end-of-run identity health block to
-`ETL_SUMMARY_JSON`. It reports pending observer candidates, pending/approved OpenStates
-federal duplicate candidates, total legacy rows with OpenStates `data/us`-style office
-text, and whether any of those stale office rows were refreshed during the current run.
-These checks are warnings for now; they should become fatal only after the remaining
-legacy source-quality cleanup is explicitly modeled.
+Migration `0022_project_stabilization.sql` and the corresponding loader path implement the
+first production Phase 3 boundary. Source-backed person profiles are resolved before any
+compatibility-row mutation and then written atomically with their trusted identifiers,
+source record, and office term. Name-only packets and conflicting deterministic IDs are
+blocked for review. `ETL_SUMMARY_JSON` retains the end-of-run identity health block and
+reports pending candidates, OpenStates federal duplicate cleanup state, and stale legacy
+office rows.
 
 ## Phase 4: Role And Source Model
 
 Add the broader government model only after canonical identity and person-aware spokes are
-stable.
+stable. Migration `0022` implements the minimal source-record and person-office-term
+backbone needed to stop modeling a person's federal, state, and local service as separate
+identities; the broader entity taxonomy below remains incremental work.
 
 Add role/entity tables incrementally, in the order demanded by real loader/frontend use
 cases:
@@ -250,11 +256,14 @@ Rules:
 
 ### Source Inventory Intake
 
-A July 2026 source inventory identified 97 U.S. government API and dataset candidates:
-21 P0, 28 P1, 29 P2, and 19 P3. Treat it as a source-catalog backlog for this phase,
-not as permission to add dozens of extractors. The inventory belongs inside this roadmap:
-it feeds the source/provenance model here, the Phase 6 review workflow for source
-mismatches and stale source records, and canonical analytics in Phase 7.
+A July 2026 source audit reported 97 U.S. government API and dataset candidates: 21 P0,
+28 P1, 29 P2, and 19 P3. The original 97-row artifact is not committed, so that count is
+historical context rather than a reproducible backlog. The candidate rows seeded by
+migrations `0017`, `0019`, and `0020` are the current reviewable source of truth; add any
+remaining candidates through small reviewed migrations instead of relying on an absent
+inventory file. The catalog feeds the source/provenance model here, the Phase 6 review
+workflow, and canonical analytics in Phase 7; it is not permission to add dozens of
+extractors.
 
 Before importing the inventory into schema or scraper code, reconcile it against sources
 already wired in the repo. The inventory correctly marks `api.data.gov`, OpenFEC, and
@@ -269,16 +278,15 @@ source. Current wired sources include:
 - OpenFEC campaign donors, joined by FEC candidate ID.
 - House Clerk financial disclosure index, filing-level only.
 - Federal executive and Supreme Court seed data keyed by trusted Wikidata QIDs.
-- LittleSis, Currents, NewsData.io, TheNewsAPI, and GDELT as unverified mention/network
-  sources.
+- LittleSis, Currents, NewsData.io, explicitly approved TheNewsAPI usage, and GDELT URL
+  discovery as unverified mention/network sources.
 
-Add a source-catalog schema only when needed by an extractor or review workflow. The
-current `source_systems` table is enough for identity provenance, but the inventory needs
-a broader source endpoint model before it can be represented cleanly. The first backbone
-slice is `migrations/0016_source_catalog_backbone.sql`: it keeps the catalog private,
-tracks source/endpoints/review events, links the currently wired `source_systems`, and
-does not add public profile facts or make the scraper depend on the new tables yet. The
-first inventory seed is `migrations/0017_source_inventory_p0_seed.sql`: it adds nine P0
+The source catalog now exists and remains private. The first backbone slice is
+`migrations/0016_source_catalog_backbone.sql`: it tracks sources, endpoints, review events,
+and links to the identity `source_systems`. Migration `0022` adds stable ingested source
+records and makes the scraper require that lifecycle only after its migration marker is
+present. The first inventory seed is `migrations/0017_source_inventory_p0_seed.sql`: it
+adds nine P0
 review candidates covering the source-discovery backbone and official federal
 legislative/publication sources. Those rows stay private `candidate` records until a later
 extractor or review workflow promotes them. The private reporting slice is
@@ -428,6 +436,10 @@ After canonical identity, spokes, scraper writes, and canonical read surfaces ar
 
 Every schema change in this plan must follow these rules:
 
+- Treat numbered migrations as immutable, forward-only history. Never instruct maintainers
+  to replay the full directory after data-review or merge migrations have run.
+- Insert a marker into `public.schema_migrations` and make scraper preflight require the
+  latest marker before using source quotas or writing data.
 - Use `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`.
 - PostgreSQL does not support `ALTER TABLE ... ADD CONSTRAINT IF NOT EXISTS`; use `DO $$`
   blocks that check `pg_constraint`.

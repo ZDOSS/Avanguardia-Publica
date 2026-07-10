@@ -26,6 +26,8 @@ import time
 import logging
 import requests
 
+from source_health import SourceHealthTracker
+
 logger = logging.getLogger(__name__)
 
 _BASE = "https://v3.openstates.org"
@@ -75,12 +77,23 @@ def reset_budget() -> None:
     _last_request_at = 0.0
 
 
-def _get(path: str, params: dict, api_key: str):
+def _get(
+    path: str,
+    params: dict,
+    api_key: str,
+    health: SourceHealthTracker | None = None,
+):
     """Single budgeted, paced GET against OpenStates v3. Returns JSON or None."""
     global _request_count, _breaker_tripped, _consecutive_failures, _last_request_at
 
     if _breaker_tripped or _request_count >= _MAX_REQUESTS:
         _breaker_tripped = True
+        if health:
+            health.record_skip(
+                "request_budget_exhausted"
+                if _request_count >= _MAX_REQUESTS
+                else "breaker_open"
+            )
         return None
 
     # Honour the 10 req/min cap: wait out the remainder of the interval since the
@@ -93,6 +106,9 @@ def _get(path: str, params: dict, api_key: str):
     # the budget (otherwise a sustained outage never trips the count breaker).
     _request_count += 1
     _last_request_at = time.monotonic()
+    if health:
+        health.record_attempt()
+    started_at = time.monotonic()
     try:
         resp = requests.get(
             f"{_BASE}{path}",
@@ -100,21 +116,45 @@ def _get(path: str, params: dict, api_key: str):
             headers={"X-API-KEY": api_key},
             timeout=_TIMEOUT,
         )
-        if resp.status_code == 429:
-            logger.warning("[OpenStates] Rate limit (429) — tripping breaker for this run.")
-            _breaker_tripped = True
+        elapsed = time.monotonic() - started_at
+        if not resp.ok:
+            reason = f"http_{resp.status_code}"
+            if health:
+                health.record_failure(reason, elapsed)
+            _consecutive_failures += 1
+            if resp.status_code in (401, 403, 429):
+                logger.warning("[OpenStates] HTTP %s; tripping breaker for this run.", resp.status_code)
+                _breaker_tripped = True
+                if health:
+                    health.trip_breaker(reason)
+            elif _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                _breaker_tripped = True
+                if health:
+                    health.trip_breaker("consecutive_failures")
+            elif health and health.breaker_tripped:
+                _breaker_tripped = True
             return None
-        resp.raise_for_status()
+        payload = resp.json()
         _consecutive_failures = 0
-        return resp.json()
+        if health:
+            health.record_success(elapsed)
+        return payload
     except Exception as exc:
         logger.warning("[OpenStates] Request failed for %s: %s", path, exc)
         _consecutive_failures += 1
+        if health:
+            reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
+            health.record_failure(reason, time.monotonic() - started_at)
         if _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
             logger.warning(
                 "[OpenStates] %d consecutive failures — tripping breaker for this run.",
                 _consecutive_failures,
             )
+            _breaker_tripped = True
+            if health:
+                health.trip_breaker("consecutive_failures")
+        elif health and health.breaker_tripped:
+            logger.warning("[OpenStates] Health threshold exceeded; tripping breaker for this run.")
             _breaker_tripped = True
         return None
 
@@ -179,7 +219,10 @@ def _vote_rows_from_bill(bill: dict, jurisdiction: str | None, known_ocd: set | 
             }
 
 
-def get_state_voting_records(known_ocd_ids: set | None = None) -> dict:
+def get_state_voting_records(
+    known_ocd_ids: set | None = None,
+    health: SourceHealthTracker | None = None,
+) -> dict:
     """
     Crawl recent state roll-calls and return {ocd_person: [voting_records rows]},
     deduped per (bill_name, vote_date) for each person so a single upsert batch never
@@ -193,6 +236,8 @@ def get_state_voting_records(known_ocd_ids: set | None = None) -> dict:
     """
     api_key = os.environ.get("OPENSTATES_API_KEY")
     if not api_key:
+        if health:
+            health.record_skip("api_key_not_configured")
         return {}
 
     reset_budget()
@@ -215,6 +260,7 @@ def get_state_voting_records(known_ocd_ids: set | None = None) -> dict:
                     "per_page": _PER_PAGE,
                 },
                 api_key,
+                health=health,
             )
             results = (data or {}).get("results") or []
             for bill in results:

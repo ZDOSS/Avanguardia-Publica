@@ -2,6 +2,8 @@ import json
 from collections import Counter
 from datetime import datetime, timezone
 
+from source_health import SourceHealthTracker
+
 
 class ETLRunSummary:
     def __init__(self):
@@ -13,6 +15,7 @@ class ETLRunSummary:
         self.schema_preflight = {"status": "not_run"}
         self.identity_health = {"status": "not_run"}
         self.news_providers = {}
+        self.source_trackers: dict[str, SourceHealthTracker] = {}
 
     def increment(self, key: str, amount: int = 1) -> None:
         if amount:
@@ -46,9 +49,37 @@ class ETLRunSummary:
     def set_news_providers(self, status: dict) -> None:
         self.news_providers = status
 
+    def source_tracker(self, source: str, **config) -> SourceHealthTracker:
+        tracker = self.source_trackers.get(source)
+        if tracker is None:
+            tracker = SourceHealthTracker(source=source, **config)
+            self.source_trackers[source] = tracker
+        return tracker
+
+    def source_health(self) -> dict[str, dict]:
+        return {
+            source: tracker.snapshot()
+            for source, tracker in sorted(self.source_trackers.items())
+        }
+
+    def run_blocking_source_failures(self) -> list[str]:
+        return sorted(
+            source
+            for source, tracker in self.source_trackers.items()
+            if tracker.affects_run and tracker.status == "failed"
+        )
+
     def as_dict(self, success: bool) -> dict:
         finished = self.finished_at or datetime.now(timezone.utc)
         duration = (finished - self.started_at).total_seconds()
+        source_health = self.source_health()
+        failed_sources = [
+            source for source, health in source_health.items() if health["status"] == "failed"
+        ]
+        degraded_sources = [
+            source for source, health in source_health.items() if health["status"] == "degraded"
+        ]
+        blocking_source_failures = self.run_blocking_source_failures()
         return {
             "success": success,
             "started_at": self.started_at.isoformat(),
@@ -60,6 +91,10 @@ class ETLRunSummary:
             "source_skips": dict(sorted(self.skips.items())),
             "errors": self.errors,
             "news_providers": self.news_providers,
+            "source_health": source_health,
+            "source_health_failed_count": len(failed_sources),
+            "source_health_degraded_count": len(degraded_sources),
+            "source_health_blocking_failures": blocking_source_failures,
         }
 
     def print(self, success: bool) -> None:
@@ -84,6 +119,18 @@ class ETLRunSummary:
         if payload["rows"]:
             for key, value in payload["rows"].items():
                 print(f"  {key}: {value}")
+        else:
+            print("  none")
+
+        print("source_health:")
+        if payload["source_health"]:
+            for source, health in payload["source_health"].items():
+                print(
+                    f"  {source}: status={health['status']} attempts={health['attempts']} "
+                    f"successes={health['successes']} failures={health['failures']} "
+                    f"skips={health['skips']} breaker_tripped={health['breaker_tripped']} "
+                    f"reason={health.get('degraded_reason')}"
+                )
         else:
             print("  none")
 

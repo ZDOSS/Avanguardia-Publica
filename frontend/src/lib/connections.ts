@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { safeHttpUrl } from './urls';
 
 // Live cross-reference "Connections" API. These wrap the Postgres RPC functions added
 // in migrations/0003_connections.sql, which compute connections on demand from the
@@ -33,10 +34,18 @@ export interface NetworkTie {
   url: string | null;
 }
 
+export type ConnectionLane = 'sharedDonors' | 'coVotes' | 'networkTies';
+
+export interface ConnectionLaneFailure {
+  lane: ConnectionLane;
+  label: string;
+}
+
 export interface ConnectionsBundle {
   sharedDonors: SharedDonorConnection[];
   coVotes: CoVoteConnection[];
   networkTies: NetworkTie[];
+  failures: ConnectionLaneFailure[];
 }
 
 async function rpc<T>(fn: string, politicianId: string): Promise<T[]> {
@@ -64,6 +73,10 @@ function normalizeCoVote(c: CoVoteConnection): CoVoteConnection {
     shared_total: toNum(c.shared_total),
     agreement_rate: toNum(c.agreement_rate),
   };
+}
+
+function normalizeTie(tie: NetworkTie): NetworkTie {
+  return { ...tie, url: safeHttpUrl(tie.url) };
 }
 
 /**
@@ -95,9 +108,15 @@ export async function fetchConnections(politicianId: string): Promise<Connection
     if (r.status === 'rejected') console.error(`Connections RPC ${name} failed:`, r.reason);
   }
 
+  const failures: ConnectionLaneFailure[] = [];
+  if (donors.status === 'rejected') failures.push({ lane: 'sharedDonors', label: 'Shared donors' });
+  if (votes.status === 'rejected') failures.push({ lane: 'coVotes', label: 'Co-voting' });
+  if (ties.status === 'rejected') failures.push({ lane: 'networkTies', label: 'Third-party network ties' });
+
   return {
     sharedDonors: donors.status === 'fulfilled' ? donors.value.map(normalizeDonor) : [],
     coVotes: votes.status === 'fulfilled' ? votes.value.map(normalizeCoVote) : [],
-    networkTies: ties.status === 'fulfilled' ? ties.value : [],
+    networkTies: ties.status === 'fulfilled' ? ties.value.map(normalizeTie) : [],
+    failures,
   };
 }

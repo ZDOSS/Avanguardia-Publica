@@ -2,10 +2,13 @@ import io
 import re
 import zipfile
 import logging
+import time
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
 import requests
+
+from source_health import SourceHealthTracker
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +29,7 @@ _FILING_TYPE_LABELS = {
 
 _WS_RE = re.compile(r"\s+")
 _PUNCT_RE = re.compile(r"[.,]")
+_STATE_DISTRICT_RE = re.compile(r"^([A-Z]{2})[- ]?([0-9]{1,2}|AL)?$")
 
 # Honorifics/suffixes that the House Clerk feed embeds in the First/Last name fields (real
 # example: First="Marjorie Taylor Mrs", Last="Greene"). Left in, they inflate the token count
@@ -67,6 +71,23 @@ def _parse_date(raw: str):
     return None
 
 
+def _normalize_district(value) -> str | None:
+    raw = str(value or "").strip().upper().replace(" ", "-")
+    if not raw:
+        return None
+    if raw in {"0", "00", "AL", "AT-LARGE", "AT-LARGE-DISTRICT"}:
+        return "AT-LARGE"
+    return raw.lstrip("0") or "0"
+
+
+def _parse_state_district(raw: str | None) -> tuple[str | None, str | None]:
+    value = str(raw or "").strip().upper()
+    match = _STATE_DISTRICT_RE.match(value)
+    if not match:
+        return None, None
+    return match.group(1), _normalize_district(match.group(2))
+
+
 def _doc_url(doc_id: str, year: str) -> str:
     # Electronically-filed DocIDs start with '2' and live under ptr-pdfs/; scanned paper
     # filings start with '1' and live under financial-pdfs/. (Verified against live PDFs.)
@@ -74,7 +95,9 @@ def _doc_url(doc_id: str, year: str) -> str:
     return f"https://disclosures-clerk.house.gov/public_disc/{folder}/{year}/{doc_id}.pdf"
 
 
-def get_house_disclosure_index(years):
+def get_house_disclosure_index(
+    years, health: SourceHealthTracker | None = None
+):
     """
     Download the House Clerk financial-disclosure index for each year in `years` and return a
     dict mapping a normalized member name -> list of filing dicts:
@@ -88,14 +111,22 @@ def get_house_disclosure_index(years):
     index: dict[str, list] = {}
     for year in years:
         url = _HOUSE_ZIP_URL.format(year=year)
+        if health:
+            health.record_attempt()
+        started_at = time.monotonic()
         try:
             resp = requests.get(url, timeout=30)
             resp.raise_for_status()
             zf = zipfile.ZipFile(io.BytesIO(resp.content))
             xml_name = next(n for n in zf.namelist() if n.lower().endswith(".xml"))
             root = ET.fromstring(zf.read(xml_name).decode("utf-8-sig"))
+            if health:
+                health.record_success(time.monotonic() - started_at)
         except Exception as e:
             logger.warning("House FD index fetch/parse failed for %s: %s", year, e)
+            if health:
+                reason = "timeout" if isinstance(e, requests.Timeout) else "fetch_or_parse_error"
+                health.record_failure(reason, time.monotonic() - started_at)
             continue
 
         added = 0
@@ -110,12 +141,20 @@ def get_house_disclosure_index(years):
             norm = _normalize_name(f"{m.findtext('First') or ''} {m.findtext('Last') or ''}")
             if not norm:
                 continue
+            state, district = _parse_state_district(m.findtext("StateDst"))
+            if state is None:
+                state = (m.findtext("State") or "").strip().upper() or None
+            if district is None:
+                district = _normalize_district(m.findtext("District"))
             filing = {
                 "doc_id": doc_id,
                 "filing_type": label,
                 "filing_date": filing_date,
                 "doc_url": _doc_url(doc_id, str(year)),
                 "year": str(year),
+                "_filer_name": norm,
+                "_state": state,
+                "_district": district,
             }
             for key in {norm, _no_middle(norm)}:
                 index.setdefault(key, []).append(filing)
@@ -124,7 +163,14 @@ def get_house_disclosure_index(years):
     return index
 
 
-def lookup_disclosures(index, name_forms):
+def lookup_disclosures(
+    index,
+    name_forms,
+    *,
+    state: str | None = None,
+    district: str | None = None,
+    health: SourceHealthTracker | None = None,
+):
     """
     Return all filings matching any of `name_forms` (a politician's full_name + aliases),
     de-duplicated by DocID. Matching is exact on the normalized (and middle-dropped) name —
@@ -140,10 +186,58 @@ def lookup_disclosures(index, name_forms):
             keys.add(_no_middle(norm))
 
     seen = set()
-    out = []
+    candidates = []
     for key in keys:
         for filing in index.get(key, []):
             if filing["doc_id"] not in seen:
                 seen.add(filing["doc_id"])
-                out.append(filing)
-    return out
+                candidates.append(filing)
+
+    expected_state = str(state or "").strip().upper() or None
+    expected_district = _normalize_district(district)
+    contextual_matches = []
+    for filing in candidates:
+        filing_state = filing.get("_state")
+        filing_district = filing.get("_district")
+        if expected_state and not filing_state:
+            if health:
+                health.record_skip("missing_state_identity_context")
+            continue
+        if expected_district and not filing_district:
+            if health:
+                health.record_skip("missing_district_identity_context")
+            continue
+        if expected_state and filing_state != expected_state:
+            if health:
+                health.record_skip("state_identity_context_mismatch")
+            continue
+        if expected_district and filing_district != expected_district:
+            if health:
+                health.record_skip("district_identity_context_mismatch")
+            continue
+        contextual_matches.append(filing)
+
+    filer_keys = {
+        (
+            filing.get("_filer_name"),
+            filing.get("_state"),
+            filing.get("_district"),
+        )
+        for filing in contextual_matches
+    }
+    if len(filer_keys) > 1:
+        logger.warning(
+            "House FD ambiguous exact-name match for %s (%s-%s); skipping %d filings",
+            sorted(keys),
+            expected_state,
+            expected_district,
+            len(contextual_matches),
+        )
+        if health:
+            health.record_skip("ambiguous_identity_match", len(contextual_matches))
+        return []
+
+    return [
+        {key: value for key, value in filing.items() if not key.startswith("_")}
+        for filing in contextual_matches
+    ]

@@ -12,7 +12,10 @@ circuit breaker, so a sustained GovTrack outage can't hang the pipeline.
 """
 
 import logging
+import time
 import requests
+
+from source_health import SourceHealthTracker
 
 logger = logging.getLogger(__name__)
 
@@ -41,34 +44,64 @@ def reset_budget() -> None:
     _breaker_tripped = False
 
 
-def _get(path: str, params: dict):
+def _get(path: str, params: dict, health: SourceHealthTracker | None = None):
     """Single budgeted GET against GovTrack. Returns parsed JSON or None on failure."""
     global _request_count, _breaker_tripped, _consecutive_failures
 
     if _breaker_tripped or _request_count >= _MAX_REQUESTS:
         _breaker_tripped = True
+        if health:
+            health.record_skip(
+                "request_budget_exhausted"
+                if _request_count >= _MAX_REQUESTS
+                else "breaker_open"
+            )
         return None
 
-    # Count the attempt before issuing it, so timeouts/connection errors also draw
-    # down the budget (otherwise a sustained outage never trips the count breaker).
     _request_count += 1
+    if health:
+        health.record_attempt()
+    started_at = time.monotonic()
     try:
         resp = requests.get(f"{_BASE}{path}", params=params, timeout=_TIMEOUT)
-        if resp.status_code == 429:
-            logger.warning("[GovTrack] Rate limit (429) hit — tripping breaker for this run.")
-            _breaker_tripped = True
+        elapsed = time.monotonic() - started_at
+        if not resp.ok:
+            reason = f"http_{resp.status_code}"
+            if health:
+                health.record_failure(reason, elapsed)
+            _consecutive_failures += 1
+            if resp.status_code in (401, 403, 429):
+                _breaker_tripped = True
+                if health:
+                    health.trip_breaker(reason)
+            elif _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                _breaker_tripped = True
+                if health:
+                    health.trip_breaker("consecutive_failures")
+            elif health and health.breaker_tripped:
+                _breaker_tripped = True
             return None
-        resp.raise_for_status()
+        payload = resp.json()
         _consecutive_failures = 0
-        return resp.json()
+        if health:
+            health.record_success(elapsed)
+        return payload
     except Exception as exc:
         logger.warning("[GovTrack] Request failed for %s: %s", path, exc)
         _consecutive_failures += 1
+        if health:
+            reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
+            health.record_failure(reason, time.monotonic() - started_at)
         if _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
             logger.warning(
-                "[GovTrack] %d consecutive failures — tripping breaker for this run.",
+                "[GovTrack] %d consecutive failures; tripping breaker for this run.",
                 _consecutive_failures,
             )
+            _breaker_tripped = True
+            if health:
+                health.trip_breaker("consecutive_failures")
+        elif health and health.breaker_tripped:
+            logger.warning("[GovTrack] Health threshold exceeded; tripping breaker for this run.")
             _breaker_tripped = True
         return None
 
@@ -110,7 +143,11 @@ def _map_vote(obj: dict) -> dict | None:
     }
 
 
-def get_voting_records(govtrack_id, limit: int = _VOTES_PER_POLITICIAN) -> list:
+def get_voting_records(
+    govtrack_id,
+    limit: int = _VOTES_PER_POLITICIAN,
+    health: SourceHealthTracker | None = None,
+) -> list:
     """
     Returns the most recent roll-call votes cast by a politician, keyed by their
     GovTrack person ID (politicians.external_ids["govtrack"]). Bounded and rate-limit
@@ -120,10 +157,15 @@ def get_voting_records(govtrack_id, limit: int = _VOTES_PER_POLITICIAN) -> list:
     """
     if not govtrack_id:
         return []
+    if _breaker_tripped:
+        if health:
+            health.record_skip("breaker_open")
+        return []
 
     data = _get(
         "/vote_voter/",
         {"person": govtrack_id, "sort": "-created", "limit": limit},
+        health=health,
     )
     if not data:
         return []

@@ -1,7 +1,11 @@
-import { fetchCanonicalLegacyPoliticianIds, missingCanonicalPoliticianRpc } from './canonicalPoliticians';
+import {
+  allowMissingCanonicalPoliticianRpcFallback,
+  fetchCanonicalLegacyPoliticianIds,
+} from './canonicalPoliticians';
 import { isUuid } from './ids';
 import { pageRange, type PageResult } from './pagination';
 import { supabase } from './supabase';
+import { safeHttpUrl } from './urls';
 
 export interface MediaMention {
   id: string;
@@ -18,7 +22,11 @@ const toNullableNum = (value: unknown): number | null => {
 };
 
 function normalizeMention(row: MediaMention): MediaMention {
-  return { ...row, sentiment_score: toNullableNum(row.sentiment_score) };
+  return {
+    ...row,
+    sentiment_score: toNullableNum(row.sentiment_score),
+    url: safeHttpUrl(row.url),
+  };
 }
 
 export async function fetchMediaMentions(
@@ -35,7 +43,7 @@ export async function fetchMediaMentions(
     if (canonicalResult.rows.length > 0 || canonicalResult.hasMore) return canonicalResult;
     canonicalEmptyResult = canonicalResult;
   } catch (error) {
-    if (!missingCanonicalPoliticianRpc(error as { code?: string; message?: string; details?: string; hint?: string })) {
+    if (!allowMissingCanonicalPoliticianRpcFallback(error, 'get_canonical_media_mentions')) {
       throw error;
     }
   }

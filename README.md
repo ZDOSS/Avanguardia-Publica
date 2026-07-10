@@ -62,7 +62,7 @@ notes.
 
 ## Prerequisites
 
-- **Node.js** 20+ and npm (frontend)
+- **Node.js** 20.19+ LTS (or 22.13+) and npm (frontend)
 - **Python** 3.10+ and pip (scraper)
 - A **Supabase** project (free tier) — or run with the built-in mock data for a quick look
 
@@ -94,6 +94,7 @@ Useful scripts:
 | `npm run dev`   | Start the dev server                         |
 | `npm run build` | Production build + static export to `out/`   |
 | `npm run lint`  | Run ESLint                                    |
+| `npm run typecheck` | Run the TypeScript compiler without emitting files |
 
 ### 2. Scraper
 
@@ -111,7 +112,13 @@ python main.py
 
 All scraper data sources are **free-tier or open-source** (no paid APIs). The news
 aggregator uses a multi-tier circuit-breaker strategy (Currents → NewsData.io →
-TheNewsAPI → GDELT) so it degrades gracefully under rate limits.
+approved TheNewsAPI usage → GDELT URL discovery) so it degrades gracefully under rate
+limits without scraping article bodies.
+
+Free access and republication rights are different questions. Production extractors must
+follow [`docs/source_usage_policy.md`](docs/source_usage_policy.md): retain stable provenance,
+store only the fields permitted by the provider, keep required attribution, and keep
+ambiguous terms disabled until a maintainer records approval.
 
 Financial disclosures are sourced from the official **U.S. House Clerk** bulk feed
 (`disclosures-clerk.house.gov`, keyless). That feed publishes the filing *index* — who filed
@@ -128,6 +135,7 @@ financial disclosures are not yet covered.
 | ------------------------------- | -------- | -------- | ---------------------------------------------------- |
 | `NEXT_PUBLIC_SUPABASE_URL`      | frontend | yes\*    | Supabase project URL                                 |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | frontend | yes\*    | Supabase anon (public) key                           |
+| `ALLOW_MOCK_BUILD`              | frontend | no       | Explicit local/CI fixture build opt-in               |
 | `SUPABASE_URL`                  | scraper  | yes      | Supabase project URL                                 |
 | `SUPABASE_KEY`                  | scraper  | yes      | Service-role key (writes)                            |
 | `FEC_API_KEY`                   | scraper  | no       | data.gov key for campaign-donor enrichment           |
@@ -136,10 +144,13 @@ financial disclosures are not yet covered.
 | `STATE_UNVERIFIED_ENRICHMENT_OFFSET` | scraper | no   | Zero-based start offset for rotating state LittleSis batches |
 | `CURRENTS_API_KEY`              | scraper  | no       | News tier 1                                          |
 | `NEWSDATA_API_KEY`              | scraper  | no       | News tier 2 (requires attribution)                   |
-| `THENEWSAPI_KEY`                | scraper  | no       | News tier 3                                          |
+| `THENEWSAPI_KEY`                | scraper  | no       | News tier 3 credential                               |
+| `THENEWSAPI_PRODUCTION_APPROVED` | scraper | no       | Set `true` only after terms/republication review     |
 
-\* Without them the frontend falls back to mock data. The news aggregator works with no keys
-at all (it degrades to the keyless GDELT fallback).
+\* Local development can use mock fixtures when these are absent; static fixture builds
+must explicitly set `ALLOW_MOCK_BUILD=true`. Production builds and runtime pages fail
+visibly instead of presenting fixtures as live data. The news aggregator works with no
+keys at all (it degrades to keyless GDELT URL discovery).
 
 Never commit secrets. `.env` and `.env.*` are gitignored (except `.env.example`). Templates
 live in [`frontend/example.env`](frontend/example.env) and
@@ -168,10 +179,23 @@ Both pipelines run from GitHub Actions:
 ### Applying migrations
 
 There is **no migration runner**. Neither workflow applies SQL to Supabase — `scraper.yml`
-only runs the ETL and `nextjs.yml` only builds. After adding or changing anything in
-[`migrations/`](migrations/), apply it manually in the **Supabase SQL editor** (or via `psql`),
-in filename order. All migrations are idempotent (`ADD COLUMN IF NOT EXISTS`, `CREATE … IF NOT
-EXISTS`, `DROP POLICY IF EXISTS`), so re-running the full set is safe.
+only runs the ETL and `nextjs.yml` only builds.
+
+- **Brand-new database:** run [`schema.sql`](schema.sql) once, then apply every numbered
+  migration once in filename order. `schema.sql` deliberately refuses to run after the
+  canonical `people` layer exists.
+- **Existing database:** apply only the next unapplied numbered migration. Starting with
+  migration `0022`, applied versions are recorded in `public.schema_migrations` and checked
+  by scraper preflight.
+- **`psql`:** run each migration with `--single-transaction` unless that migration explicitly
+  documents different handling. This keeps temporary tables alive for the whole file and
+  prevents half-applied data changes.
+
+Do **not** replay the full historical migration directory against an upgraded database.
+Some migrations contain guarded data decisions and review-state transitions, not just
+idempotent DDL. In particular, replaying `0011` after the approved `0015` identity cleanup
+can reconstruct stale mappings, while replaying the original `0016` seeds can overwrite
+maintainer review state. Use a new forward repair migration instead of editing live history.
 
 > **Symptom of un-applied migrations:** the scraper log fills with PGRST204 errors like
 > `Could not find the 'district' column of 'politicians' in the schema cache`, and profile

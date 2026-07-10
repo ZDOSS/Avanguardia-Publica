@@ -1,7 +1,11 @@
-import { fetchCanonicalLegacyPoliticianIds, missingCanonicalPoliticianRpc } from './canonicalPoliticians';
+import {
+  allowMissingCanonicalPoliticianRpcFallback,
+  fetchCanonicalLegacyPoliticianIds,
+} from './canonicalPoliticians';
 import { isUuid } from './ids';
 import { pageRange, type PageResult } from './pagination';
 import { supabase } from './supabase';
+import { safeHttpUrl } from './urls';
 
 export interface FinancialDisclosure {
   id: string;
@@ -9,6 +13,10 @@ export interface FinancialDisclosure {
   filing_type: string | null;
   doc_url: string | null;
   doc_id: string | null;
+}
+
+function normalizeDisclosure(row: FinancialDisclosure): FinancialDisclosure {
+  return { ...row, doc_url: safeHttpUrl(row.doc_url) };
 }
 
 export async function fetchFinancialDisclosures(
@@ -25,7 +33,7 @@ export async function fetchFinancialDisclosures(
     if (canonicalResult.rows.length > 0 || canonicalResult.hasMore) return canonicalResult;
     canonicalEmptyResult = canonicalResult;
   } catch (error) {
-    if (!missingCanonicalPoliticianRpc(error as { code?: string; message?: string; details?: string; hint?: string })) {
+    if (!allowMissingCanonicalPoliticianRpcFallback(error, 'get_canonical_financial_disclosures')) {
       throw error;
     }
   }
@@ -46,7 +54,7 @@ export async function fetchFinancialDisclosures(
     if (canonicalEmptyResult) return canonicalEmptyResult;
     throw error;
   }
-  const rows = (data ?? []) as FinancialDisclosure[];
+  const rows = ((data ?? []) as FinancialDisclosure[]).map(normalizeDisclosure);
   return {
     rows: rows.slice(0, range.pageSize),
     count,
@@ -67,7 +75,7 @@ async function fetchCanonicalFinancialDisclosures(
   });
 
   if (error) throw error;
-  const rows = (data ?? []) as FinancialDisclosure[];
+  const rows = ((data ?? []) as FinancialDisclosure[]).map(normalizeDisclosure);
   return {
     rows: rows.slice(0, range.pageSize),
     count: null,

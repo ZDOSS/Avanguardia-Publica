@@ -1,4 +1,18 @@
 -- Supabase Schema for Avanguardia Publica
+--
+-- IMPORTANT: this is the legacy baseline for a brand-new database only. After loading
+-- it, apply migrations/*.sql once in filename order. Do not run this file against an
+-- upgraded database: it contains compatibility definitions that later migrations
+-- replace with person-aware identity functions.
+
+DO $$
+BEGIN
+    IF to_regclass('public.people') IS NOT NULL THEN
+        RAISE EXCEPTION USING
+            MESSAGE = 'schema.sql is a fresh-database baseline and cannot be replayed after the canonical people migration',
+            HINT = 'Apply only the next unapplied numbered migration; see README "Applying migrations".';
+    END IF;
+END $$;
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -200,16 +214,16 @@ CREATE TABLE IF NOT EXISTS relationships (
 CREATE INDEX IF NOT EXISTS idx_relationships_politician ON relationships (politician_id);
 
 -- ---------------------------------------------------------------------------------------
--- Row-Level Security & grants (self-contained bootstrap)
+-- Row-Level Security & grants (legacy baseline bootstrap)
 -- ---------------------------------------------------------------------------------------
 -- The frontend is read-only and talks to Supabase with the public `anon` key, so every
 -- table needs RLS ENABLED with a permissive SELECT policy plus a SELECT grant for the
 -- anon/authenticated roles. Writes come exclusively from the scraper's service-role key,
 -- which bypasses RLS — so there are deliberately NO insert/update/delete policies.
 --
--- Running this file alone now yields a fully working read-only API (the migrations remain
--- the incremental source of truth for an already-provisioned DB). Idempotent: ENABLE RLS
--- is a no-op when already on, and DROP POLICY IF EXISTS makes the policies safe to re-run.
+-- Running this file alone yields the legacy read-only baseline. The numbered migrations
+-- are required for canonical identity, person-aware spokes, source review, and all current
+-- RPC behavior. The guard at the top intentionally prevents replay after that upgrade.
 DO $$
 DECLARE
     t text;
