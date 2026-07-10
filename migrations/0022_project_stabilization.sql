@@ -11,7 +11,8 @@
 
 BEGIN;
 
-SET LOCAL statement_timeout = '60s';
+-- Final integrity views can require more than the production role's default timeout.
+SET LOCAL statement_timeout = 0;
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
