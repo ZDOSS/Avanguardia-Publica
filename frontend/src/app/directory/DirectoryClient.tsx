@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
+import { isCanonicalPoliticianRpcUnavailableError } from "@/lib/canonicalPoliticians";
 import { fetchAllPoliticians, type PoliticianSummary } from "@/lib/politicians";
 import { GOV_STRUCTURE, type GovNode, type GovPath } from "@/lib/governmentStructure";
 import { US_STATES, resolveStateToken, zipToState, officeMatchesState } from "@/lib/location";
@@ -447,7 +448,11 @@ export default function DirectoryClient() {
         setPoliticians(data);
       } catch (e) {
         console.error("Failed to load politicians:", e);
-        setError("Could not connect to the database. Please try again later.");
+        setError(
+          isCanonicalPoliticianRpcUnavailableError(e)
+            ? "The canonical profile index is temporarily unavailable. To avoid showing duplicate entries, the directory is paused."
+            : "Could not connect to the database. Please try again later."
+        );
       } finally {
         setLoading(false);
       }

@@ -1,9 +1,9 @@
 # State-Level Voting Records: Source Evaluation & Identity Bridge
 
-Design note for extending the scraper beyond federal roll-call votes. Companion to
-[`US_Politician_Data_APIs.md`](US_Politician_Data_APIs.md), which surveys candidate
-sources. This note records *what we decided and why*, so the extractor work has a
-fixed reference.
+Design note for extending the scraper beyond federal roll-call votes. The active source
+inventory and implementation order now live in
+[`canonical_data_and_analytics_plan.md`](canonical_data_and_analytics_plan.md). This note
+records the state-vote decision and its identity tradeoffs.
 
 ## Where we are today
 
@@ -19,9 +19,9 @@ The pipeline already ingests, keyed by **stable IDs in `politicians.external_ids
 | federal exec/judicial | hub + contact | `external_ids["wikidata"]` |
 | LittleSis, news | `unconfirmed_mentions` | name (unverified lane) |
 
-**The gap:** we have *federal* roll-call votes (GovTrack) but **zero state-level
-votes**, even though we already store ~8,000 state legislators with stable
-`ocd-person` IDs.
+OpenStates roll-call ingestion is now implemented. The remaining reliability work is to
+report source coverage/failures explicitly and to retain source-record provenance for each
+vote instead of treating an empty extractor response as success.
 
 ## Decision: fill state votes; the two viable sources
 
@@ -101,12 +101,13 @@ the state-vote critical path.
   `unconfirmed_mentions` lane (or promoted where it carries a Wikidata QID). Bulk
   JSON/CSV; low risk, touches no verified spoke. Tracked separately.
 
-## Rejected / out of scope
+## Rejected / out of scope for the state-vote extractor
 
 - **Google Civic Information API** — the representatives/officials-by-address endpoints
   were sunset by Google (~April 2025); the feature it was pitched for no longer exists.
-- **Congress.gov API, Bioguide bulk** — redundant with congress-legislators.
-- **GovInfo API** — bulk floor-speech text; an NLP feature, not a structured spoke.
+- **Congress.gov API and GovInfo** — not state-vote sources. They remain approved candidates
+  in the canonical roadmap for official federal bill, committee, document, and roll-call
+  reconciliation after source-record provenance is in place.
 
 ## Build order
 

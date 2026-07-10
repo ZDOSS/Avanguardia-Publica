@@ -1,4 +1,4 @@
-import { missingCanonicalPoliticianRpc } from './canonicalPoliticians';
+import { allowMissingCanonicalPoliticianRpcFallback } from './canonicalPoliticians';
 import { supabase } from './supabase';
 
 export interface PoliticianSummary {
@@ -51,7 +51,7 @@ export async function fetchPoliticianSummaries(limit = 6): Promise<PoliticianSum
   try {
     return await fetchCanonicalPoliticianSummaries({ limit });
   } catch (error) {
-    if (!missingCanonicalPoliticianRpc(error as { code?: string; message?: string; details?: string; hint?: string })) {
+    if (!allowMissingCanonicalPoliticianRpcFallback(error, CANONICAL_SUMMARIES_RPC)) {
       throw error;
     }
   }
@@ -91,7 +91,7 @@ export async function searchPoliticians(
   try {
     return await fetchCanonicalPoliticianSummaries({ searchQuery: trimmed, limit });
   } catch (error) {
-    if (!missingCanonicalPoliticianRpc(error as { code?: string; message?: string; details?: string; hint?: string })) {
+    if (!allowMissingCanonicalPoliticianRpcFallback(error, CANONICAL_SUMMARIES_RPC)) {
       throw error;
     }
   }
@@ -129,7 +129,7 @@ export async function fetchAllPoliticians(): Promise<PoliticianSummary[]> {
   try {
     return await fetchAllCanonicalPoliticians();
   } catch (error) {
-    if (!missingCanonicalPoliticianRpc(error as { code?: string; message?: string; details?: string; hint?: string })) {
+    if (!allowMissingCanonicalPoliticianRpcFallback(error, CANONICAL_SUMMARIES_RPC)) {
       throw error;
     }
   }

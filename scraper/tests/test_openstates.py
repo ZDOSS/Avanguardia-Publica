@@ -1,6 +1,7 @@
 import unittest
+from datetime import date, timedelta
 
-from extractors.openstates import _classification, _map_person, _state_from_path
+from extractors.openstates import _classification, _current_role, _map_person, _state_from_path
 
 
 class OpenStatesClassificationTests(unittest.TestCase):
@@ -35,6 +36,36 @@ class OpenStatesClassificationTests(unittest.TestCase):
         self.assertEqual("state", row["government_level"])
         self.assertEqual("AZ", row["jurisdiction"])
         self.assertEqual("ocd-person/state-person", row["external_ids"]["openstates"])
+
+    def test_future_end_date_is_still_current_and_term_key_preserves_start(self):
+        start = (date.today() - timedelta(days=30)).isoformat()
+        role = {
+            "type": "lower",
+            "district": "3",
+            "start_date": start,
+            "end_date": (date.today() + timedelta(days=30)).isoformat(),
+        }
+
+        self.assertEqual(role, _current_role([role]))
+        row = _map_person(
+            {"id": "ocd-person/active", "name": "Active Person", "roles": [role]},
+            "az",
+        )
+        self.assertEqual(f"lower:3:{start}", row["source_term_key"])
+
+    def test_expired_only_and_future_only_roles_are_not_current(self):
+        expired = {
+            "type": "upper",
+            "start_date": "2020-01-01",
+            "end_date": (date.today() - timedelta(days=1)).isoformat(),
+        }
+        future = {
+            "type": "upper",
+            "start_date": (date.today() + timedelta(days=1)).isoformat(),
+        }
+
+        self.assertIsNone(_current_role([expired]))
+        self.assertIsNone(_current_role([future]))
 
     def test_map_person_skips_federal_openstates_dataset(self):
         row = _map_person(

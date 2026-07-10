@@ -80,12 +80,22 @@ When contributing to this project, you must adhere strictly to these rules:
    maintainer) must run it in the Supabase SQL editor, or the live DB silently drifts from
    the code. Drift is the #1 cause of "no data" outages here: the loader writes a column the
    live table lacks, **every** upsert fails with PGRST204, and (until this was fixed) the
-   pipeline still reported success. All migrations are idempotent — safe to re-run in order.
-   See README → "Applying migrations".
+   pipeline still reported success. Historical migrations are **forward-only**: apply each
+   one once in filename order. Starting with `0022`, each migration records itself in
+   `public.schema_migrations`. Never replay the full directory on an upgraded database; data
+   migrations such as `0011`, `0015`, and `0016` preserve decisions whose meaning changes
+   after later migrations. Add a new repair migration instead. See README → "Applying
+   migrations".
 9. **Agent Configuration:** If you require additional capabilities to parse data, generate code, or analyze specific schemas, you must explicitly look up and add the appropriate agent skills or rules. We use non-frontier models for some tasks which need an extra push, so always configure the required skills before executing complex workflows.
 
 ## 🚀 Next Steps & Outstanding Work
-- The active remaining roadmap is `docs/canonical_data_and_analytics_plan.md`. Start with
-  Phase 1 only: add an explicit `people` identity bridge and legacy profile resolution
-  before attempting analytics or the broader government entity/role taxonomy.
-- The groundwork is incredibly solid. The new agent should feel free to start building out any further visual analytics, user-authenticated features, or new scraper modules on top of this reliable foundation.
+- The active remaining roadmap is `docs/canonical_data_and_analytics_plan.md`. Phases 1 and
+  2 are implemented; migration `0022` adds the first production Phase 3/4 slice: pre-write
+  deterministic identity enforcement, atomic source-profile writes, source records, and
+  person office terms.
+- Monitor and resolve quarantined identity candidates instead of weakening the pre-write
+  boundary. A person can have federal, state, and local roles over time; those roles must
+  not become separate canonical people or be flattened into one office field.
+- Add official legislative sources in small reviewed slices only after `0022` is applied and
+  the new source-health/migration checks are stable in production. Keep analytics and broad
+  source expansion downstream of trustworthy provenance.

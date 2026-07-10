@@ -15,9 +15,17 @@ on:
         required: false
         default: ''
 
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-etl
+  cancel-in-progress: false
+
 jobs:
   scrape-and-update:
     runs-on: ubuntu-latest
+    timeout-minutes: 240
 
     steps:
       - name: Checkout repository
@@ -35,6 +43,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Run unit tests before production writes
+        run: |
+          cd scraper
+          python -m unittest discover -s tests -v
+
       - name: Run pipeline
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -50,6 +63,8 @@ jobs:
           CURRENTS_API_KEY: ${{ secrets.CURRENTS_API_KEY }}
           NEWSDATA_API_KEY: ${{ secrets.NEWSDATA_API_KEY }}
           THENEWSAPI_KEY: ${{ secrets.THENEWSAPI_KEY }}
+          # Keep disabled unless a maintainer has reviewed and approved production usage.
+          THENEWSAPI_PRODUCTION_APPROVED: ${{ vars.THENEWSAPI_PRODUCTION_APPROVED || 'false' }}
           # NEWSAPI_KEY is intentionally omitted here — dev-only (localhost)
         run: |
           cd scraper

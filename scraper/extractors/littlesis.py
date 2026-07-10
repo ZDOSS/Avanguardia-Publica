@@ -1,6 +1,9 @@
 import logging
 import re
+import time
 import requests
+
+from source_health import SourceHealthTracker
 
 logger = logging.getLogger(__name__)
 
@@ -31,42 +34,89 @@ def reset_budget() -> None:
     _breaker_tripped = False
 
 
-def _get(path: str, params: dict | None = None):
+def _get(
+    path: str,
+    params: dict | None = None,
+    health: SourceHealthTracker | None = None,
+):
     """Single budgeted GET against LittleSis. Returns parsed JSON or None on failure /
     once the breaker has tripped (so the rest of the run skips LittleSis cheaply)."""
     global _request_count, _breaker_tripped, _consecutive_failures
 
     if _breaker_tripped or _request_count >= _MAX_REQUESTS:
         _breaker_tripped = True
+        if health:
+            health.record_skip(
+                "request_budget_exhausted"
+                if _request_count >= _MAX_REQUESTS
+                else "breaker_open"
+            )
         return None
-
     # Count before issuing so timeouts/connection errors also draw down the budget.
     _request_count += 1
+    if health:
+        health.record_attempt()
+    started_at = time.monotonic()
     try:
         resp = requests.get(
             f"{_BASE}{path}", params=params, headers={"Accept": "application/json"}, timeout=_TIMEOUT
         )
-        if resp.status_code == 429:
-            logger.warning("[LittleSis] Rate limit (429) hit — tripping breaker for this run.")
-            _breaker_tripped = True
+        elapsed = time.monotonic() - started_at
+        if not resp.ok:
+            reason = f"http_{resp.status_code}"
+            if health:
+                health.record_failure(reason, elapsed)
+            _consecutive_failures += 1
+            if resp.status_code in (401, 403, 429):
+                logger.warning("[LittleSis] HTTP %s; tripping breaker for this run.", resp.status_code)
+                _breaker_tripped = True
+                if health:
+                    health.trip_breaker(reason)
+            elif _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                _breaker_tripped = True
+                if health:
+                    health.trip_breaker("consecutive_failures")
+            elif health and health.breaker_tripped:
+                _breaker_tripped = True
             return None
-        resp.raise_for_status()
+        payload = resp.json()
         _consecutive_failures = 0
-        return resp.json()
+        if health:
+            health.record_success(elapsed)
+        return payload
     except Exception as exc:
         logger.warning("[LittleSis] Request failed for %s: %s", path, exc)
         _consecutive_failures += 1
+        if health:
+            reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
+            health.record_failure(reason, time.monotonic() - started_at)
         if _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
             logger.warning(
                 "[LittleSis] %d consecutive failures — tripping breaker for this run.",
                 _consecutive_failures,
             )
             _breaker_tripped = True
+            if health:
+                health.trip_breaker("consecutive_failures")
+        elif health and health.breaker_tripped:
+            logger.warning("[LittleSis] Health threshold exceeded; tripping breaker for this run.")
+            _breaker_tripped = True
         return None
 
 
 # LittleSis relationship category_id → readable label. Mirrors the public category list;
 # unknown/missing ids fall back to the relationship's own description text.
+def _get_with_health(
+    path: str,
+    params: dict | None = None,
+    health: SourceHealthTracker | None = None,
+):
+    """Keep legacy/test `_get(path, params)` callables compatible when health is absent."""
+    if health is None:
+        return _get(path, params)
+    return _get(path, params, health=health)
+
+
 _CATEGORY_LABELS = {
     1: "Position",
     2: "Education",
@@ -121,7 +171,9 @@ def _link_url(value):
     return None
 
 
-def get_littlesis(full_name: str) -> tuple[list, list]:
+def get_littlesis(
+    full_name: str, health: SourceHealthTracker | None = None
+) -> tuple[list, list]:
     """
     Single LittleSis pass for a politician: ONE entity search, reused for both the
     unconfirmed mentions (top matches) and the structured network ties (top entity's
@@ -129,29 +181,33 @@ def get_littlesis(full_name: str) -> tuple[list, list]:
     uses — it avoids the two redundant searches that calling get_littlesis_data and
     get_littlesis_relationships separately would issue for the same name.
     """
-    payload = _get("/api/entities/search", {"q": full_name})
+    payload = _get_with_health("/api/entities/search", {"q": full_name}, health=health)
     data = (payload or {}).get("data") or []
     if not data:
         return [], []
     mentions = _mentions_from_search(data)
-    relationships = _relationships_for_entity(data[0].get("id"))
+    relationships = _relationships_for_entity(data[0].get("id"), health=health)
     return mentions, relationships
 
 
-def get_littlesis_relationships(full_name: str) -> list:
+def get_littlesis_relationships(
+    full_name: str, health: SourceHealthTracker | None = None
+) -> list:
     """
     Structured network ties for a politician (see _relationships_for_entity). Standalone
     helper that does its own search; main.py uses get_littlesis() to share one search
     across both lanes. Returns [] on any failure.
     """
-    payload = _get("/api/entities/search", {"q": full_name})
+    payload = _get_with_health("/api/entities/search", {"q": full_name}, health=health)
     data = (payload or {}).get("data") or []
     if not data:
         return []
-    return _relationships_for_entity(data[0].get("id"))
+    return _relationships_for_entity(data[0].get("id"), health=health)
 
 
-def _relationships_for_entity(entity_id) -> list:
+def _relationships_for_entity(
+    entity_id, health: SourceHealthTracker | None = None
+) -> list:
     """
     Walk /api/entities/{id}/relationships for one entity and return edge dicts:
         {related_name, relationship_type, url, source_api}
@@ -161,7 +217,7 @@ def _relationships_for_entity(entity_id) -> list:
     if not entity_id:
         return []
 
-    payload = _get(f"/api/entities/{entity_id}/relationships")
+    payload = _get_with_health(f"/api/entities/{entity_id}/relationships", health=health)
     if not payload:
         return []
     rels = payload.get("data") or []
@@ -208,12 +264,14 @@ def _relationships_for_entity(entity_id) -> list:
     return edges
 
 
-def get_littlesis_data(full_name: str) -> list:
+def get_littlesis_data(
+    full_name: str, health: SourceHealthTracker | None = None
+) -> list:
     """
     Unconfirmed mentions for a politician. Standalone helper that does its own search;
     main.py uses get_littlesis() to share one search across both lanes.
     """
-    payload = _get("/api/entities/search", {"q": full_name})
+    payload = _get_with_health("/api/entities/search", {"q": full_name}, health=health)
     return _mentions_from_search((payload or {}).get("data") or [])
 
 

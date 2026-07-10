@@ -4,7 +4,7 @@ federal.py
 Federal executive (President, Vice President) and judicial (Supreme Court) ingestion.
 
 - President + VP come from the @unitedstates/congress-legislators `executive.yaml`
-  (keyless, authoritative, same source family as Congress) — fully automated; the
+  (keyless, community-maintained, same source family as Congress) — fully automated; the
   current holders are those whose term covers today's date.
 - The 9 Supreme Court justices are a small curated seed. Live Wikidata SPARQL was
   evaluated and rejected: it returns vandalism/fictional entries (e.g. fictional
@@ -20,13 +20,18 @@ Everyone here is identified by Wikidata QID in external_ids["wikidata"].
 
 import datetime
 import logging
+import time
 import requests
 import yaml
+
+from source_health import SourceHealthTracker
 
 logger = logging.getLogger(__name__)
 
 _EXECUTIVE_YAML = "https://raw.githubusercontent.com/unitedstates/congress-legislators/main/executive.yaml"
 _TIMEOUT = 30
+_MIN_EXPECTED_EXECUTIVES = 2
+_EXPECTED_SUPREME_COURT_JUSTICES = 9
 
 _WHITE_HOUSE = "https://www.whitehouse.gov/"
 _SCOTUS_WEBSITE = "https://www.supremecourt.gov/"
@@ -67,11 +72,22 @@ def _current_term(person: dict) -> dict | None:
     return current
 
 
-def get_federal_executives() -> list:
+def get_federal_executives(health: SourceHealthTracker | None = None) -> list:
     """Current President + Vice President from executive.yaml."""
-    resp = requests.get(_EXECUTIVE_YAML, timeout=_TIMEOUT)
-    resp.raise_for_status()
-    data = yaml.safe_load(resp.text) or []
+    if health:
+        health.record_attempt()
+    started_at = time.monotonic()
+    try:
+        resp = requests.get(_EXECUTIVE_YAML, timeout=_TIMEOUT)
+        resp.raise_for_status()
+        data = yaml.safe_load(resp.text) or []
+        if not isinstance(data, list):
+            raise ValueError("executive.yaml payload is not a list")
+    except Exception as exc:
+        if health:
+            reason = "timeout" if isinstance(exc, requests.Timeout) else "fetch_or_parse_error"
+            health.record_failure(reason, time.monotonic() - started_at)
+        raise
 
     people = []
     for person in data:
@@ -85,9 +101,21 @@ def get_federal_executives() -> list:
         full_name = name_obj.get("official_full") or \
             f"{name_obj.get('first', '')} {name_obj.get('last', '')}".strip()
         id_obj = person.get("id", {}) or {}
-        # Key on wikidata, not bioguide — a President/VP who was formerly in Congress
-        # must not be merged into a congressional row (different office/identity here).
-        external_ids = {k: v for k, v in id_obj.items() if k != "bioguide"}
+        # Keep the full trusted crosswalk so a President/VP who formerly served in
+        # Congress resolves to the same canonical person. The source record key stays
+        # executive-specific, so its compatibility profile and office term remain distinct.
+        external_ids = dict(id_obj)
+        stable_source_id = (
+            id_obj.get("wikidata") or id_obj.get("bioguide") or id_obj.get("govtrack")
+        )
+        source_record_key = (
+            f"executive:{stable_source_id}" if stable_source_id is not None else None
+        )
+        if not full_name or not source_record_key:
+            if health:
+                health.record_failure("missing_executive_identity_key")
+                health.trip_breaker("missing_executive_identity_key")
+            raise ValueError("Current executive record lacks a name or stable identity key")
         people.append({
             "full_name": full_name,
             "current_office": office,
@@ -104,12 +132,38 @@ def get_federal_executives() -> list:
                 "phone_number": None,
                 "official_website": _WHITE_HOUSE,
             },
+            "source_system_key": "congress-legislators",
+            "source_record_key": source_record_key,
+            "source_catalog_slug": "congress-legislators",
+            "source_endpoint_slug": "repository",
+            "source_url": _EXECUTIVE_YAML,
+            "raw_payload_ref": _EXECUTIVE_YAML,
+            "verified_lane": "mixed",
+            "source_term_key": f"{term.get('type') or 'executive'}:{term.get('start') or 'unknown'}",
+            "term_start": term.get("start"),
+            "term_end": term.get("end"),
+            "term_status": "current",
         })
+    if len(people) < _MIN_EXPECTED_EXECUTIVES:
+        if health:
+            health.record_failure(
+                "snapshot_below_safety_floor", time.monotonic() - started_at
+            )
+            health.trip_breaker("snapshot_below_safety_floor")
+        raise ValueError(
+            f"Federal executive snapshot has {len(people)} records; "
+            f"expected at least {_MIN_EXPECTED_EXECUTIVES}"
+        )
+    if health:
+        health.record_success(time.monotonic() - started_at)
     return people
 
 
-def get_supreme_court() -> list:
+def get_supreme_court(health: SourceHealthTracker | None = None) -> list:
     """Current Supreme Court justices (curated seed)."""
+    if health:
+        health.record_attempt()
+    started_at = time.monotonic()
     people = []
     for j in _SUPREME_COURT:
         people.append({
@@ -128,18 +182,42 @@ def get_supreme_court() -> list:
                 "phone_number": "202-479-3000",
                 "official_website": _SCOTUS_WEBSITE,
             },
+            "source_system_key": "avanguardia-legacy-profile",
+            "source_record_key": f"scotus-seed:{j['wikidata']}",
+            "source_url": _SCOTUS_WEBSITE,
+            "raw_payload_ref": "scraper/extractors/federal.py:_SUPREME_COURT",
+            "verified_lane": "verified",
+            "source_term_key": "current-supreme-court-seat",
+            "term_start": None,
+            "term_end": None,
+            "term_status": "current",
         })
+    if len(people) != _EXPECTED_SUPREME_COURT_JUSTICES:
+        if health:
+            health.record_failure(
+                "snapshot_size_mismatch", time.monotonic() - started_at
+            )
+            health.trip_breaker("snapshot_size_mismatch")
+        raise ValueError(
+            f"Supreme Court seed has {len(people)} records; "
+            f"expected exactly {_EXPECTED_SUPREME_COURT_JUSTICES}"
+        )
+    if health:
+        health.record_success(time.monotonic() - started_at)
     return people
 
 
-def get_federal_exec_judicial() -> list:
+def get_federal_exec_judicial(
+    executive_health: SourceHealthTracker | None = None,
+    scotus_health: SourceHealthTracker | None = None,
+) -> list:
     """President, Vice President, and the Supreme Court."""
     print("Fetching federal executive (President/VP) + judicial (Supreme Court)...")
     people = []
     try:
-        people.extend(get_federal_executives())
+        people.extend(get_federal_executives(health=executive_health))
     except Exception as exc:
         logger.warning("[Federal] Failed to fetch executives: %s", exc)
-    people.extend(get_supreme_court())
+    people.extend(get_supreme_court(health=scotus_health))
     print(f"Successfully loaded {len(people)} federal exec/judicial officials.")
     return people

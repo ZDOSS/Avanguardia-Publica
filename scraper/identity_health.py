@@ -9,6 +9,9 @@ OPENSTATES_FEDERAL_OFFICE_PATTERNS = (
     "State Representative from US District%",
     "State Senator from US District%",
 )
+OPENSTATES_EVIDENCE = {
+    "deterministic_keys": [{"source_system_key": "openstates"}]
+}
 
 
 def _response_count(resp) -> int | None:
@@ -109,7 +112,7 @@ def run_identity_health_check(loader, summary) -> dict:
             lambda query: query.eq(
                 "candidate_type",
                 OPENSTATES_DUPLICATE_CANDIDATE_TYPE,
-            ).eq("status", "pending"),
+            ).eq("status", "pending").contains("evidence", OPENSTATES_EVIDENCE),
         ),
         "approved_openstates_federal_duplicate_candidates": _count_rows(
             loader,
@@ -118,7 +121,7 @@ def run_identity_health_check(loader, summary) -> dict:
             lambda query: query.eq(
                 "candidate_type",
                 OPENSTATES_DUPLICATE_CANDIDATE_TYPE,
-            ).eq("status", "approved"),
+            ).eq("status", "approved").contains("evidence", OPENSTATES_EVIDENCE),
         ),
         "openstates_federal_legacy_profiles_total": _count_bad_openstates_federal_profiles(
             loader

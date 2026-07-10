@@ -5,10 +5,12 @@ Multi-tier news ingestion system with circuit-breaker failover.
 Provider priority (production):
   1. Currents API        (~1,000 req/day free)
   2. NewsData.io         (~200 req/day free — requires attribution)
-  3. TheNewsAPI          (~100 req/day free)
-  4. GDELT + newspaper3k (unmetered open-source fallback)
+  3. TheNewsAPI          (~100 req/day free; explicit production approval required)
+  4. GDELT URL discovery (unmetered open-data fallback)
 
-NewsAPI.org is ONLY used in development/local environments (not production).
+NewsAPI.org is ONLY used in development/local environments (not production). We store
+provider-supplied headlines plus source URLs/attribution, never descriptions or scraped
+article bodies.
 """
 
 import os
@@ -17,6 +19,8 @@ import zipfile
 import time
 import logging
 import requests
+
+from source_health import SourceHealthTracker
 
 logger = logging.getLogger(__name__)
 
@@ -64,12 +68,16 @@ def get_provider_status() -> dict[str, dict]:
 # ---------------------------------------------------------------------------
 # 1. Currents API (primary production source)
 # ---------------------------------------------------------------------------
-def _fetch_currents(full_name: str) -> list[dict]:
+def _fetch_currents(
+    full_name: str, health: SourceHealthTracker | None = None
+) -> list[dict]:
     api_key = os.environ.get("CURRENTS_API_KEY")
     if not api_key:
         return []
     if not _within_limit("currents"):
         logger.warning("[Currents] Daily request limit reached, skipping.")
+        if health:
+            health.record_skip("request_budget_exhausted")
         return []
 
     url = "https://api.currentsapi.services/v1/search"
@@ -78,26 +86,44 @@ def _fetch_currents(full_name: str) -> list[dict]:
         "language": "en",
         "apiKey": api_key,
     }
+    if health:
+        health.record_attempt()
+    started_at = time.monotonic()
     try:
         resp = requests.get(url, params=params, timeout=_TIMEOUT)
         _bump("currents")
         if not resp.ok:
             logger.warning("[Currents] HTTP %s — rotating to next provider.", resp.status_code)
+            if health:
+                health.record_failure(
+                    f"http_{resp.status_code}", time.monotonic() - started_at
+                )
+                health.trip_breaker(f"http_{resp.status_code}")
             _counters["currents"] = RATE_LIMITS["currents"]  # trip the breaker
             return []
         articles = resp.json().get("news", [])
+        if health:
+            health.record_success(time.monotonic() - started_at)
         results = []
         for a in articles[:10]:
+            title = (a.get("title") or "").strip()
+            if not title or not a.get("url"):
+                continue
             results.append({
-                "content_summary": (a.get("title", "") + " — " + a.get("description", ""))[:300],
+                "content_summary": title[:300],
                 "url": a.get("url"),
                 "sentiment_score": None,
                 "ingestion_method": "currents_api",
                 "source": a.get("author") or "Currents API",
+                "source_api": "Currents",
             })
         return results
     except Exception as exc:
         logger.error("[Currents] Error for %s: %s", full_name, exc)
+        if health:
+            reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
+            health.record_failure(reason, time.monotonic() - started_at)
+            health.trip_breaker(reason)
         _counters["currents"] = RATE_LIMITS["currents"]  # trip the breaker
         return []
 
@@ -105,7 +131,9 @@ def _fetch_currents(full_name: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 # 2. NewsAPI.org (DEVELOPMENT / localhost only)
 # ---------------------------------------------------------------------------
-def _fetch_newsapi(full_name: str) -> list[dict]:
+def _fetch_newsapi(
+    full_name: str, health: SourceHealthTracker | None = None
+) -> list[dict]:
     env = os.environ.get("APP_ENV", "production").lower()
     is_dev = env in ("development", "dev", "local", "localhost")
     if not is_dev:
@@ -116,6 +144,8 @@ def _fetch_newsapi(full_name: str) -> list[dict]:
         return []
     if not _within_limit("newsapi"):
         logger.warning("[NewsAPI] Daily request limit reached, skipping.")
+        if health:
+            health.record_skip("request_budget_exhausted")
         return []
 
     url = "https://newsapi.org/v2/everything"
@@ -125,26 +155,44 @@ def _fetch_newsapi(full_name: str) -> list[dict]:
         "pageSize": 10,
         "apiKey": api_key,
     }
+    if health:
+        health.record_attempt()
+    started_at = time.monotonic()
     try:
         resp = requests.get(url, params=params, timeout=_TIMEOUT)
         _bump("newsapi")
         if not resp.ok:
             logger.warning("[NewsAPI] HTTP %s — rotating.", resp.status_code)
+            if health:
+                health.record_failure(
+                    f"http_{resp.status_code}", time.monotonic() - started_at
+                )
+                health.trip_breaker(f"http_{resp.status_code}")
             _counters["newsapi"] = RATE_LIMITS["newsapi"]
             return []
         articles = resp.json().get("articles", [])
+        if health:
+            health.record_success(time.monotonic() - started_at)
         results = []
         for a in articles:
+            title = (a.get("title") or "").strip()
+            if not title or not a.get("url"):
+                continue
             results.append({
-                "content_summary": (a.get("title", "") + " — " + (a.get("description") or ""))[:300],
+                "content_summary": title[:300],
                 "url": a.get("url"),
                 "sentiment_score": None,
                 "ingestion_method": "newsapi_dev",
                 "source": (a.get("source") or {}).get("name", "NewsAPI"),
+                "source_api": "NewsAPI (development)",
             })
         return results
     except Exception as exc:
         logger.error("[NewsAPI] Error for %s: %s", full_name, exc)
+        if health:
+            reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
+            health.record_failure(reason, time.monotonic() - started_at)
+            health.trip_breaker(reason)
         _counters["newsapi"] = RATE_LIMITS["newsapi"]
         return []
 
@@ -153,12 +201,16 @@ def _fetch_newsapi(full_name: str) -> list[dict]:
 # 3. NewsData.io (fallback / analytical tier)
 #    Free tier requires attribution: "Data powered by NewsData.io"
 # ---------------------------------------------------------------------------
-def _fetch_newsdata(full_name: str) -> list[dict]:
+def _fetch_newsdata(
+    full_name: str, health: SourceHealthTracker | None = None
+) -> list[dict]:
     api_key = os.environ.get("NEWSDATA_API_KEY")
     if not api_key:
         return []
     if not _within_limit("newsdata"):
         logger.warning("[NewsData] Daily request limit reached, skipping.")
+        if health:
+            health.record_skip("request_budget_exhausted")
         return []
 
     url = "https://newsdata.io/api/1/news"
@@ -167,14 +219,24 @@ def _fetch_newsdata(full_name: str) -> list[dict]:
         "language": "en",
         "apikey": api_key,
     }
+    if health:
+        health.record_attempt()
+    started_at = time.monotonic()
     try:
         resp = requests.get(url, params=params, timeout=_TIMEOUT)
         _bump("newsdata")
         if not resp.ok:
             logger.warning("[NewsData] HTTP %s — rotating.", resp.status_code)
+            if health:
+                health.record_failure(
+                    f"http_{resp.status_code}", time.monotonic() - started_at
+                )
+                health.trip_breaker(f"http_{resp.status_code}")
             _counters["newsdata"] = RATE_LIMITS["newsdata"]
             return []
         articles = resp.json().get("results", [])
+        if health:
+            health.record_success(time.monotonic() - started_at)
         results = []
         for a in articles[:10]:
             # Map NewsData's sentiment field
@@ -186,19 +248,25 @@ def _fetch_newsdata(full_name: str) -> list[dict]:
                 mapping = {"positive": 1.0, "negative": -1.0, "neutral": 0.0}
                 sentiment_score = mapping.get(raw_sentiment.lower())
 
+            title = (a.get("title") or "").strip()
+            if not title or not a.get("link"):
+                continue
             results.append({
-                "content_summary": (
-                    (a.get("title") or "") + " — " + (a.get("description") or "")
-                )[:260]
-                + "\n[Data powered by NewsData.io]",  # attribution required by free tier TOS
+                "content_summary": title[:240]
+                + "\nData powered by NewsData.io: https://newsdata.io/",
                 "url": a.get("link"),
                 "sentiment_score": sentiment_score,
                 "ingestion_method": "newsdata_api",
                 "source": a.get("source_id", "NewsData.io"),
+                "source_api": "NewsData.io",
             })
         return results
     except Exception as exc:
         logger.error("[NewsData] Error for %s: %s", full_name, exc)
+        if health:
+            reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
+            health.record_failure(reason, time.monotonic() - started_at)
+            health.trip_breaker(reason)
         _counters["newsdata"] = RATE_LIMITS["newsdata"]
         return []
 
@@ -206,12 +274,31 @@ def _fetch_newsdata(full_name: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 # 4. TheNewsAPI (secondary fallback)
 # ---------------------------------------------------------------------------
-def _fetch_thenewsapi(full_name: str) -> list[dict]:
+def _thenewsapi_allowed() -> bool:
+    env = os.environ.get("APP_ENV", "production").lower()
+    if env in ("development", "dev", "local", "localhost", "test"):
+        return True
+    return os.environ.get("THENEWSAPI_PRODUCTION_APPROVED", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+def _fetch_thenewsapi(
+    full_name: str, health: SourceHealthTracker | None = None
+) -> list[dict]:
     api_key = os.environ.get("THENEWSAPI_KEY")
     if not api_key:
         return []
+    if not _thenewsapi_allowed():
+        if health:
+            health.record_skip("production_terms_not_approved")
+        return []
     if not _within_limit("thenewsapi"):
         logger.warning("[TheNewsAPI] Daily request limit reached, skipping.")
+        if health:
+            health.record_skip("request_budget_exhausted")
         return []
 
     url = "https://api.thenewsapi.com/v1/news/all"
@@ -221,32 +308,50 @@ def _fetch_thenewsapi(full_name: str) -> list[dict]:
         "limit": 10,
         "api_token": api_key,
     }
+    if health:
+        health.record_attempt()
+    started_at = time.monotonic()
     try:
         resp = requests.get(url, params=params, timeout=_TIMEOUT)
         _bump("thenewsapi")
         if not resp.ok:
             logger.warning("[TheNewsAPI] HTTP %s — rotating.", resp.status_code)
+            if health:
+                health.record_failure(
+                    f"http_{resp.status_code}", time.monotonic() - started_at
+                )
+                health.trip_breaker(f"http_{resp.status_code}")
             _counters["thenewsapi"] = RATE_LIMITS["thenewsapi"]
             return []
         articles = resp.json().get("data", [])
+        if health:
+            health.record_success(time.monotonic() - started_at)
         results = []
         for a in articles:
+            title = (a.get("title") or "").strip()
+            if not title or not a.get("url"):
+                continue
             results.append({
-                "content_summary": (a.get("title", "") + " — " + (a.get("description") or ""))[:300],
+                "content_summary": title[:300],
                 "url": a.get("url"),
                 "sentiment_score": None,
                 "ingestion_method": "thenewsapi",
                 "source": a.get("source", "TheNewsAPI"),
+                "source_api": "TheNewsAPI",
             })
         return results
     except Exception as exc:
         logger.error("[TheNewsAPI] Error for %s: %s", full_name, exc)
+        if health:
+            reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
+            health.record_failure(reason, time.monotonic() - started_at)
+            health.trip_breaker(reason)
         _counters["thenewsapi"] = RATE_LIMITS["thenewsapi"]
         return []
 
 
 # ---------------------------------------------------------------------------
-# 5. GDELT + newspaper3k (unmetered open-source fallback)
+# 5. GDELT URL discovery (unmetered open-data fallback)
 # ---------------------------------------------------------------------------
 GDELT_MASTER_URL = (
     "https://data.gdeltproject.org/gdeltv2/lastupdate.txt"
@@ -258,7 +363,7 @@ _gdelt_cache_url: str | None = None
 _gdelt_cache_time: float | None = None
 _GDELT_CACHE_TTL = 900  # 15 minutes
 
-def _get_gdelt_cache() -> list[tuple[str, str]]:
+def _get_gdelt_cache() -> list[tuple[str, str]] | None:
     global _gdelt_cache, _gdelt_cache_url, _gdelt_cache_time
     
     # Short-circuit BEFORE the manifest network request if the cache is still fresh
@@ -281,7 +386,7 @@ def _get_gdelt_cache() -> list[tuple[str, str]]:
         
         if not gkg_url:
             logger.warning("[GDELT] Could not locate GKG zip in manifest.")
-            return []
+            return None
 
         # If we already downloaded this exact file in this run, return the cache
         if _gdelt_cache is not None and _gdelt_cache_url == gkg_url:
@@ -317,14 +422,16 @@ def _get_gdelt_cache() -> list[tuple[str, str]]:
         return _gdelt_cache
     except Exception as exc:
         logger.error("[GDELT] Error fetching master file: %s", exc)
-        return []
+        return None
 
 
-def _fetch_gdelt_urls(full_name: str, max_articles: int = 10) -> list[str]:
+def _fetch_gdelt_urls(full_name: str, max_articles: int = 10) -> list[str] | None:
     """
     Filters the cached GDELT GKG dataset for rows matching the politician's name.
     """
     cache = _get_gdelt_cache()
+    if cache is None:
+        return None
     name_lower = full_name.lower()
     urls: list[str] = []
 
@@ -335,52 +442,49 @@ def _fetch_gdelt_urls(full_name: str, max_articles: int = 10) -> list[str]:
         if name_lower and name_lower in entities_col:
             urls.append(src_url)
 
-    return urls
+    return list(dict.fromkeys(urls))
 
 
-def _scrape_article_text(url: str) -> str | None:
-    """
-    Downloads and extracts clean article text from a URL using newspaper3k.
-    Falls back to a raw truncated HTTP response if newspaper3k is unavailable.
-    """
-    try:
-        from newspaper import Article  # type: ignore
-        article = Article(url)
-        article.download()
-        article.parse()
-        return article.text[:400] if article.text else None
-    except ImportError:
-        # newspaper3k not installed — we can't extract clean text without it.
-        # Returning raw HTML (r.text) causes garbage data, so we safely return None.
-        logger.warning("[newspaper3k] Not installed; cannot extract text from %s", url)
-        return None
-    except Exception as exc:
-        logger.warning("[newspaper3k] Could not parse %s: %s", url, exc)
-        return None
-
-
-def _fetch_gdelt(full_name: str) -> list[dict]:
-    """Full GDELT pipeline: fetch URLs then scrape article text."""
+def _fetch_gdelt(
+    full_name: str, health: SourceHealthTracker | None = None
+) -> list[dict]:
+    """Use GDELT only to discover source URLs; never republish article body text."""
+    if health and health.breaker_tripped:
+        health.record_skip("breaker_open")
+        return []
+    if health:
+        health.record_attempt()
+    started_at = time.monotonic()
     urls = _fetch_gdelt_urls(full_name)
-    results = []
-    for url in urls:
-        text = _scrape_article_text(url)
-        if text:
-            results.append({
-                "content_summary": text[:300],
-                "url": url,
-                "sentiment_score": None,
-                "ingestion_method": "gdelt_scraper",
-                "source": "GDELT",
-            })
-        time.sleep(0.5)  # polite delay between scrape requests
-    return results
+    if urls is None:
+        if health:
+            health.record_failure("gdelt_feed_unavailable", time.monotonic() - started_at)
+        return []
+    if health:
+        health.record_success(time.monotonic() - started_at)
+
+    attribution = "Media URL indexed by the GDELT Project: https://www.gdeltproject.org/"
+    return [
+        {
+            "content_summary": attribution,
+            "url": url,
+            "sentiment_score": None,
+            "ingestion_method": "gdelt_gkg_url_discovery",
+            "source": "GDELT Project",
+            "source_api": "GDELT",
+        }
+        for url in urls
+    ]
 
 
 # ---------------------------------------------------------------------------
 # Public interface: circuit-breaker manager
 # ---------------------------------------------------------------------------
-def get_news_data(full_name: str) -> list[dict]:
+def get_news_data(
+    full_name: str,
+    health: SourceHealthTracker | None = None,
+    provider_health: dict[str, SourceHealthTracker] | None = None,
+) -> list[dict]:
     """
     Attempts each news provider in priority order, returning results from the
     first provider that succeeds. Falls back to GDELT if all API quotas are
@@ -388,36 +492,71 @@ def get_news_data(full_name: str) -> list[dict]:
 
     Returns a list of dicts compatible with loader.process_mentions().
     """
+    provider_health = provider_health or {}
+    if health and health.breaker_tripped:
+        health.record_skip("breaker_open")
+        return []
+    if health:
+        health.record_attempt()
+
     # --- Development-only NewsAPI first (no-op in production) ---
-    dev_results = _fetch_newsapi(full_name)
+    dev_results = _fetch_newsapi(full_name, health=provider_health.get("newsapi"))
     if dev_results:
         logger.info("[NewsAggregator] Served by NewsAPI (dev) for %s", full_name)
+        if health:
+            health.record_success()
         return dev_results
 
     # --- Tier 1: Currents API ---
     if _within_limit("currents") and os.environ.get("CURRENTS_API_KEY"):
-        results = _fetch_currents(full_name)
+        results = _fetch_currents(full_name, health=provider_health.get("currents"))
         if _within_limit("currents"):  # if breaker didn't trip, API is healthy
             if results:
                 logger.info("[NewsAggregator] Served by Currents for %s", full_name)
+            if health:
+                health.record_success()
             return results
 
     # --- Tier 2: NewsData.io ---
     if _within_limit("newsdata") and os.environ.get("NEWSDATA_API_KEY"):
-        results = _fetch_newsdata(full_name)
+        results = _fetch_newsdata(full_name, health=provider_health.get("newsdata"))
         if _within_limit("newsdata"):
             if results:
                 logger.info("[NewsAggregator] Served by NewsData for %s", full_name)
+            if health:
+                health.record_success()
             return results
 
     # --- Tier 3: TheNewsAPI ---
-    if _within_limit("thenewsapi") and os.environ.get("THENEWSAPI_KEY"):
-        results = _fetch_thenewsapi(full_name)
+    if (
+        _within_limit("thenewsapi")
+        and os.environ.get("THENEWSAPI_KEY")
+        and _thenewsapi_allowed()
+    ):
+        results = _fetch_thenewsapi(
+            full_name, health=provider_health.get("thenewsapi")
+        )
         if _within_limit("thenewsapi"):
             if results:
                 logger.info("[NewsAggregator] Served by TheNewsAPI for %s", full_name)
+            if health:
+                health.record_success()
             return results
+    elif os.environ.get("THENEWSAPI_KEY") and not _thenewsapi_allowed():
+        tracker = provider_health.get("thenewsapi")
+        if tracker:
+            tracker.record_skip("production_terms_not_approved")
 
-    # --- Tier 4: GDELT + newspaper3k (always available, no key needed) ---
+    # --- Tier 4: GDELT URL discovery (always available, no key needed) ---
     logger.info("[NewsAggregator] Falling back to GDELT pipeline for %s", full_name)
-    return _fetch_gdelt(full_name)
+    gdelt_tracker = provider_health.get("gdelt")
+    failures_before = gdelt_tracker.failures if gdelt_tracker else 0
+    results = _fetch_gdelt(full_name, health=gdelt_tracker)
+    if health:
+        if gdelt_tracker and (
+            gdelt_tracker.failures > failures_before or gdelt_tracker.breaker_tripped
+        ):
+            health.record_failure("all_news_providers_unavailable")
+        else:
+            health.record_success()
+    return results

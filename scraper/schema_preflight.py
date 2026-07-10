@@ -1,4 +1,5 @@
 ZERO_UUID = "00000000-0000-0000-0000-000000000000"
+REQUIRED_MIGRATION_KEY = "0022_project_stabilization"
 
 REQUIRED_COLUMN_CHECKS = [
     (
@@ -66,9 +67,51 @@ REQUIRED_COLUMN_CHECKS = [
         "person_merge_events",
         "id,survivor_person_id,merged_person_id,reason,evidence,created_at",
     ),
+    (
+        "source_records",
+        "id,source_system_key,source_record_key,record_type,person_id,"
+        "legacy_politician_id,source_catalog_slug,source_endpoint_slug,source_url,"
+        "raw_payload_ref,payload_hash,verified_lane,record_status,source_updated_at,"
+        "first_seen_at,last_seen_at,retired_at,metadata,created_at,updated_at",
+    ),
+    (
+        "person_office_terms",
+        "id,person_id,source_record_id,source_term_key,legacy_politician_id,"
+        "office_title,role_type,organization_name,government_level,government_branch,"
+        "office_type,jurisdiction,state,district,term_start,term_end,term_status,"
+        "metadata,created_at,updated_at",
+    ),
+    ("schema_migrations", "migration_key,applied_at"),
 ]
 
 REQUIRED_RPC_CHECKS = [
+    (
+        "retire_source_profile_record",
+        {
+            "p_source_record_id": ZERO_UUID,
+            "p_retired_at": None,
+            "p_term_end": None,
+        },
+        "retire_source_profile_record(uuid, timestamptz, date)",
+    ),
+    (
+        "upsert_source_profile_identity",
+        {
+            "p_source_system_key": "__preflight__",
+            "p_source_record_key": "__preflight__",
+            "p_profile": {"preflight": True},
+            "p_trusted_external_ids": [],
+            "p_source_url": None,
+            "p_raw_payload_ref": None,
+            "p_payload_hash": None,
+            "p_verified_lane": "unverified",
+            "p_office_term": None,
+            "p_source_catalog_slug": None,
+            "p_source_endpoint_slug": None,
+            "p_source_updated_at": None,
+        },
+        "upsert_source_profile_identity(text, text, jsonb, jsonb, text, text, text, text, jsonb, text, text, timestamptz)",
+    ),
     ("get_shared_donors", {"p_id": ZERO_UUID}, "get_shared_donors(uuid)"),
     ("get_covoting", {"p_id": ZERO_UUID}, "get_covoting(uuid)"),
     ("get_network_ties", {"p_id": ZERO_UUID}, "get_network_ties(uuid)"),
@@ -122,6 +165,11 @@ REQUIRED_RPC_CHECKS = [
         {"p_id": ZERO_UUID, "result_limit": 1, "result_offset": 0},
         "get_canonical_media_mentions(uuid, integer, integer)",
     ),
+    (
+        "get_canonical_person_office_terms",
+        {"p_id": ZERO_UUID},
+        "get_canonical_person_office_terms(uuid)",
+    ),
 ]
 
 
@@ -129,8 +177,9 @@ class SchemaPreflightError(RuntimeError):
     def __init__(self, failures: list[str]):
         self.failures = failures
         message = (
-            "Supabase schema preflight failed. Apply migrations/*.sql manually in "
-            "filename order in the Supabase SQL editor, then run "
+            "Supabase schema preflight failed. Apply only the next unapplied migration "
+            "(currently 0022_project_stabilization.sql) in the Supabase SQL editor; "
+            "never replay migration history. Then run "
             "NOTIFY pgrst, 'reload schema'; if the schema cache is stale.\n"
             + "\n".join(f"- {failure}" for failure in failures)
         )
@@ -163,6 +212,26 @@ def run_schema_preflight(loader) -> list[str]:
             print(f"  [+] {label}")
         except Exception as exc:
             failures.append(f"{label}: {exc}")
+
+    try:
+        marker = loader.execute_supabase(
+            lambda: (
+                loader.supabase.table("schema_migrations")
+                .select("migration_key")
+                .eq("migration_key", REQUIRED_MIGRATION_KEY)
+                .limit(1)
+                .execute()
+            ),
+            f"schema preflight migration marker {REQUIRED_MIGRATION_KEY}",
+        )
+        if not marker.data:
+            failures.append(
+                f"migration marker {REQUIRED_MIGRATION_KEY}: not found; apply migration 0022"
+            )
+        else:
+            print(f"  [+] migration marker {REQUIRED_MIGRATION_KEY}")
+    except Exception as exc:
+        failures.append(f"migration marker {REQUIRED_MIGRATION_KEY}: {exc}")
 
     for rpc_name, args, signature in REQUIRED_RPC_CHECKS:
         try:

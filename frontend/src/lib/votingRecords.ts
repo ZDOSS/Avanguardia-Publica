@@ -1,4 +1,7 @@
-import { fetchCanonicalLegacyPoliticianIds, missingCanonicalPoliticianRpc } from './canonicalPoliticians';
+import {
+  allowMissingCanonicalPoliticianRpcFallback,
+  fetchCanonicalLegacyPoliticianIds,
+} from './canonicalPoliticians';
 import { isUuid } from './ids';
 import { pageRange, type PageResult } from './pagination';
 import { supabase } from './supabase';
@@ -32,7 +35,7 @@ export async function fetchVotingRecords(
     if (canonicalResult.rows.length > 0 || canonicalResult.hasMore) return canonicalResult;
     canonicalEmptyResult = canonicalResult;
   } catch (error) {
-    if (!missingCanonicalPoliticianRpc(error as { code?: string; message?: string; details?: string; hint?: string })) {
+    if (!allowMissingCanonicalPoliticianRpcFallback(error, 'get_canonical_voting_records')) {
       throw error;
     }
   }

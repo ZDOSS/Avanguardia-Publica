@@ -6,6 +6,7 @@ import CampaignDonorsTab from './CampaignDonorsTab';
 import ConnectionsTab from './ConnectionsTab';
 import FinancialDisclosuresTab from './FinancialDisclosuresTab';
 import MediaMentionsTab from './MediaMentionsTab';
+import OfficeTermsSection from './OfficeTermsSection';
 import OfficialContactCard from './OfficialContactCard';
 import { formatDateTime } from './ProfileSpokeStates';
 import VotingRecordTab from './VotingRecordTab';
@@ -85,6 +86,8 @@ export default function PoliticianClient({ politician }: { politician: Politicia
             <OfficialContactCard politicianId={politician.id} initialContact={initialContact} />
           </div>
         </div>
+
+        <OfficeTermsSection politicianId={politician.id} />
 
         <div className="border-b border-[var(--color-official-border)] mb-8 overflow-x-auto no-scrollbar">
           <div className="flex space-x-8 min-w-max px-2" role="tablist" aria-label="Profile data sections">

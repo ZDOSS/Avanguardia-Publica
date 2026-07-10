@@ -1,6 +1,10 @@
-import { fetchCanonicalLegacyPoliticianRefs, missingCanonicalPoliticianRpc } from './canonicalPoliticians';
+import {
+  allowMissingCanonicalPoliticianRpcFallback,
+  fetchCanonicalLegacyPoliticianRefs,
+} from './canonicalPoliticians';
 import { supabase } from './supabase';
 import { isUuid } from './ids';
+import { safeHttpUrl } from './urls';
 
 export interface ProfileHeader {
   id: string;
@@ -24,6 +28,11 @@ const contactUpdatedAt = (contact: ContactInfo): number => (
   contact.last_updated ? Date.parse(contact.last_updated) || 0 : 0
 );
 
+const normalizeContact = (contact: ContactInfo): ContactInfo => ({
+  ...contact,
+  official_website: safeHttpUrl(contact.official_website),
+});
+
 const PROFILE_COLUMNS = 'id, full_name, current_office, party, state, district, last_updated';
 
 export async function fetchProfileHeader(politicianId: string): Promise<ProfileHeader | null> {
@@ -32,16 +41,11 @@ export async function fetchProfileHeader(politicianId: string): Promise<ProfileH
   try {
     return await fetchCanonicalProfileHeader(politicianId);
   } catch (error) {
-    if (!missingCanonicalPoliticianRpc(error as { code?: string; message?: string; details?: string; hint?: string })) {
+    if (!allowMissingCanonicalPoliticianRpcFallback(error, 'get_canonical_politician_header')) {
       throw error;
     }
   }
 
-  return fetchRawProfileHeader(politicianId);
-}
-
-export async function fetchStaticProfileHeader(politicianId: string): Promise<ProfileHeader | null> {
-  if (!isUuid(politicianId)) return null;
   return fetchRawProfileHeader(politicianId);
 }
 
@@ -72,10 +76,10 @@ export async function fetchContactInfo(politicianId: string): Promise<ContactInf
 
   try {
     const canonicalContact = await fetchCanonicalContactInfo(politicianId);
-    if (canonicalContact) return canonicalContact;
+    if (canonicalContact) return normalizeContact(canonicalContact);
     canonicalEmptyResult = null;
   } catch (error) {
-    if (!missingCanonicalPoliticianRpc(error as { code?: string; message?: string; details?: string; hint?: string })) {
+    if (!allowMissingCanonicalPoliticianRpcFallback(error, 'get_canonical_contact_info')) {
       throw error;
     }
   }
@@ -98,7 +102,7 @@ export async function fetchContactInfo(politicianId: string): Promise<ContactInf
     throw error;
   }
 
-  const rows = ((data ?? []) as ContactInfo[]).sort((left, right) => {
+  const rows = ((data ?? []) as ContactInfo[]).map(normalizeContact).sort((left, right) => {
     const leftRank = canonicalRank.get(left.politician_id ?? '') ?? Number.MAX_SAFE_INTEGER;
     const rightRank = canonicalRank.get(right.politician_id ?? '') ?? Number.MAX_SAFE_INTEGER;
     return leftRank - rightRank || contactUpdatedAt(right) - contactUpdatedAt(left);

@@ -71,6 +71,16 @@ export default function MediaMentionsTab({ politicianId }: { politicianId: strin
         <p className="text-sm opacity-80 mt-2 max-w-3xl">
           The following information is ingested automatically from third-party APIs based on name matching. It has not been verified against official government records.
         </p>
+        <p className="text-xs opacity-80 mt-3 max-w-4xl leading-relaxed">
+          Provider notes:{' '}
+          <a href="https://littlesis.org/" target="_blank" rel="noreferrer" className="underline font-semibold">LittleSis</a>
+          {' '}API data identifies its license as{' '}
+          <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noreferrer" className="underline font-semibold">CC BY-SA 4.0</a>;
+          {' '}data is powered by <a href="https://newsdata.io/" target="_blank" rel="noreferrer" className="underline font-semibold">NewsData.io</a> when that provider is used; and{' '}
+          <a href="https://www.gdeltproject.org/" target="_blank" rel="noreferrer" className="underline font-semibold">GDELT Project</a> discovery data is credited to GDELT.
+          {' '}Discovery may also use <a href="https://currentsapi.services/" target="_blank" rel="noreferrer" className="underline font-semibold">Currents</a> and{' '}
+          <a href="https://www.thenewsapi.com/" target="_blank" rel="noreferrer" className="underline font-semibold">TheNewsAPI</a>. News links open the original publisher, whose terms may apply.
+        </p>
       </div>
 
       {!current.rows.length ? (
