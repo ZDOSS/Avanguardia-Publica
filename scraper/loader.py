@@ -24,6 +24,17 @@ logger = logging.getLogger(__name__)
 _STABLE_SCHEMES = ("openstates", "wikidata")
 
 
+def _json_compatible(value):
+    """Recursively convert temporal values before handing payloads to PostgREST."""
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: _json_compatible(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_compatible(item) for item in value]
+    return value
+
+
 class IdentityResolutionConflict(RuntimeError):
     """Raised before a hub mutation when deterministic identity evidence conflicts."""
 
@@ -615,6 +626,7 @@ class SupabaseLoader:
             "p_source_endpoint_slug": member_data.get("source_endpoint_slug"),
             "p_source_updated_at": member_data.get("source_updated_at"),
         }
+        args = _json_compatible(args)
         resp = self.execute_supabase(
             lambda: self.supabase.rpc("upsert_source_profile_identity", args).execute(),
             f"transactional source profile upsert {source_system_key}:{source_record_key}",
