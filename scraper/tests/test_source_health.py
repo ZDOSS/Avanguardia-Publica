@@ -29,25 +29,57 @@ class SourceHealthTests(unittest.TestCase):
         self.assertEqual("failed", tracker.status)
         self.assertEqual(["openfec"], summary.run_blocking_source_failures())
 
-    def test_openfec_budget_tolerates_scattered_exhausted_retries(self):
+    def test_openfec_budget_tolerates_observed_scattered_timeouts(self):
         tracker = SourceHealthTracker(
-            "openfec", min_attempts_for_rate=10, max_failure_seconds=300
+            "openfec", min_attempts_for_rate=10, max_failure_seconds=600
         )
-        for _ in range(43):
+        for _ in range(55):
             tracker.record_attempt()
             tracker.record_success()
-        for _ in range(4):
+        for _ in range(10):
             tracker.record_attempt()
-            tracker.record_failure("timeout", 30.4)
+            tracker.record_failure("timeout", 31.749)
 
         self.assertEqual("degraded", tracker.status)
         self.assertFalse(tracker.breaker_tripped)
-        self.assertAlmostEqual(4 / 47, tracker.failure_rate)
-        self.assertLess(tracker.failure_seconds, 300)
+        self.assertAlmostEqual(10 / 65, tracker.failure_rate)
+        self.assertGreater(tracker.failure_seconds, 300)
+        self.assertLess(tracker.failure_seconds, 600)
 
     def test_openfec_larger_time_budget_still_blocks_high_failure_rate(self):
         tracker = SourceHealthTracker(
-            "openfec", min_attempts_for_rate=10, max_failure_seconds=300
+            "openfec", min_attempts_for_rate=10, max_failure_seconds=600
+        )
+        for _ in range(7):
+            tracker.record_attempt()
+            tracker.record_success()
+        for _ in range(3):
+            tracker.record_attempt()
+            tracker.record_failure("timeout", 1)
+
+        self.assertEqual("failed", tracker.status)
+        self.assertEqual("failure_rate_threshold_exceeded", tracker.breaker_reason)
+
+    def test_openstates_votes_tolerate_small_sample_exhausted_retries(self):
+        tracker = SourceHealthTracker(
+            "openstates_votes", min_attempts_for_rate=10, max_failure_seconds=300
+        )
+        for _ in range(3):
+            tracker.record_attempt()
+            tracker.record_success()
+        for _ in range(2):
+            tracker.record_attempt()
+            tracker.record_failure("timeout", 60.635)
+
+        self.assertEqual("degraded", tracker.status)
+        self.assertFalse(tracker.breaker_tripped)
+        self.assertAlmostEqual(2 / 5, tracker.failure_rate)
+        self.assertGreater(tracker.failure_seconds, 120)
+        self.assertLess(tracker.failure_seconds, 300)
+
+    def test_openstates_votes_still_block_high_failure_rate_after_sample(self):
+        tracker = SourceHealthTracker(
+            "openstates_votes", min_attempts_for_rate=10, max_failure_seconds=300
         )
         for _ in range(7):
             tracker.record_attempt()
