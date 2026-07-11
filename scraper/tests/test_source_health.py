@@ -29,6 +29,36 @@ class SourceHealthTests(unittest.TestCase):
         self.assertEqual("failed", tracker.status)
         self.assertEqual(["openfec"], summary.run_blocking_source_failures())
 
+    def test_openfec_budget_tolerates_scattered_exhausted_retries(self):
+        tracker = SourceHealthTracker(
+            "openfec", min_attempts_for_rate=10, max_failure_seconds=300
+        )
+        for _ in range(43):
+            tracker.record_attempt()
+            tracker.record_success()
+        for _ in range(4):
+            tracker.record_attempt()
+            tracker.record_failure("timeout", 30.4)
+
+        self.assertEqual("degraded", tracker.status)
+        self.assertFalse(tracker.breaker_tripped)
+        self.assertAlmostEqual(4 / 47, tracker.failure_rate)
+        self.assertLess(tracker.failure_seconds, 300)
+
+    def test_openfec_larger_time_budget_still_blocks_high_failure_rate(self):
+        tracker = SourceHealthTracker(
+            "openfec", min_attempts_for_rate=10, max_failure_seconds=300
+        )
+        for _ in range(7):
+            tracker.record_attempt()
+            tracker.record_success()
+        for _ in range(3):
+            tracker.record_attempt()
+            tracker.record_failure("timeout", 1)
+
+        self.assertEqual("failed", tracker.status)
+        self.assertEqual("failure_rate_threshold_exceeded", tracker.breaker_reason)
+
     def test_expected_request_budget_exhaustion_is_visible_but_not_failed(self):
         tracker = SourceHealthTracker("openstates_votes")
         tracker.record_attempt()
