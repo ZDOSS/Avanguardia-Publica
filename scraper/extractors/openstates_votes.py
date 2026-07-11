@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 
 _BASE = "https://v3.openstates.org"
 _TIMEOUT = 30
+_MAX_TRANSIENT_RETRIES = 1
+_RETRY_BACKOFF_SECONDS = 1.0
+_RETRIABLE_STATUS_CODES = frozenset({500, 502, 503, 504})
 
 # Quota controls (free tier: ~500 req/day, 10 req/min). Kept under the daily cap with
 # headroom; pacing keeps us under the per-minute cap. All reset per process/run.
@@ -83,7 +86,7 @@ def _get(
     api_key: str,
     health: SourceHealthTracker | None = None,
 ):
-    """Single budgeted, paced GET against OpenStates v3. Returns JSON or None."""
+    """Budgeted, paced GET with one retry for transient transport failures."""
     global _request_count, _breaker_tripped, _consecutive_failures, _last_request_at
 
     if _breaker_tripped or _request_count >= _MAX_REQUESTS:
@@ -96,67 +99,89 @@ def _get(
             )
         return None
 
-    # Honour the 10 req/min cap: wait out the remainder of the interval since the
-    # last attempt before issuing this one.
-    elapsed = time.monotonic() - _last_request_at
-    if _last_request_at and elapsed < _MIN_REQUEST_INTERVAL:
-        time.sleep(_MIN_REQUEST_INTERVAL - elapsed)
-
-    # Count the attempt before issuing it so timeouts/connection errors also draw down
-    # the budget (otherwise a sustained outage never trips the count breaker).
-    _request_count += 1
-    _last_request_at = time.monotonic()
     if health:
         health.record_attempt()
-    started_at = time.monotonic()
-    try:
-        resp = requests.get(
-            f"{_BASE}{path}",
-            params=params,
-            headers={"X-API-KEY": api_key},
-            timeout=_TIMEOUT,
-        )
-        elapsed = time.monotonic() - started_at
-        if not resp.ok:
-            reason = f"http_{resp.status_code}"
+    failure_reason = "request_error"
+    hard_breaker_reason = None
+    request_seconds = 0.0
+
+    for retry_index in range(_MAX_TRANSIENT_RETRIES + 1):
+        if _request_count >= _MAX_REQUESTS:
             if health:
-                health.record_failure(reason, elapsed)
-            _consecutive_failures += 1
-            if resp.status_code in (401, 403, 429):
-                logger.warning("[OpenStates] HTTP %s; tripping breaker for this run.", resp.status_code)
-                _breaker_tripped = True
-                if health:
-                    health.trip_breaker(reason)
-            elif _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
-                _breaker_tripped = True
-                if health:
-                    health.trip_breaker("consecutive_failures")
-            elif health and health.breaker_tripped:
-                _breaker_tripped = True
-            return None
-        payload = resp.json()
-        _consecutive_failures = 0
-        if health:
-            health.record_success(elapsed)
-        return payload
-    except Exception as exc:
-        logger.warning("[OpenStates] Request failed for %s: %s", path, exc)
-        _consecutive_failures += 1
-        if health:
-            reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
-            health.record_failure(reason, time.monotonic() - started_at)
-        if _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
-            logger.warning(
-                "[OpenStates] %d consecutive failures — tripping breaker for this run.",
-                _consecutive_failures,
+                health.record_skip("retry_budget_exhausted")
+            break
+
+        # Every network attempt, including a retry, consumes quota and obeys pacing.
+        elapsed = time.monotonic() - _last_request_at
+        if _last_request_at and elapsed < _MIN_REQUEST_INTERVAL:
+            time.sleep(_MIN_REQUEST_INTERVAL - elapsed)
+        _request_count += 1
+        _last_request_at = time.monotonic()
+        started_at = time.monotonic()
+        try:
+            resp = requests.get(
+                f"{_BASE}{path}",
+                params=params,
+                headers={"X-API-KEY": api_key},
+                timeout=_TIMEOUT,
             )
-            _breaker_tripped = True
-            if health:
-                health.trip_breaker("consecutive_failures")
-        elif health and health.breaker_tripped:
-            logger.warning("[OpenStates] Health threshold exceeded; tripping breaker for this run.")
-            _breaker_tripped = True
-        return None
+            request_seconds += time.monotonic() - started_at
+            if resp.ok:
+                payload = resp.json()
+                _consecutive_failures = 0
+                if health:
+                    health.record_success(request_seconds)
+                return payload
+
+            failure_reason = f"http_{resp.status_code}"
+            if resp.status_code in (401, 403, 429):
+                hard_breaker_reason = failure_reason
+                break
+            if (
+                resp.status_code in _RETRIABLE_STATUS_CODES
+                and retry_index < _MAX_TRANSIENT_RETRIES
+            ):
+                logger.warning(
+                    "[OpenStates] HTTP %s for %s; retrying once.", resp.status_code, path
+                )
+                time.sleep(_RETRY_BACKOFF_SECONDS)
+                continue
+            break
+        except Exception as exc:
+            request_seconds += time.monotonic() - started_at
+            failure_reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
+            is_transient = isinstance(exc, (requests.Timeout, requests.ConnectionError))
+            if is_transient and retry_index < _MAX_TRANSIENT_RETRIES:
+                logger.warning(
+                    "[OpenStates] Request failed for %s: %s; retrying once.", path, exc
+                )
+                time.sleep(_RETRY_BACKOFF_SECONDS)
+                continue
+            logger.warning("[OpenStates] Request failed for %s after retry: %s", path, exc)
+            break
+
+    _consecutive_failures += 1
+    if health:
+        health.record_failure(failure_reason, request_seconds)
+    if hard_breaker_reason:
+        logger.warning(
+            "[OpenStates] %s; tripping breaker for this run.", hard_breaker_reason
+        )
+        _breaker_tripped = True
+        if health:
+            health.trip_breaker(hard_breaker_reason)
+    elif _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+        logger.warning(
+            "[OpenStates] %d consecutive failures — tripping breaker for this run.",
+            _consecutive_failures,
+        )
+        _breaker_tripped = True
+        if health:
+            health.trip_breaker("consecutive_failures")
+    elif health and health.breaker_tripped:
+        logger.warning("[OpenStates] Health threshold exceeded; tripping breaker for this run.")
+        _breaker_tripped = True
+    return None
 
 
 def _updated_since() -> str:
