@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 _BASE = "https://api.open.fec.gov/v1"
 _TIMEOUT = 15
+_MAX_TRANSIENT_RETRIES = 1
+_RETRY_BACKOFF_SECONDS = 1.0
+_RETRIABLE_STATUS_CODES = frozenset({500, 502, 503, 504})
 
 # Per-run request budget to stay under the free hourly rate limit. Reset per process.
 _MAX_REQUESTS = 900
@@ -59,7 +62,7 @@ def _api_key() -> str:
 
 
 def _get(path: str, params: dict, health: SourceHealthTracker | None = None):
-    """Single budgeted GET against OpenFEC. Returns parsed JSON or None on failure."""
+    """Budgeted OpenFEC GET with one retry for transient transport failures."""
     global _request_count, _breaker_tripped, _consecutive_failures
 
     if _breaker_tripped or _request_count >= _MAX_REQUESTS:
@@ -74,55 +77,75 @@ def _get(path: str, params: dict, health: SourceHealthTracker | None = None):
 
     params = dict(params)
     params["api_key"] = _api_key()
-    _request_count += 1
     if health:
         health.record_attempt()
-    started_at = time.monotonic()
+    failure_reason = "request_error"
+    hard_breaker_reason = None
+    request_seconds = 0.0
 
-    try:
-        resp = requests.get(f"{_BASE}{path}", params=params, timeout=_TIMEOUT)
-        elapsed = time.monotonic() - started_at
-        if not resp.ok:
-            reason = f"http_{resp.status_code}"
+    for retry_index in range(_MAX_TRANSIENT_RETRIES + 1):
+        if _request_count >= _MAX_REQUESTS:
             if health:
-                health.record_failure(reason, elapsed)
-            _consecutive_failures += 1
+                health.record_skip("retry_budget_exhausted")
+            break
+
+        _request_count += 1
+        started_at = time.monotonic()
+        try:
+            resp = requests.get(f"{_BASE}{path}", params=params, timeout=_TIMEOUT)
+            request_seconds += time.monotonic() - started_at
+            if resp.ok:
+                payload = resp.json()
+                _consecutive_failures = 0
+                if health:
+                    health.record_success(request_seconds)
+                return payload
+
+            failure_reason = f"http_{resp.status_code}"
             if resp.status_code in (401, 403, 429):
-                logger.warning("[FEC] HTTP %s; tripping breaker for this run.", resp.status_code)
-                _breaker_tripped = True
-                if health:
-                    health.trip_breaker(reason)
-            elif _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
-                _breaker_tripped = True
-                if health:
-                    health.trip_breaker("consecutive_failures")
-            elif health and health.breaker_tripped:
-                _breaker_tripped = True
-            return None
+                hard_breaker_reason = failure_reason
+                break
+            if (
+                resp.status_code in _RETRIABLE_STATUS_CODES
+                and retry_index < _MAX_TRANSIENT_RETRIES
+            ):
+                logger.warning(
+                    "[FEC] HTTP %s for %s; retrying once.", resp.status_code, path
+                )
+                time.sleep(_RETRY_BACKOFF_SECONDS)
+                continue
+            break
+        except Exception as exc:
+            request_seconds += time.monotonic() - started_at
+            failure_reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
+            is_transient = isinstance(exc, (requests.Timeout, requests.ConnectionError))
+            if is_transient and retry_index < _MAX_TRANSIENT_RETRIES:
+                logger.warning("[FEC] Request failed for %s: %s; retrying once.", path, exc)
+                time.sleep(_RETRY_BACKOFF_SECONDS)
+                continue
+            logger.warning("[FEC] Request failed for %s after retry: %s", path, exc)
+            break
 
-        payload = resp.json()
-        _consecutive_failures = 0
+    _consecutive_failures += 1
+    if health:
+        health.record_failure(failure_reason, request_seconds)
+    if hard_breaker_reason:
+        logger.warning("[FEC] %s; tripping breaker for this run.", hard_breaker_reason)
+        _breaker_tripped = True
         if health:
-            health.record_success(elapsed)
-        return payload
-    except Exception as exc:
-        logger.warning("[FEC] Request failed for %s: %s", path, exc)
-        _consecutive_failures += 1
+            health.trip_breaker(hard_breaker_reason)
+    elif _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+        logger.warning(
+            "[FEC] %d consecutive failures; tripping breaker for this run.",
+            _consecutive_failures,
+        )
+        _breaker_tripped = True
         if health:
-            reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
-            health.record_failure(reason, time.monotonic() - started_at)
-        if _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
-            logger.warning(
-                "[FEC] %d consecutive failures; tripping breaker for this run.",
-                _consecutive_failures,
-            )
-            _breaker_tripped = True
-            if health:
-                health.trip_breaker("consecutive_failures")
-        elif health and health.breaker_tripped:
-            logger.warning("[FEC] Health threshold exceeded; tripping breaker for this run.")
-            _breaker_tripped = True
-        return None
+            health.trip_breaker("consecutive_failures")
+    elif health and health.breaker_tripped:
+        logger.warning("[FEC] Health threshold exceeded; tripping breaker for this run.")
+        _breaker_tripped = True
+    return None
 
 
 def _most_active_principal_committee(
