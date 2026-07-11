@@ -18,6 +18,8 @@ api.data.gov key allows ~1,000 requests/hour, so we deliberately bound the work:
 import os
 import logging
 import time
+from datetime import date
+
 import requests
 
 from source_health import SourceHealthTracker
@@ -42,6 +44,17 @@ _breaker_tripped = False
 
 # Default number of recent donors to pull per politician.
 _DONORS_PER_POLITICIAN = 25
+
+
+def _current_transaction_period(today: date | None = None) -> int:
+    """Return the FEC transaction period ending in the current/next even year."""
+    year = (today or date.today()).year
+    return year if year % 2 == 0 else year + 1
+
+
+def _transaction_period_start(transaction_period: int) -> str:
+    """Format the first date in an FEC two-year transaction period."""
+    return f"01/01/{transaction_period - 1}"
 
 
 def reset_budget() -> None:
@@ -173,12 +186,18 @@ def _recent_receipts(
     limit: int,
     health: SourceHealthTracker | None = None,
 ) -> list:
+    transaction_period = _current_transaction_period()
     data = _get(
         "/schedules/schedule_a/",
         {
             "committee_id": committee_id,
             "per_page": min(limit, 100),
             "sort": "-contribution_receipt_date",
+            # Schedule A includes decades of filings. Restrict the query to the
+            # current FEC two-year period so "recent" donors are genuinely recent
+            # and the sort does not repeatedly scan a committee's full history.
+            "two_year_transaction_period": transaction_period,
+            "min_date": _transaction_period_start(transaction_period),
         },
         health=health,
     )
