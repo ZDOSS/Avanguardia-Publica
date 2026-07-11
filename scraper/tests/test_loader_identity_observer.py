@@ -2,6 +2,7 @@ import importlib
 import sys
 import types
 import unittest
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 
@@ -408,10 +409,11 @@ class LoaderIdentityObserverTests(unittest.TestCase):
                 "source_endpoint_slug": "people-tarball",
                 "source_url": "https://example.test/alex",
                 "raw_payload_ref": "data/ca/alex.yml",
-                "source_updated_at": "2026-07-08T12:00:00Z",
+                "source_updated_at": datetime(2026, 7, 8, 12, 0, tzinfo=timezone.utc),
                 "verified_lane": "mixed",
                 "source_term_key": "lower:4:2025-01-01",
-                "term_start": "2025-01-01",
+                "term_start": date(2025, 1, 1),
+                "term_end": date(2026, 1, 1),
                 "term_status": "current",
             }
         )
@@ -426,10 +428,12 @@ class LoaderIdentityObserverTests(unittest.TestCase):
         self.assertEqual("ocd-person/alex", args["p_source_record_key"])
         self.assertEqual("openstates", args["p_source_catalog_slug"])
         self.assertEqual("people-tarball", args["p_source_endpoint_slug"])
-        self.assertEqual("2026-07-08T12:00:00Z", args["p_source_updated_at"])
+        self.assertEqual("2026-07-08T12:00:00+00:00", args["p_source_updated_at"])
         self.assertEqual(
             "lower:4:2025-01-01", args["p_office_term"]["source_term_key"]
         )
+        self.assertEqual("2025-01-01", args["p_office_term"]["term_start"])
+        self.assertEqual("2026-01-01", args["p_office_term"]["term_end"])
 
     def test_congress_and_executive_roles_share_person_but_keep_source_profiles_separate(self):
         self.fake_client.table_data["person_external_ids"] = []
