@@ -29,26 +29,25 @@ class SourceHealthTests(unittest.TestCase):
         self.assertEqual("failed", tracker.status)
         self.assertEqual(["openfec"], summary.run_blocking_source_failures())
 
-    def test_openfec_budget_tolerates_observed_scattered_timeouts(self):
+    def test_openfec_long_crawl_tolerates_observed_scattered_timeouts(self):
         tracker = SourceHealthTracker(
-            "openfec", min_attempts_for_rate=10, max_failure_seconds=600
+            "openfec", min_attempts_for_rate=10, max_failure_seconds=0
         )
-        for _ in range(55):
+        for _ in range(262):
             tracker.record_attempt()
             tracker.record_success()
-        for _ in range(10):
+        for _ in range(20):
             tracker.record_attempt()
-            tracker.record_failure("timeout", 31.749)
+            tracker.record_failure("timeout", 30.777)
 
         self.assertEqual("degraded", tracker.status)
         self.assertFalse(tracker.breaker_tripped)
-        self.assertAlmostEqual(10 / 65, tracker.failure_rate)
-        self.assertGreater(tracker.failure_seconds, 300)
-        self.assertLess(tracker.failure_seconds, 600)
+        self.assertAlmostEqual(20 / 282, tracker.failure_rate)
+        self.assertGreater(tracker.failure_seconds, 600)
 
-    def test_openfec_larger_time_budget_still_blocks_high_failure_rate(self):
+    def test_openfec_without_time_budget_still_blocks_high_failure_rate(self):
         tracker = SourceHealthTracker(
-            "openfec", min_attempts_for_rate=10, max_failure_seconds=600
+            "openfec", min_attempts_for_rate=10, max_failure_seconds=0
         )
         for _ in range(7):
             tracker.record_attempt()

@@ -1,4 +1,5 @@
 import unittest
+from datetime import date
 from unittest.mock import patch
 
 import requests
@@ -21,6 +22,26 @@ class VerifiedSourceRetryTests(unittest.TestCase):
     def tearDown(self):
         fec.reset_budget()
         openstates_votes.reset_budget()
+
+    def test_fec_transaction_period_uses_current_or_next_even_year(self):
+        self.assertEqual(2026, fec._current_transaction_period(date(2026, 7, 11)))
+        self.assertEqual(2028, fec._current_transaction_period(date(2027, 1, 1)))
+
+    @patch("extractors.fec._current_transaction_period", return_value=2026)
+    @patch("extractors.fec.requests.get")
+    def test_fec_receipts_are_bounded_to_current_transaction_period(
+        self, mock_get, _mock_transaction_period
+    ):
+        mock_get.return_value = FakeResponse()
+
+        receipts = fec._recent_receipts("C00000001", 25)
+
+        self.assertEqual([], receipts)
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual("C00000001", params["committee_id"])
+        self.assertEqual(25, params["per_page"])
+        self.assertEqual(2026, params["two_year_transaction_period"])
+        self.assertEqual("01/01/2025", params["min_date"])
 
     @patch("extractors.fec.time.sleep")
     @patch("extractors.fec.requests.get")

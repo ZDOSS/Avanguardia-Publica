@@ -26,12 +26,13 @@ logging.basicConfig(
 
 _MIN_CONGRESS_RECONCILIATION_RECORDS = 500
 _MIN_OPENSTATES_RECONCILIATION_RECORDS = 5000
-# A logical OpenFEC receipt request may use two 15-second transport attempts. The
-# 2026-07-11 production run completed 55 of 65 logical requests but spent 317.49
-# seconds on ten scattered exhausted retries, so a 300-second aggregate budget
-# misclassified useful partial coverage as a source outage. The extractor's five-
-# consecutive-failure and 25% rate breakers still stop a sustained outage quickly.
-_OPENFEC_MAX_FAILURE_SECONDS = 600.0
+# OpenFEC's crawl has a 900 physical-request cap, a five-consecutive-failure
+# breaker, and a 25% logical-failure-rate breaker. Accumulating elapsed timeout
+# seconds across a long partial-success crawl tracked crawl length rather than an
+# outage (20 timeouts across 282 logical requests failed the 2026-07-11 run at
+# only a 7.09% failure rate), so disable this redundant blocking threshold. The
+# timeout total remains visible in ETL_SUMMARY_JSON as a degraded source.
+_OPENFEC_MAX_FAILURE_SECONDS = 0.0
 
 # An OpenStates vote request can use two 30-second transport attempts. Do not fail
 # a crawl based on two exhausted retries in a five-request sample; wait for ten
