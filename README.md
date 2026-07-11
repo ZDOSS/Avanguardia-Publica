@@ -234,4 +234,5 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md). Key rules for this repo:
 
 ## License
 
-See [`AUTHORS`](AUTHORS) for contributors. Add a `LICENSE` file before public distribution.
+See [`AUTHORS`](AUTHORS) for contributors. This repository is licensed under the
+GNU General Public License v3.0. See [LICENSE](LICENSE).
