@@ -26,10 +26,20 @@ logging.basicConfig(
 
 _MIN_CONGRESS_RECONCILIATION_RECORDS = 500
 _MIN_OPENSTATES_RECONCILIATION_RECORDS = 5000
-# A logical OpenFEC receipt request may use two 15-second transport attempts. Keep
-# the time budget high enough for scattered failures while the extractor's five-
-# consecutive-failure and rate breakers still stop a sustained outage quickly.
-_OPENFEC_MAX_FAILURE_SECONDS = 300.0
+# A logical OpenFEC receipt request may use two 15-second transport attempts. The
+# 2026-07-11 production run completed 55 of 65 logical requests but spent 317.49
+# seconds on ten scattered exhausted retries, so a 300-second aggregate budget
+# misclassified useful partial coverage as a source outage. The extractor's five-
+# consecutive-failure and 25% rate breakers still stop a sustained outage quickly.
+_OPENFEC_MAX_FAILURE_SECONDS = 600.0
+
+# An OpenStates vote request can use two 30-second transport attempts. Do not fail
+# a crawl based on two exhausted retries in a five-request sample; wait for ten
+# logical requests before applying the unchanged 25% failure-rate threshold. The
+# larger time budget still bounds prolonged scattered timeouts, while the extractor's
+# five-consecutive-failure breaker remains fail-fast for an outage.
+_OPENSTATES_VOTES_MIN_ATTEMPTS_FOR_RATE = 10
+_OPENSTATES_VOTES_MAX_FAILURE_SECONDS = 300.0
 
 
 def main():
@@ -56,7 +66,9 @@ def main():
         ),
         "govtrack": summary.source_tracker("govtrack", min_attempts_for_rate=10),
         "openstates_votes": summary.source_tracker(
-            "openstates_votes", min_attempts_for_rate=5
+            "openstates_votes",
+            min_attempts_for_rate=_OPENSTATES_VOTES_MIN_ATTEMPTS_FOR_RATE,
+            max_failure_seconds=_OPENSTATES_VOTES_MAX_FAILURE_SECONDS,
         ),
         "house_disclosures": summary.source_tracker(
             "house_disclosures", min_attempts_for_rate=2, max_failure_rate=0.75
