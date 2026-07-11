@@ -26,6 +26,11 @@ logging.basicConfig(
 
 _MIN_CONGRESS_RECONCILIATION_RECORDS = 500
 _MIN_OPENSTATES_RECONCILIATION_RECORDS = 5000
+# A logical OpenFEC receipt request may use two 15-second transport attempts. Keep
+# the time budget high enough for scattered failures while the extractor's five-
+# consecutive-failure and rate breakers still stop a sustained outage quickly.
+_OPENFEC_MAX_FAILURE_SECONDS = 300.0
+
 
 def main():
     load_dotenv()
@@ -44,7 +49,11 @@ def main():
         "scotus_seed": summary.source_tracker(
             "scotus_seed", min_attempts_for_rate=1, max_failure_rate=0.5
         ),
-        "openfec": summary.source_tracker("openfec", min_attempts_for_rate=10),
+        "openfec": summary.source_tracker(
+            "openfec",
+            min_attempts_for_rate=10,
+            max_failure_seconds=_OPENFEC_MAX_FAILURE_SECONDS,
+        ),
         "govtrack": summary.source_tracker("govtrack", min_attempts_for_rate=10),
         "openstates_votes": summary.source_tracker(
             "openstates_votes", min_attempts_for_rate=5
