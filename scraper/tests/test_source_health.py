@@ -1,6 +1,7 @@
 import unittest
 
 from etl_summary import ETLRunSummary
+from source_health_config import build_source_health_trackers
 from source_health import SourceHealthTracker
 
 
@@ -17,7 +18,7 @@ class SourceHealthTests(unittest.TestCase):
     def test_repeated_failure_rate_crosses_blocking_threshold(self):
         summary = ETLRunSummary()
         tracker = summary.source_tracker(
-            "openfec", min_attempts_for_rate=4, max_failure_rate=0.5
+            "core_source", min_attempts_for_rate=4, max_failure_rate=0.5
         )
         for _ in range(4):
             tracker.record_attempt()
@@ -27,7 +28,43 @@ class SourceHealthTests(unittest.TestCase):
         tracker.record_failure("http_502")
 
         self.assertEqual("failed", tracker.status)
-        self.assertEqual(["openfec"], summary.run_blocking_source_failures())
+        self.assertEqual(["core_source"], summary.run_blocking_source_failures())
+
+    def test_core_sources_remain_blocking(self):
+        summary = ETLRunSummary()
+        trackers = build_source_health_trackers(summary)
+        for source in (
+            "congress_roster",
+            "openstates_people",
+            "federal_executives",
+            "scotus_seed",
+        ):
+            trackers[source].trip_breaker("source_unavailable")
+
+        self.assertEqual(
+            [
+                "congress_roster",
+                "federal_executives",
+                "openstates_people",
+                "scotus_seed",
+            ],
+            summary.run_blocking_source_failures(),
+        )
+
+    def test_verified_profile_spokes_are_observable_but_nonblocking(self):
+        summary = ETLRunSummary()
+        trackers = build_source_health_trackers(summary)
+        for source in (
+            "openfec",
+            "govtrack",
+            "openstates_votes",
+            "house_disclosures",
+        ):
+            trackers[source].trip_breaker("http_429")
+            self.assertEqual("failed", trackers[source].status)
+            self.assertFalse(trackers[source].affects_run)
+
+        self.assertEqual([], summary.run_blocking_source_failures())
 
     def test_openfec_long_crawl_tolerates_observed_scattered_timeouts(self):
         tracker = SourceHealthTracker(

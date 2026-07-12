@@ -6,6 +6,7 @@ from datetime import date
 from dotenv import load_dotenv
 from loader import SupabaseLoader
 from etl_summary import ETLRunSummary
+from source_health_config import build_source_health_trackers
 from identity_health import run_identity_health_check
 from schema_preflight import SchemaPreflightError, run_schema_preflight
 from extractors.gov_api import get_congress_members
@@ -26,66 +27,11 @@ logging.basicConfig(
 
 _MIN_CONGRESS_RECONCILIATION_RECORDS = 500
 _MIN_OPENSTATES_RECONCILIATION_RECORDS = 5000
-# OpenFEC's crawl has a 900 physical-request cap, a five-consecutive-failure
-# breaker, and a 25% logical-failure-rate breaker. Accumulating elapsed timeout
-# seconds across a long partial-success crawl tracked crawl length rather than an
-# outage (20 timeouts across 282 logical requests failed the 2026-07-11 run at
-# only a 7.09% failure rate), so disable this redundant blocking threshold. The
-# timeout total remains visible in ETL_SUMMARY_JSON as a degraded source.
-_OPENFEC_MAX_FAILURE_SECONDS = 0.0
-
-# An OpenStates vote request can use two 30-second transport attempts. Do not fail
-# a crawl based on two exhausted retries in a five-request sample; wait for ten
-# logical requests before applying the unchanged 25% failure-rate threshold. The
-# larger time budget still bounds prolonged scattered timeouts, while the extractor's
-# five-consecutive-failure breaker remains fail-fast for an outage.
-_OPENSTATES_VOTES_MIN_ATTEMPTS_FOR_RATE = 10
-_OPENSTATES_VOTES_MAX_FAILURE_SECONDS = 300.0
-
-
 def main():
     load_dotenv()
     print("Starting Avanguardia-Publica Phase 1 Scraper Pipeline...")
     summary = ETLRunSummary()
-    source_health = {
-        "congress_roster": summary.source_tracker(
-            "congress_roster", min_attempts_for_rate=1, max_failure_rate=0.5
-        ),
-        "openstates_people": summary.source_tracker(
-            "openstates_people", min_attempts_for_rate=1, max_failure_rate=0.5
-        ),
-        "federal_executives": summary.source_tracker(
-            "federal_executives", min_attempts_for_rate=1, max_failure_rate=0.5
-        ),
-        "scotus_seed": summary.source_tracker(
-            "scotus_seed", min_attempts_for_rate=1, max_failure_rate=0.5
-        ),
-        "openfec": summary.source_tracker(
-            "openfec",
-            min_attempts_for_rate=10,
-            max_failure_seconds=_OPENFEC_MAX_FAILURE_SECONDS,
-        ),
-        "govtrack": summary.source_tracker("govtrack", min_attempts_for_rate=10),
-        "openstates_votes": summary.source_tracker(
-            "openstates_votes",
-            min_attempts_for_rate=_OPENSTATES_VOTES_MIN_ATTEMPTS_FOR_RATE,
-            max_failure_seconds=_OPENSTATES_VOTES_MAX_FAILURE_SECONDS,
-        ),
-        "house_disclosures": summary.source_tracker(
-            "house_disclosures", min_attempts_for_rate=2, max_failure_rate=0.75
-        ),
-        "littlesis": summary.source_tracker(
-            "littlesis",
-            min_attempts_for_rate=10,
-            max_failure_rate=0.5,
-            affects_run=False,
-        ),
-        # Unverified enrichment must stay observably degraded without taking down a
-        # healthy roster/verified-spoke run. Its failed status remains in ETL_SUMMARY_JSON.
-        "news": summary.source_tracker(
-            "news", min_attempts_for_rate=10, affects_run=False
-        ),
-    }
+    source_health = build_source_health_trackers(summary)
     news_provider_health = {
         provider: summary.source_tracker(
             f"news_{provider}",
