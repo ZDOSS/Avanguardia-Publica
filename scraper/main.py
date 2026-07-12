@@ -128,8 +128,8 @@ def main():
     # House financial-disclosure filings (verified spoke) from the official House Clerk bulk
     # feed — filing-level only (member/type/date + official PDF link), keyless. Built ONCE for
     # the current + previous year and matched per-member by name below. One missing year is
-    # tolerated as degraded; failure of both years crosses the verified-source health
-    # threshold and fails the run (senators/state are not in this feed).
+    # tolerated as degraded; failure of both years remains visible in source health
+    # without invalidating the canonical roster run (senators/state are not in this feed).
     fd_years = [date.today().year, date.today().year - 1]
     print(f"Building House financial-disclosure index for {fd_years}...")
     house_fd_index = get_house_disclosure_index(
