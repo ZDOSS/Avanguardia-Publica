@@ -14,6 +14,10 @@ from extractors.littlesis import get_littlesis
 from extractors.news_aggregator import get_news_data, get_provider_status
 from extractors.fec import get_campaign_donors
 from extractors.govtrack import get_voting_records
+from extractors.senate_roll_calls import (
+    get_recent_senate_roll_call_shadow,
+    govtrack_senate_vote_casts,
+)
 from extractors.openstates import get_state_politicians
 from extractors.openstates_votes import get_state_voting_records
 from extractors.federal import get_federal_exec_judicial
@@ -141,6 +145,8 @@ def main():
     total = len(members)
     errors_caught = 0
     congress_upsert_errors = 0
+    senate_lis_ids: set[str] = set()
+    govtrack_senate_votes_by_lis_id: dict[str, dict[str, str]] = {}
     for index, member in enumerate(members, start=1):
         try:
             print(f"\n--- [{index}/{total}] Scraping data for {member['full_name']} ---")
@@ -153,6 +159,19 @@ def main():
 
             # Upsert Hub (politicians table)
             politician_id = loader.upsert_politician(member)
+
+            # The Senate's official roll-call XML uses LIS member IDs. Preserve
+            # only that deterministic crosswalk for the read-only shadow source;
+            # names, state, party, and office text never participate in its join.
+            is_senator = member.get("office_type") == "senator"
+            lis_id = str((member.get("external_ids") or {}).get("lis") or "").strip()
+            if is_senator:
+                if lis_id:
+                    senate_lis_ids.add(lis_id)
+                else:
+                    source_health["senate_roll_call_shadow"].record_skip(
+                        "missing_lis_join_key"
+                    )
 
             # Only proceed with third-party data if we successfully upserted the politician
             if politician_id and politician_id != "dummy-uuid":
@@ -181,6 +200,10 @@ def main():
                         govtrack_id, health=source_health["govtrack"]
                     )
                     loader.upsert_voting_records(politician_id, votes)
+                    if is_senator and lis_id:
+                        govtrack_senate_votes_by_lis_id[lis_id] = (
+                            govtrack_senate_vote_casts(votes)
+                        )
                 else:
                     source_health["govtrack"].record_skip("missing_govtrack_join_key")
 
@@ -244,6 +267,29 @@ def main():
             elif total and tracker.skip_reasons[missing_reason] / total > 0.10:
                 tracker.record_failure("join_key_coverage_below_90_percent")
                 tracker.trip_breaker("join_key_coverage_below_90_percent")
+
+    # Official Senate roll-call XML is a bounded, read-only shadow feed. It uses
+    # the exact LIS crosswalk above to compare the most recent official vote casts
+    # to the same run's GovTrack records, but intentionally does not write a second
+    # vote source into voting_records before the provenance/conflict-key rollout.
+    print("\n=== Senate roll-call XML shadow reconciliation ===")
+    try:
+        senate_shadow_report = get_recent_senate_roll_call_shadow(
+            senate_lis_ids,
+            govtrack_senate_votes_by_lis_id,
+            health=source_health["senate_roll_call_shadow"],
+        )
+        for counter, amount in senate_shadow_report.counters().items():
+            summary.increment(counter, amount)
+        print(f"  {senate_shadow_report.description()}")
+    except Exception as e:
+        # This source is explicitly non-blocking: preserve the health signal but
+        # never turn a healthy canonical-data run into a failure for shadow-only
+        # reconciliation work.
+        print(f"  [!] Senate roll-call shadow unavailable: {e}")
+        shadow_health = source_health["senate_roll_call_shadow"]
+        shadow_health.record_attempt()
+        shadow_health.record_failure("unexpected_error")
 
     # 3. State legislators + governors (OpenStates). Hub + official contact by default.
     # Optional LittleSis enrichment is bounded and writes only to unverified spokes

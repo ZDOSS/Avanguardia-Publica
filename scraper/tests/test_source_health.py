@@ -57,6 +57,7 @@ class SourceHealthTests(unittest.TestCase):
         for source in (
             "openfec",
             "govtrack",
+            "senate_roll_call_shadow",
             "openstates_votes",
             "house_disclosures",
         ):
