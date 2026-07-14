@@ -407,13 +407,14 @@ def get_recent_senate_roll_call_shadow(
         for lis_id in known_lis_ids
         if (normalized := _normalize_lis_id(lis_id))
     }
-    historical_lis_ids = _historical_senate_lis_ids(health=health)
-    normalized_lis_ids.update(historical_lis_ids)
-    report.historical_lis_ids_loaded = len(historical_lis_ids)
     if not normalized_lis_ids:
         if health:
             health.record_skip("no_lis_join_keys")
         return report
+
+    historical_lis_ids = _historical_senate_lis_ids(health=health)
+    normalized_lis_ids.update(historical_lis_ids)
+    report.historical_lis_ids_loaded = len(historical_lis_ids)
 
     bounded_limit = max(1, min(int(limit), _RECENT_ROLL_CALL_LIMIT))
     congress, session = _current_congress_session(today)

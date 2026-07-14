@@ -120,6 +120,22 @@ class SenateRollCallShadowTests(unittest.TestCase):
             report.counters()["senate_roll_call_shadow_unmatched_lis_ids"],
         )
 
+    def test_shadow_returns_early_without_lis_join_keys(self):
+        health = SourceHealthTracker("senate_roll_call_shadow", min_attempts_for_rate=3)
+        with patch("extractors.senate_roll_calls.requests.get") as mock_get:
+            report = senate_roll_calls.get_recent_senate_roll_call_shadow(
+                {"", "  "},
+                {},
+                health=health,
+                today=date(2026, 7, 13),
+            )
+
+        self.assertEqual(0, mock_get.call_count)
+        self.assertEqual(0, report.roll_calls_listed)
+        self.assertEqual(1, health.skips)
+        self.assertEqual(1, health.skip_reasons.get("no_lis_join_keys", 0))
+        self.assertEqual("skipped", health.status)
+
     def test_rate_limit_is_visible_and_stops_the_optional_shadow_source(self):
         health = SourceHealthTracker("senate_roll_call_shadow", min_attempts_for_rate=3)
         with patch(
@@ -181,6 +197,32 @@ class SenateRollCallShadowTests(unittest.TestCase):
         self.assertEqual(1, report.govtrack_vote_cast_mismatches)
         self.assertEqual(0, report.govtrack_vote_not_observed)
         self.assertEqual(1, report.historical_lis_ids_loaded)
+
+    def test_historical_lis_ids_failure_modes_are_nonfatal(self):
+        failure_cases = [
+            (
+                _Response(status_code=200, text="not-a-yaml-list"),
+                "historical_parse_error",
+            ),
+            (
+                _Response(status_code=500, text="service unavailable"),
+                "historical_http_500",
+            ),
+        ]
+
+        for response, reason in failure_cases:
+            with self.subTest(reason=reason):
+                health = SourceHealthTracker("senate_roll_call_shadow", min_attempts_for_rate=3)
+                with patch(
+                    "extractors.senate_roll_calls.requests.get",
+                    return_value=response,
+                ) as mock_get:
+                    ids = senate_roll_calls._historical_senate_lis_ids(health=health)
+
+                self.assertEqual(set(), ids)
+                self.assertEqual(1, mock_get.call_count)
+                self.assertEqual(1, health.skips)
+                self.assertEqual(1, health.skip_reasons.get(reason, 0))
 
     def test_shadow_normalizes_roster_and_historical_lis_ids(self):
         menu = """
