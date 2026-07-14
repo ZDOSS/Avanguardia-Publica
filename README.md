@@ -176,6 +176,28 @@ Both pipelines run from GitHub Actions:
 - **`.github/workflows/scraper.yml`** — runs the Python ETL on a nightly schedule, writing
   fresh data into Supabase.
 
+### Interpreting ETL identity-health output
+
+The scraper prints identity-health totals and includes them in `ETL_SUMMARY_JSON`.
+For identity-resolution triage, focus on:
+
+- `pending_identity_observer_candidates`: all pending identity candidates.
+- `pending_identity_observer_blocked_candidates`: newly detected pending candidates blocked by
+  deterministic conflicts (`identity_observer_blocked_*`).
+- `blocked_identity_observer_candidates`: candidates already reviewed and marked `blocked`, waiting for
+  maintainer action.
+- `pending_identity_observer_review_candidates`: pending non-conflict review work
+  (`identity_observer_pending_*`, e.g. missing deterministic identity).
+- `pending_openstates_federal_duplicate_candidates` / `approved_openstates_federal_duplicate_candidates`:
+  queue and resolution state for OpenStates federal-legacy duplicates.
+- `openstates_federal_legacy_profiles_total` / `openstates_federal_legacy_profiles_refreshed_this_run`:
+  stale-legacy federal-like profile count and how many refreshed since the ETL started.
+
+Quick triage:
+
+- `pending_identity_observer_blocked_candidates > 0` means the latest run introduced fresh deterministic conflicts.
+- `blocked_identity_observer_candidates > 0` means existing maintainer-blocked conflicts are still waiting.
+
 ### Applying migrations
 
 There is **no migration runner**. Neither workflow applies SQL to Supabase — `scraper.yml`
