@@ -179,6 +179,9 @@ class IdentityHealthTests(unittest.TestCase):
             0,
             health["checks"]["pending_openstates_federal_duplicate_candidates"],
         )
+        self.assertEqual(0, health["checks"]["pending_identity_observer_blocked_candidates"])
+        self.assertEqual(0, health["checks"]["blocked_identity_observer_candidates"])
+        self.assertEqual(0, health["checks"]["pending_identity_observer_review_candidates"])
         self.assertEqual(
             1,
             health["checks"]["approved_openstates_federal_duplicate_candidates"],
@@ -221,6 +224,9 @@ class IdentityHealthTests(unittest.TestCase):
 
         self.assertEqual("warning", health["status"])
         self.assertEqual(2, health["checks"]["pending_identity_observer_candidates"])
+        self.assertEqual(0, health["checks"]["pending_identity_observer_blocked_candidates"])
+        self.assertEqual(0, health["checks"]["blocked_identity_observer_candidates"])
+        self.assertEqual(2, health["checks"]["pending_identity_observer_review_candidates"])
         self.assertTrue(
             any("fallback rows" in description for description in loader.descriptions)
         )
@@ -277,11 +283,73 @@ class IdentityHealthTests(unittest.TestCase):
             1,
             health["checks"]["pending_openstates_federal_duplicate_candidates"],
         )
+        self.assertEqual(2, health["checks"]["pending_identity_observer_blocked_candidates"])
+        self.assertEqual(0, health["checks"]["blocked_identity_observer_candidates"])
+        self.assertEqual(1, health["checks"]["pending_identity_observer_review_candidates"])
         self.assertEqual(
             1,
             health["checks"]["openstates_federal_legacy_profiles_refreshed_this_run"],
         )
-        self.assertEqual(3, len(health["warnings"]))
+        self.assertEqual(4, len(health["warnings"]))
+
+    def test_reports_blocked_and_reviewed_identity_candidates(self):
+        summary = SummaryStub()
+        loader = FakeLoader(
+            FakeSupabase(
+                {
+                    "identity_resolution_candidates": [
+                        {
+                            "id": "candidate-1",
+                            "candidate_type": self.identity_health.OPENSTATES_DUPLICATE_CANDIDATE_TYPE,
+                            "status": "blocked",
+                            "evidence": {
+                                "deterministic_keys": [
+                                    {"source_system_key": "openstates"}
+                                ]
+                            },
+                        },
+                        {
+                            "id": "candidate-2",
+                            "candidate_type": self.identity_health.OPENSTATES_DUPLICATE_CANDIDATE_TYPE,
+                            "status": "pending",
+                            "evidence": {
+                                "deterministic_keys": [
+                                    {"source_system_key": "openstates"}
+                                ]
+                            },
+                        },
+                        {
+                            "id": "candidate-3",
+                            "candidate_type": "identity_observer_pending_missing_deterministic_identity",
+                            "status": "pending",
+                        },
+                    ],
+                    "politicians": [],
+                }
+            )
+        )
+
+        health = self.identity_health.run_identity_health_check(loader, summary)
+
+        self.assertEqual("warning", health["status"])
+        self.assertEqual(
+            2,
+            health["checks"]["pending_identity_observer_candidates"],
+        )
+        self.assertEqual(1, health["checks"]["pending_openstates_federal_duplicate_candidates"])
+        self.assertEqual(
+            1,
+            health["checks"]["pending_identity_observer_blocked_candidates"],
+        )
+        self.assertEqual(1, health["checks"]["blocked_identity_observer_candidates"])
+        self.assertEqual(
+            1,
+            health["checks"]["pending_identity_observer_review_candidates"],
+        )
+        self.assertIn(
+            "There are previously blocked identity candidates waiting for maintainer review.",
+            health["warnings"],
+        )
 
 
 if __name__ == "__main__":
