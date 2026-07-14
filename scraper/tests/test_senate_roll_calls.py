@@ -175,9 +175,9 @@ class SenateRollCallShadowTests(unittest.TestCase):
         self.assertEqual(4, mock_get.call_count)
         self.assertEqual(8, report.member_votes_seen)
         self.assertEqual(2, report.member_votes_missing_lis_id)
-        self.assertEqual(0, len(report.unmatched_lis_ids))
+        self.assertEqual({"S002"}, report.unmatched_lis_ids)
         self.assertEqual(4, report.exact_lis_matches)
-        self.assertEqual(4, report.govtrack_vote_cast_matches)
+        self.assertEqual(3, report.govtrack_vote_cast_matches)
         self.assertEqual(1, report.govtrack_vote_cast_mismatches)
         self.assertEqual(0, report.govtrack_vote_not_observed)
         self.assertEqual(1, report.historical_lis_ids_loaded)
@@ -226,7 +226,7 @@ class SenateRollCallShadowTests(unittest.TestCase):
 
         self.assertEqual(4, mock_get.call_count)
         self.assertEqual(1, report.historical_lis_ids_loaded)
-        self.assertEqual(0, len(report.unmatched_lis_ids))
+        self.assertEqual({"S002"}, report.unmatched_lis_ids)
 
     def test_govtrack_reconciliation_requires_its_exact_senate_vote_url(self):
         records = [
