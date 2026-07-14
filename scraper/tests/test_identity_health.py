@@ -191,6 +191,14 @@ class IdentityHealthTests(unittest.TestCase):
             0,
             health["checks"]["openstates_federal_legacy_profiles_refreshed_this_run"],
         )
+        self.assertEqual(
+            {},
+            health["checks"]["pending_identity_observer_blocked_candidate_reasons"],
+        )
+        self.assertEqual(
+            {},
+            health["checks"]["blocked_identity_observer_candidate_reasons"],
+        )
 
     def test_count_fallback_pages_when_exact_count_is_missing(self):
         summary = SummaryStub()
@@ -229,6 +237,14 @@ class IdentityHealthTests(unittest.TestCase):
         self.assertEqual(2, health["checks"]["pending_identity_observer_review_candidates"])
         self.assertTrue(
             any("fallback rows" in description for description in loader.descriptions)
+        )
+        self.assertEqual(
+            {},
+            health["checks"]["pending_identity_observer_blocked_candidate_reasons"],
+        )
+        self.assertEqual(
+            {},
+            health["checks"]["blocked_identity_observer_candidate_reasons"],
         )
 
     def test_warns_on_pending_candidates_and_refreshed_bad_profiles(self):
@@ -291,6 +307,11 @@ class IdentityHealthTests(unittest.TestCase):
             health["checks"]["openstates_federal_legacy_profiles_refreshed_this_run"],
         )
         self.assertEqual(4, len(health["warnings"]))
+        self.assertEqual(
+            {"deterministic_keys_match_multiple_people": 2},
+            health["checks"]["pending_identity_observer_blocked_candidate_reasons"],
+        )
+        self.assertEqual({}, health["checks"]["blocked_identity_observer_candidate_reasons"])
 
     def test_reports_blocked_and_reviewed_identity_candidates(self):
         summary = SummaryStub()
@@ -346,9 +367,21 @@ class IdentityHealthTests(unittest.TestCase):
             1,
             health["checks"]["pending_identity_observer_review_candidates"],
         )
+        self.assertEqual(
+            {"deterministic_keys_match_multiple_people": 1},
+            health["checks"]["pending_identity_observer_blocked_candidate_reasons"],
+        )
+        self.assertEqual(
+            {"deterministic_keys_match_multiple_people": 1},
+            health["checks"]["blocked_identity_observer_candidate_reasons"],
+        )
         self.assertIn(
             "There are previously blocked identity candidates waiting for maintainer review.",
-            health["warnings"],
+            "\n".join(health["warnings"]),
+        )
+        self.assertIn(
+            "There are identity candidates blocked by conflicting deterministic identities. Breakdown:",
+            "\n".join(health["warnings"]),
         )
 
     def test_maintainer_blocked_candidates_are_not_counted_as_pending(self):
@@ -374,9 +407,119 @@ class IdentityHealthTests(unittest.TestCase):
         self.assertEqual(0, health["checks"]["pending_identity_observer_candidates"])
         self.assertEqual(0, health["checks"]["pending_identity_observer_blocked_candidates"])
         self.assertEqual(1, health["checks"]["blocked_identity_observer_candidates"])
+        self.assertEqual(
+            {},
+            health["checks"]["pending_identity_observer_blocked_candidate_reasons"],
+        )
+        self.assertEqual(
+            {"deterministic_keys_match_multiple_people": 1},
+            health["checks"]["blocked_identity_observer_candidate_reasons"],
+        )
         self.assertIn(
             "There are previously blocked identity candidates waiting for maintainer review.",
-            health["warnings"],
+            "\n".join(health["warnings"]),
+        )
+
+    def test_reports_blocked_reason_breakdown_for_pending_and_blocked(self):
+        summary = SummaryStub()
+        loader = FakeLoader(
+            FakeSupabase(
+                {
+                    "identity_resolution_candidates": [
+                        {
+                            "id": "candidate-1",
+                            "candidate_type": "identity_observer_blocked_deterministic_keys_match_multiple_people",
+                            "status": "pending",
+                        },
+                        {
+                            "id": "candidate-2",
+                            "candidate_type": "identity_observer_blocked_legacy_politician_id_matches_multiple_people",
+                            "status": "pending",
+                        },
+                        {
+                            "id": "candidate-3",
+                            "candidate_type": "identity_observer_blocked_legacy_politician_id_matches_multiple_people",
+                            "status": "blocked",
+                        },
+                        {
+                            "id": "candidate-4",
+                            "candidate_type": "identity_observer_pending_missing_deterministic_identity",
+                            "status": "pending",
+                        },
+                    ],
+                    "politicians": [],
+                }
+            )
+        )
+
+        health = self.identity_health.run_identity_health_check(loader, summary)
+
+        self.assertEqual("warning", health["status"])
+        self.assertEqual(
+            {
+                "deterministic_keys_match_multiple_people": 1,
+                "legacy_politician_id_matches_multiple_people": 1,
+            },
+            health["checks"]["pending_identity_observer_blocked_candidate_reasons"],
+        )
+        self.assertEqual(
+            {"legacy_politician_id_matches_multiple_people": 1},
+            health["checks"]["blocked_identity_observer_candidate_reasons"],
+        )
+        self.assertIn(
+            "Breakdown: deterministic_keys_match_multiple_people=1, legacy_politician_id_matches_multiple_people=1",
+            "\n".join(health["warnings"]),
+        )
+        self.assertIn(
+            "Breakdown: legacy_politician_id_matches_multiple_people=1",
+            "\n".join(health["warnings"]),
+        )
+
+    def test_reason_breakdown_paginates_all_blocked_candidates(self):
+        summary = SummaryStub()
+        loader = FakeLoader(
+            FakeSupabase(
+                {
+                    "identity_resolution_candidates": [
+                        {
+                            "id": f"candidate-{index}",
+                            "candidate_type": (
+                                "identity_observer_blocked_"
+                                "deterministic_keys_match_multiple_people"
+                            ),
+                            "status": "pending",
+                        }
+                        for index in range(1000)
+                    ]
+                    + [
+                        {
+                            "id": "candidate-second-page",
+                            "candidate_type": (
+                                "identity_observer_blocked_"
+                                "legacy_politician_id_matches_multiple_people"
+                            ),
+                            "status": "pending",
+                        }
+                    ],
+                    "politicians": [],
+                }
+            )
+        )
+
+        health = self.identity_health.run_identity_health_check(loader, summary)
+
+        self.assertEqual(
+            {
+                "deterministic_keys_match_multiple_people": 1000,
+                "legacy_politician_id_matches_multiple_people": 1,
+            },
+            health["checks"]["pending_identity_observer_blocked_candidate_reasons"],
+        )
+        self.assertTrue(
+            any(
+                "status=pending 1000-1999" in description
+                for description in loader.descriptions
+            )
         )
 
 
