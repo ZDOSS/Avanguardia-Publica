@@ -475,6 +475,53 @@ class IdentityHealthTests(unittest.TestCase):
             "\n".join(health["warnings"]),
         )
 
+    def test_reason_breakdown_paginates_all_blocked_candidates(self):
+        summary = SummaryStub()
+        loader = FakeLoader(
+            FakeSupabase(
+                {
+                    "identity_resolution_candidates": [
+                        {
+                            "id": f"candidate-{index}",
+                            "candidate_type": (
+                                "identity_observer_blocked_"
+                                "deterministic_keys_match_multiple_people"
+                            ),
+                            "status": "pending",
+                        }
+                        for index in range(1000)
+                    ]
+                    + [
+                        {
+                            "id": "candidate-second-page",
+                            "candidate_type": (
+                                "identity_observer_blocked_"
+                                "legacy_politician_id_matches_multiple_people"
+                            ),
+                            "status": "pending",
+                        }
+                    ],
+                    "politicians": [],
+                }
+            )
+        )
+
+        health = self.identity_health.run_identity_health_check(loader, summary)
+
+        self.assertEqual(
+            {
+                "deterministic_keys_match_multiple_people": 1000,
+                "legacy_politician_id_matches_multiple_people": 1,
+            },
+            health["checks"]["pending_identity_observer_blocked_candidate_reasons"],
+        )
+        self.assertTrue(
+            any(
+                "status=pending 1000-1999" in description
+                for description in loader.descriptions
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
