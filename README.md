@@ -198,6 +198,33 @@ Quick triage:
 - `pending_identity_observer_blocked_candidates > 0` means the latest run introduced fresh deterministic conflicts.
 - `blocked_identity_observer_candidates > 0` means existing maintainer-blocked conflicts are still waiting.
 
+Optional maintainer SQL checks (run in the Supabase SQL editor):
+
+```sql
+-- Newest unresolved identity triage queue
+select
+  status,
+  candidate_type,
+  source_legacy_politician_id as source_legacy_id,
+  candidate_legacy_politician_id as candidate_legacy_id,
+  evidence
+from identity_resolution_candidates
+where status in ('pending', 'blocked')
+  and candidate_type like 'identity_observer_%'
+order by status, candidate_type, created_at desc
+limit 200;
+```
+
+```sql
+-- Top blocked-reason families waiting on maintainer action
+select candidate_type, count(*) as cnt
+from identity_resolution_candidates
+where status = 'blocked'
+  and candidate_type like 'identity_observer_%'
+group by candidate_type
+order by cnt desc;
+```
+
 ### Applying migrations
 
 There is **no migration runner**. Neither workflow applies SQL to Supabase — `scraper.yml`
