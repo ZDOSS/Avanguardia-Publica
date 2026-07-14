@@ -19,6 +19,7 @@ from typing import Callable, TypeVar
 from xml.etree import ElementTree
 
 import requests
+import yaml
 
 from source_health import SourceHealthTracker
 
@@ -27,6 +28,10 @@ logger = logging.getLogger(__name__)
 
 _SENATE_BASE = "https://www.senate.gov/legislative/LIS/roll_call_votes"
 _MENU_URL = "https://www.senate.gov/legislative/LIS/roll_call_lists/vote_menu_{congress}_{session}.htm"
+_HISTORICAL_MEMBERS_URL = (
+    "https://raw.githubusercontent.com/unitedstates/congress-legislators/main/"
+    "legislators-historical.yaml"
+)
 _TIMEOUT_SECONDS = 15
 _RETRY_BACKOFF_SECONDS = 0.5
 _MAX_CONSECUTIVE_FAILURES = 3
@@ -79,6 +84,7 @@ class SenateRollCallShadowReport:
     member_votes_missing_vote_cast: int = 0
     exact_lis_matches: int = 0
     unmatched_lis_ids: set[str] = field(default_factory=set)
+    historical_lis_ids_loaded: int = 0
     govtrack_vote_cast_matches: int = 0
     govtrack_vote_cast_mismatches: int = 0
     govtrack_vote_not_observed: int = 0
@@ -92,6 +98,7 @@ class SenateRollCallShadowReport:
             "senate_roll_call_shadow_member_votes_missing_lis_id": self.member_votes_missing_lis_id,
             "senate_roll_call_shadow_member_votes_missing_vote_cast": self.member_votes_missing_vote_cast,
             "senate_roll_call_shadow_exact_lis_matches": self.exact_lis_matches,
+            "senate_roll_call_shadow_historical_lis_ids_loaded": self.historical_lis_ids_loaded,
             "senate_roll_call_shadow_unmatched_lis_ids": len(self.unmatched_lis_ids),
             "senate_roll_call_shadow_govtrack_vote_cast_matches": self.govtrack_vote_cast_matches,
             "senate_roll_call_shadow_govtrack_vote_cast_mismatches": self.govtrack_vote_cast_mismatches,
@@ -103,6 +110,7 @@ class SenateRollCallShadowReport:
             "Senate XML shadow: "
             f"roll_calls={self.roll_calls_fetched}/{self.roll_calls_listed}, "
             f"exact_lis_matches={self.exact_lis_matches}, "
+            f"historical_lis_ids_loaded={self.historical_lis_ids_loaded}, "
             f"unmatched_lis_ids={len(self.unmatched_lis_ids)}, "
             f"govtrack_matches={self.govtrack_vote_cast_matches}, "
             f"govtrack_mismatches={self.govtrack_vote_cast_mismatches}, "
@@ -119,6 +127,11 @@ class _FetchState:
 def _clean(value: str | None) -> str | None:
     normalized = " ".join((value or "").split())
     return normalized or None
+
+
+def _normalize_lis_id(value: str | None) -> str | None:
+    normalized = _clean(value)
+    return normalized.upper() if normalized else None
 
 
 def _current_congress_session(today: date | None = None) -> tuple[int, int]:
@@ -151,6 +164,67 @@ def _parse_menu(text: str, congress: int, session: int) -> list[int]:
     if not vote_numbers:
         raise ValueError("no current-session Senate roll-call links found")
     return sorted(vote_numbers, reverse=True)
+
+
+def _historical_senate_lis_ids(
+    health: SourceHealthTracker | None = None,
+) -> set[str]:
+    """Load historical Senate LIS IDs from public roster history."""
+    if health:
+        health.record_attempt()
+    started_at = time.monotonic()
+    try:
+        response = requests.get(
+            _HISTORICAL_MEMBERS_URL,
+            headers={"User-Agent": _USER_AGENT},
+            timeout=_TIMEOUT_SECONDS,
+        )
+        status_code = int(getattr(response, "status_code", 0))
+        if not 200 <= status_code < 300:
+            if health:
+                health.record_skip(f"historical_http_{status_code}")
+            return set()
+
+        payload = yaml.safe_load(response.text)
+        if not isinstance(payload, list):
+            raise ValueError("historical legislators payload is not a list")
+
+        lis_ids: set[str] = set()
+        for legislator in payload:
+            if not isinstance(legislator, dict):
+                continue
+            terms = legislator.get("terms") or []
+            if not isinstance(terms, list):
+                continue
+            if "sen" not in {
+                str((term or {}).get("type") or "").lower()
+                for term in terms
+                if isinstance(term, dict)
+            }:
+                continue
+
+            lis_id = str((legislator.get("id") or {}).get("lis") or "").strip()
+            if lis_id:
+                normalized_lis_id = _normalize_lis_id(lis_id)
+                if normalized_lis_id:
+                    lis_ids.add(normalized_lis_id)
+
+        if health:
+            health.record_success(time.monotonic() - started_at)
+        return lis_ids
+    except (yaml.YAMLError, ValueError, TypeError) as exc:
+        if health:
+            health.record_skip("historical_parse_error")
+            logger.warning("[Senate XML] Could not parse historical legislators YAML: %s", exc)
+        return set()
+    except requests.RequestException as exc:
+        if health:
+            health.record_skip("historical_request_error")
+            logger.warning(
+                "[Senate XML] Failed to fetch historical legislators YAML: %s",
+                exc,
+            )
+        return set()
 
 
 def _parse_vote_date(value: str | None) -> str | None:
@@ -320,15 +394,27 @@ def get_recent_senate_roll_call_shadow(
 ) -> SenateRollCallShadowReport:
     """Fetch and reconcile a bounded current Senate session without database writes."""
     report = SenateRollCallShadowReport()
+    normalized_govtrack_votes = {
+        key: value
+        for key, value in (
+            (_normalize_lis_id(lis_id), votes)
+            for lis_id, votes in govtrack_votes_by_lis_id.items()
+        )
+        if key
+    }
     normalized_lis_ids = {
         normalized
         for lis_id in known_lis_ids
-        if (normalized := _clean(str(lis_id)))
+        if (normalized := _normalize_lis_id(lis_id))
     }
     if not normalized_lis_ids:
         if health:
             health.record_skip("no_lis_join_keys")
         return report
+
+    historical_lis_ids = _historical_senate_lis_ids(health=health)
+    normalized_lis_ids.update(historical_lis_ids)
+    report.historical_lis_ids_loaded = len(historical_lis_ids)
 
     bounded_limit = max(1, min(int(limit), _RECENT_ROLL_CALL_LIMIT))
     congress, session = _current_congress_session(today)
@@ -367,7 +453,7 @@ def get_recent_senate_roll_call_shadow(
         report.roll_calls_fetched += 1
         for member_vote in roll_call.member_votes:
             report.member_votes_seen += 1
-            lis_member_id = member_vote.lis_member_id
+            lis_member_id = _normalize_lis_id(member_vote.lis_member_id)
             vote_cast = member_vote.vote_cast
             if not lis_member_id:
                 report.member_votes_missing_lis_id += 1
@@ -381,7 +467,7 @@ def get_recent_senate_roll_call_shadow(
 
             report.exact_lis_matches += 1
             govtrack_vote_cast = (
-                govtrack_votes_by_lis_id.get(lis_member_id, {}).get(
+                normalized_govtrack_votes.get(lis_member_id, {}).get(
                     roll_call.reconciliation_key
                 )
             )
