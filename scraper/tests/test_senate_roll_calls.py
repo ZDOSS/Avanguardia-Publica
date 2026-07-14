@@ -180,6 +180,53 @@ class SenateRollCallShadowTests(unittest.TestCase):
         self.assertEqual(4, report.govtrack_vote_cast_matches)
         self.assertEqual(1, report.govtrack_vote_cast_mismatches)
         self.assertEqual(0, report.govtrack_vote_not_observed)
+        self.assertEqual(1, report.historical_lis_ids_loaded)
+
+    def test_shadow_normalizes_roster_and_historical_lis_ids(self):
+        menu = """
+            <a href="vote_119_2_00002.htm">2</a>
+            <a href="vote_119_2_00001.htm">1</a>
+        """
+        historical_yaml = """
+- id:
+    lis: s999
+    bioguide: Z000001
+  terms:
+    - type: sen
+      start: 2000-01-01
+      end: 2006-12-31
+"""
+        health = SourceHealthTracker("senate_roll_call_shadow", min_attempts_for_rate=3)
+
+        with patch(
+            "extractors.senate_roll_calls.requests.get",
+            side_effect=[
+                _Response(text=historical_yaml),
+                _Response(text=menu),
+                _Response(text=_roll_call_xml(2, "Yea")),
+                _Response(text=_roll_call_xml(1, "Nay")),
+            ],
+        ) as mock_get:
+            report = senate_roll_calls.get_recent_senate_roll_call_shadow(
+                {" s001 "},
+                {
+                    "S001": {
+                        "senate:119:2026:2": "Yea",
+                        "senate:119:2026:1": "Yea",
+                    },
+                    "s999": {
+                        "senate:119:2026:2": "Present",
+                        "senate:119:2026:1": "Present",
+                    },
+                },
+                limit=2,
+                health=health,
+                today=date(2026, 7, 13),
+            )
+
+        self.assertEqual(4, mock_get.call_count)
+        self.assertEqual(1, report.historical_lis_ids_loaded)
+        self.assertEqual(0, len(report.unmatched_lis_ids))
 
     def test_govtrack_reconciliation_requires_its_exact_senate_vote_url(self):
         records = [

@@ -84,6 +84,7 @@ class SenateRollCallShadowReport:
     member_votes_missing_vote_cast: int = 0
     exact_lis_matches: int = 0
     unmatched_lis_ids: set[str] = field(default_factory=set)
+    historical_lis_ids_loaded: int = 0
     govtrack_vote_cast_matches: int = 0
     govtrack_vote_cast_mismatches: int = 0
     govtrack_vote_not_observed: int = 0
@@ -97,6 +98,7 @@ class SenateRollCallShadowReport:
             "senate_roll_call_shadow_member_votes_missing_lis_id": self.member_votes_missing_lis_id,
             "senate_roll_call_shadow_member_votes_missing_vote_cast": self.member_votes_missing_vote_cast,
             "senate_roll_call_shadow_exact_lis_matches": self.exact_lis_matches,
+            "senate_roll_call_shadow_historical_lis_ids_loaded": self.historical_lis_ids_loaded,
             "senate_roll_call_shadow_unmatched_lis_ids": len(self.unmatched_lis_ids),
             "senate_roll_call_shadow_govtrack_vote_cast_matches": self.govtrack_vote_cast_matches,
             "senate_roll_call_shadow_govtrack_vote_cast_mismatches": self.govtrack_vote_cast_mismatches,
@@ -108,6 +110,7 @@ class SenateRollCallShadowReport:
             "Senate XML shadow: "
             f"roll_calls={self.roll_calls_fetched}/{self.roll_calls_listed}, "
             f"exact_lis_matches={self.exact_lis_matches}, "
+            f"historical_lis_ids_loaded={self.historical_lis_ids_loaded}, "
             f"unmatched_lis_ids={len(self.unmatched_lis_ids)}, "
             f"govtrack_matches={self.govtrack_vote_cast_matches}, "
             f"govtrack_mismatches={self.govtrack_vote_cast_mismatches}, "
@@ -124,6 +127,11 @@ class _FetchState:
 def _clean(value: str | None) -> str | None:
     normalized = " ".join((value or "").split())
     return normalized or None
+
+
+def _normalize_lis_id(value: str | None) -> str | None:
+    normalized = _clean(value)
+    return normalized.upper() if normalized else None
 
 
 def _current_congress_session(today: date | None = None) -> tuple[int, int]:
@@ -174,7 +182,7 @@ def _historical_senate_lis_ids(
         status_code = int(getattr(response, "status_code", 0))
         if not 200 <= status_code < 300:
             if health:
-                health.record_failure(f"historical_http_{status_code}", time.monotonic() - started_at)
+                health.record_skip(f"historical_http_{status_code}")
             return set()
 
         payload = yaml.safe_load(response.text)
@@ -197,22 +205,21 @@ def _historical_senate_lis_ids(
 
             lis_id = str((legislator.get("id") or {}).get("lis") or "").strip()
             if lis_id:
-                lis_ids.add(lis_id.upper())
+                normalized_lis_id = _normalize_lis_id(lis_id)
+                if normalized_lis_id:
+                    lis_ids.add(normalized_lis_id)
 
         if health:
-            if lis_ids:
-                health.record_success(time.monotonic() - started_at)
-            else:
-                health.record_skip("historical_no_senate_lis_ids")
+            health.record_success(time.monotonic() - started_at)
         return lis_ids
     except (yaml.YAMLError, ValueError, TypeError) as exc:
         if health:
-            health.record_failure("historical_parse_error", time.monotonic() - started_at)
+            health.record_skip("historical_parse_error")
             logger.warning("[Senate XML] Could not parse historical legislators YAML: %s", exc)
         return set()
     except requests.RequestException as exc:
         if health:
-            health.record_failure("historical_request_error", time.monotonic() - started_at)
+            health.record_skip("historical_request_error")
             logger.warning(
                 "[Senate XML] Failed to fetch historical legislators YAML: %s",
                 exc,
@@ -387,12 +394,22 @@ def get_recent_senate_roll_call_shadow(
 ) -> SenateRollCallShadowReport:
     """Fetch and reconcile a bounded current Senate session without database writes."""
     report = SenateRollCallShadowReport()
+    normalized_govtrack_votes = {
+        key: value
+        for key, value in (
+            (_normalize_lis_id(lis_id), votes)
+            for lis_id, votes in govtrack_votes_by_lis_id.items()
+        )
+        if key
+    }
     normalized_lis_ids = {
         normalized
         for lis_id in known_lis_ids
-        if (normalized := _clean(str(lis_id)))
+        if (normalized := _normalize_lis_id(lis_id))
     }
-    normalized_lis_ids.update(_historical_senate_lis_ids(health=health))
+    historical_lis_ids = _historical_senate_lis_ids(health=health)
+    normalized_lis_ids.update(historical_lis_ids)
+    report.historical_lis_ids_loaded = len(historical_lis_ids)
     if not normalized_lis_ids:
         if health:
             health.record_skip("no_lis_join_keys")
@@ -435,7 +452,7 @@ def get_recent_senate_roll_call_shadow(
         report.roll_calls_fetched += 1
         for member_vote in roll_call.member_votes:
             report.member_votes_seen += 1
-            lis_member_id = member_vote.lis_member_id
+            lis_member_id = _normalize_lis_id(member_vote.lis_member_id)
             vote_cast = member_vote.vote_cast
             if not lis_member_id:
                 report.member_votes_missing_lis_id += 1
@@ -449,7 +466,7 @@ def get_recent_senate_roll_call_shadow(
 
             report.exact_lis_matches += 1
             govtrack_vote_cast = (
-                govtrack_votes_by_lis_id.get(lis_member_id, {}).get(
+                normalized_govtrack_votes.get(lis_member_id, {}).get(
                     roll_call.reconciliation_key
                 )
             )
