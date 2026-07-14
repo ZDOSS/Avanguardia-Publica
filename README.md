@@ -184,8 +184,11 @@ For identity-resolution triage, focus on:
 - `pending_identity_observer_candidates`: all pending identity candidates.
 - `pending_identity_observer_blocked_candidates`: newly detected pending candidates blocked by
   deterministic conflicts (`identity_observer_blocked_*`).
+- `pending_identity_observer_blocked_candidate_reasons`: map of blocked-pending candidate counts by
+  reason suffix (for `identity_observer_blocked_<reason>`).
 - `blocked_identity_observer_candidates`: candidates already reviewed and marked `blocked`, waiting for
   maintainer action.
+- `blocked_identity_observer_candidate_reasons`: map of blocked review candidates by reason suffix.
 - `pending_identity_observer_review_candidates`: pending non-conflict review work
   (`identity_observer_pending_*`, e.g. missing deterministic identity).
 - `pending_openstates_federal_duplicate_candidates` / `approved_openstates_federal_duplicate_candidates`:
@@ -196,7 +199,9 @@ For identity-resolution triage, focus on:
 Quick triage:
 
 - `pending_identity_observer_blocked_candidates > 0` means the latest run introduced fresh deterministic conflicts.
+  Include `pending_identity_observer_blocked_candidate_reasons` to triage by reason.
 - `blocked_identity_observer_candidates > 0` means existing maintainer-blocked conflicts are still waiting.
+  Include `blocked_identity_observer_candidate_reasons` to see what needs review.
 
 Optional maintainer SQL checks (run in the Supabase SQL editor):
 
