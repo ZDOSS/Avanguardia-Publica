@@ -6,6 +6,24 @@ from extractors import senate_roll_calls
 from source_health import SourceHealthTracker
 
 
+_HISTORICAL_YAML = """
+- id:
+    lis: S999
+    bioguide: Z000001
+  terms:
+    - type: sen
+      start: 2000-01-01
+      end: 2006-12-31
+- id:
+    lis: X123
+    bioguide: Z000002
+  terms:
+    - type: rep
+      start: 2010-01-01
+      end: 2014-12-31
+"""
+
+
 def _roll_call_xml(vote_number: int, first_vote: str) -> str:
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <roll_call_vote>
@@ -70,6 +88,7 @@ class SenateRollCallShadowTests(unittest.TestCase):
         with patch(
             "extractors.senate_roll_calls.requests.get",
             side_effect=[
+                _Response(text="[]"),
                 _Response(text=menu),
                 _Response(text=_roll_call_xml(2, "Yea")),
                 _Response(text=_roll_call_xml(1, "Nay")),
@@ -83,10 +102,10 @@ class SenateRollCallShadowTests(unittest.TestCase):
                 today=date(2026, 7, 13),
             )
 
-        self.assertEqual(3, mock_get.call_count)
+        self.assertEqual(4, mock_get.call_count)
         self.assertEqual("healthy", health.status)
-        self.assertEqual(3, health.attempts)
-        self.assertEqual(3, health.successes)
+        self.assertEqual(4, health.attempts)
+        self.assertEqual(4, health.successes)
         self.assertEqual(2, report.roll_calls_listed)
         self.assertEqual(2, report.roll_calls_fetched)
         self.assertEqual(8, report.member_votes_seen)
@@ -118,6 +137,49 @@ class SenateRollCallShadowTests(unittest.TestCase):
         self.assertTrue(health.breaker_tripped)
         self.assertEqual("http_429", health.breaker_reason)
         self.assertEqual("failed", health.status)
+
+    def test_shadow_uses_historical_senate_lis_ids_when_available(self):
+        menu = """
+            <a href="vote_119_2_00002.htm">2</a>
+            <a href="vote_119_2_00001.htm">1</a>
+        """
+        health = SourceHealthTracker("senate_roll_call_shadow", min_attempts_for_rate=3)
+        govtrack_votes = {
+            "S001": {
+                "senate:119:2026:2": "Yea",
+                "senate:119:2026:1": "Yea",
+            },
+            "S999": {
+                "senate:119:2026:2": "Present",
+                "senate:119:2026:1": "Present",
+            },
+        }
+
+        with patch(
+            "extractors.senate_roll_calls.requests.get",
+            side_effect=[
+                _Response(text=_HISTORICAL_YAML),
+                _Response(text=menu),
+                _Response(text=_roll_call_xml(2, "Yea")),
+                _Response(text=_roll_call_xml(1, "Nay")),
+            ],
+        ) as mock_get:
+            report = senate_roll_calls.get_recent_senate_roll_call_shadow(
+                {"S001"},
+                govtrack_votes,
+                limit=2,
+                health=health,
+                today=date(2026, 7, 13),
+            )
+
+        self.assertEqual(4, mock_get.call_count)
+        self.assertEqual(8, report.member_votes_seen)
+        self.assertEqual(2, report.member_votes_missing_lis_id)
+        self.assertEqual(0, len(report.unmatched_lis_ids))
+        self.assertEqual(4, report.exact_lis_matches)
+        self.assertEqual(4, report.govtrack_vote_cast_matches)
+        self.assertEqual(1, report.govtrack_vote_cast_mismatches)
+        self.assertEqual(0, report.govtrack_vote_not_observed)
 
     def test_govtrack_reconciliation_requires_its_exact_senate_vote_url(self):
         records = [

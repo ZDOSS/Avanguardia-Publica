@@ -19,6 +19,7 @@ from typing import Callable, TypeVar
 from xml.etree import ElementTree
 
 import requests
+import yaml
 
 from source_health import SourceHealthTracker
 
@@ -27,6 +28,10 @@ logger = logging.getLogger(__name__)
 
 _SENATE_BASE = "https://www.senate.gov/legislative/LIS/roll_call_votes"
 _MENU_URL = "https://www.senate.gov/legislative/LIS/roll_call_lists/vote_menu_{congress}_{session}.htm"
+_HISTORICAL_MEMBERS_URL = (
+    "https://raw.githubusercontent.com/unitedstates/congress-legislators/main/"
+    "legislators-historical.yaml"
+)
 _TIMEOUT_SECONDS = 15
 _RETRY_BACKOFF_SECONDS = 0.5
 _MAX_CONSECUTIVE_FAILURES = 3
@@ -151,6 +156,68 @@ def _parse_menu(text: str, congress: int, session: int) -> list[int]:
     if not vote_numbers:
         raise ValueError("no current-session Senate roll-call links found")
     return sorted(vote_numbers, reverse=True)
+
+
+def _historical_senate_lis_ids(
+    health: SourceHealthTracker | None = None,
+) -> set[str]:
+    """Load historical Senate LIS IDs from public roster history."""
+    if health:
+        health.record_attempt()
+    started_at = time.monotonic()
+    try:
+        response = requests.get(
+            _HISTORICAL_MEMBERS_URL,
+            headers={"User-Agent": _USER_AGENT},
+            timeout=_TIMEOUT_SECONDS,
+        )
+        status_code = int(getattr(response, "status_code", 0))
+        if not 200 <= status_code < 300:
+            if health:
+                health.record_failure(f"historical_http_{status_code}", time.monotonic() - started_at)
+            return set()
+
+        payload = yaml.safe_load(response.text)
+        if not isinstance(payload, list):
+            raise ValueError("historical legislators payload is not a list")
+
+        lis_ids: set[str] = set()
+        for legislator in payload:
+            if not isinstance(legislator, dict):
+                continue
+            terms = legislator.get("terms") or []
+            if not isinstance(terms, list):
+                continue
+            if "sen" not in {
+                str((term or {}).get("type") or "").lower()
+                for term in terms
+                if isinstance(term, dict)
+            }:
+                continue
+
+            lis_id = str((legislator.get("id") or {}).get("lis") or "").strip()
+            if lis_id:
+                lis_ids.add(lis_id.upper())
+
+        if health:
+            if lis_ids:
+                health.record_success(time.monotonic() - started_at)
+            else:
+                health.record_skip("historical_no_senate_lis_ids")
+        return lis_ids
+    except (yaml.YAMLError, ValueError, TypeError) as exc:
+        if health:
+            health.record_failure("historical_parse_error", time.monotonic() - started_at)
+            logger.warning("[Senate XML] Could not parse historical legislators YAML: %s", exc)
+        return set()
+    except requests.RequestException as exc:
+        if health:
+            health.record_failure("historical_request_error", time.monotonic() - started_at)
+            logger.warning(
+                "[Senate XML] Failed to fetch historical legislators YAML: %s",
+                exc,
+            )
+        return set()
 
 
 def _parse_vote_date(value: str | None) -> str | None:
@@ -325,6 +392,7 @@ def get_recent_senate_roll_call_shadow(
         for lis_id in known_lis_ids
         if (normalized := _clean(str(lis_id)))
     }
+    normalized_lis_ids.update(_historical_senate_lis_ids(health=health))
     if not normalized_lis_ids:
         if health:
             health.record_skip("no_lis_join_keys")
