@@ -351,6 +351,34 @@ class IdentityHealthTests(unittest.TestCase):
             health["warnings"],
         )
 
+    def test_maintainer_blocked_candidates_are_not_counted_as_pending(self):
+        summary = SummaryStub()
+        loader = FakeLoader(
+            FakeSupabase(
+                {
+                    "identity_resolution_candidates": [
+                        {
+                            "id": "candidate-1",
+                            "candidate_type": self.identity_health.OPENSTATES_DUPLICATE_CANDIDATE_TYPE,
+                            "status": "blocked",
+                        },
+                    ],
+                    "politicians": [],
+                }
+            )
+        )
+
+        health = self.identity_health.run_identity_health_check(loader, summary)
+
+        self.assertEqual("warning", health["status"])
+        self.assertEqual(0, health["checks"]["pending_identity_observer_candidates"])
+        self.assertEqual(0, health["checks"]["pending_identity_observer_blocked_candidates"])
+        self.assertEqual(1, health["checks"]["blocked_identity_observer_candidates"])
+        self.assertIn(
+            "There are previously blocked identity candidates waiting for maintainer review.",
+            health["warnings"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
