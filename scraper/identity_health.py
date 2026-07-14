@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 OPENSTATES_DUPLICATE_CANDIDATE_TYPE = (
     "identity_observer_blocked_deterministic_keys_match_multiple_people"
 )
+IDENTITY_OBSERVER_BLOCKED_PREFIX = "identity_observer_blocked_%"
+IDENTITY_OBSERVER_PENDING_PREFIX = "identity_observer_pending_%"
 
 OPENSTATES_FEDERAL_OFFICE_PATTERNS = (
     "State Representative from US District%",
@@ -62,6 +64,31 @@ def _count_rows(loader, table_name: str, description: str, configure_query) -> i
     return _count_rows_by_pages(loader, table_name, description, configure_query)
 
 
+def _count_identity_resolution_candidates(
+    loader,
+    *,
+    status: str | None = None,
+    candidate_type: str | None = None,
+    candidate_type_like: str | None = None,
+    description_suffix: str,
+) -> int:
+    def configure(query):
+        if status is not None:
+            query = query.eq("status", status)
+        if candidate_type is not None:
+            query = query.eq("candidate_type", candidate_type)
+        if candidate_type_like is not None:
+            query = query.like("candidate_type", candidate_type_like)
+        return query
+
+    return _count_rows(
+        loader,
+        "identity_resolution_candidates",
+        f"identity health count identity resolution candidates {description_suffix}",
+        configure,
+    )
+
+
 def _count_bad_openstates_federal_profiles(loader, *, since: datetime | None = None) -> int:
     total = 0
     for pattern in OPENSTATES_FEDERAL_OFFICE_PATTERNS:
@@ -105,6 +132,24 @@ def run_identity_health_check(loader, summary) -> dict:
                 "pending",
             ),
         ),
+        "pending_identity_observer_blocked_candidates": _count_identity_resolution_candidates(
+            loader,
+            status="pending",
+            candidate_type_like=IDENTITY_OBSERVER_BLOCKED_PREFIX,
+            description_suffix="pending identity observer blocked candidates",
+        ),
+        "blocked_identity_observer_candidates": _count_identity_resolution_candidates(
+            loader,
+            status="blocked",
+            candidate_type_like=IDENTITY_OBSERVER_BLOCKED_PREFIX,
+            description_suffix="blocked identity observer candidates",
+        ),
+        "pending_identity_observer_review_candidates": _count_identity_resolution_candidates(
+            loader,
+            status="pending",
+            candidate_type_like=IDENTITY_OBSERVER_PENDING_PREFIX,
+            description_suffix="pending identity observer review candidates",
+        ),
         "pending_openstates_federal_duplicate_candidates": _count_rows(
             loader,
             "identity_resolution_candidates",
@@ -135,6 +180,14 @@ def run_identity_health_check(loader, summary) -> dict:
     if checks["pending_identity_observer_candidates"]:
         warnings.append(
             "Identity observer still has pending review candidates after this run."
+        )
+    if checks["pending_identity_observer_blocked_candidates"]:
+        warnings.append(
+            "There are identity candidates blocked by conflicting deterministic identities."
+        )
+    if checks["blocked_identity_observer_candidates"]:
+        warnings.append(
+            "There are previously blocked identity candidates waiting for maintainer review."
         )
     if checks["pending_openstates_federal_duplicate_candidates"]:
         warnings.append(
