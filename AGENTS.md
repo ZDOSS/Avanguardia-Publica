@@ -87,6 +87,27 @@ When contributing to this project, you must adhere strictly to these rules:
    after later migrations. Add a new repair migration instead. See README → "Applying
    migrations".
 9. **Agent Configuration:** If you require additional capabilities to parse data, generate code, or analyze specific schemas, you must explicitly look up and add the appropriate agent skills or rules. We use non-frontier models for some tasks which need an extra push, so always configure the required skills before executing complex workflows.
+10. **Goal-scoped PR authority and `main` synchronization:** This is a limited permission the
+    user may explicitly grant for an active user-set goal; it is never a general agent
+    permission.
+    - Before starting new work, check for open PRs. Keep exactly one PR open for that goal and
+      finish it before opening another.
+    - When the user has delegated autonomous PR review/merging for the active goal, inspect
+      Greptile and checks no more often than every five minutes while a review is pending. Do
+      not busy-loop or block on a long sleep.
+    - Before deciding whether a PR is ready, read the **entire** current PR body and every part
+      of the Greptile review block. A confidence score, summary, check label, or inline
+      comments alone never proves that there are no actionable findings.
+    - Merge only after the full current PR body shows a Greptile **5/5** review whose **Last
+      reviewed commit** matches `headRefOid`, no actionable findings remain, required checks
+      (including DCO) pass, and GitHub reports no merge conflict.
+    - A merge is not complete merely because the merge command returned. Confirm that GitHub
+      reports `MERGED`, obtain the merge commit, fetch `origin`, confirm that commit is in
+      `origin/main`, then fast-forward local `main` with `git pull --ff-only origin main` and
+      verify the worktree is clean.
+    - Outside an active user-set goal with this explicit delegation, do **not** merge PRs or
+      check out, pull, fast-forward, or otherwise synchronize local `main` from `origin`; the
+      user retains those responsibilities.
 
 ## 🚀 Next Steps & Outstanding Work
 - The active remaining roadmap is `docs/canonical_data_and_analytics_plan.md`. Phases 1 and
