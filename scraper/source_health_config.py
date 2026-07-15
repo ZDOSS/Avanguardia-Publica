@@ -57,6 +57,12 @@ def build_source_health_trackers(summary: ETLRunSummary) -> dict:
         "senate_roll_call_shadow": summary.source_tracker(
             "senate_roll_call_shadow", min_attempts_for_rate=3, affects_run=False
         ),
+        # Read-only reconciliation against the official House Clerk source. Like
+        # the Senate shadow, it has no write path and must not invalidate a
+        # healthy canonical-data run when the public source is temporarily down.
+        "house_roll_call_shadow": summary.source_tracker(
+            "house_roll_call_shadow", min_attempts_for_rate=3, affects_run=False
+        ),
         "openstates_votes": summary.source_tracker(
             "openstates_votes",
             min_attempts_for_rate=OPENSTATES_VOTES_MIN_ATTEMPTS_FOR_RATE,

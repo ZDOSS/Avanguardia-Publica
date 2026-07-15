@@ -84,3 +84,17 @@ rows, retain raw XML, or expose Senate XML facts in the public UI.
 The catalog source and endpoint remain `candidate` during this shadow phase. A later
 authoritative ingestion change must first review the observed metrics, record source
 provenance and retention/attribution decisions, and add a conflict-safe vote storage path.
+
+### House Clerk roll-call XML (shadow candidate)
+
+The [Office of the Clerk's roll-call XML](https://clerk.house.gov/evs/) provides an
+official record for each House vote. The initial integration is deliberately read-only: it
+reads at most the 25 most recent current-session entries from the Clerk's public listing,
+matches a member only by the XML `name-id` Bioguide identifier already supplied by
+`congress-legislators`, and records aggregate coverage/comparison metrics in the ETL
+summary. It does **not** create people, write vote rows, retain raw XML, or expose House
+Clerk facts in the public UI.
+
+The catalog source and endpoint remain `candidate` during this shadow phase. A later
+authoritative ingestion change must first review the observed metrics, record source
+provenance and retention/attribution decisions, and add a conflict-safe vote storage path.
