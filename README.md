@@ -108,7 +108,15 @@ cp example.env .env
 #   Fill in SUPABASE_URL, SUPABASE_KEY (service role), and any data-source API keys
 
 python main.py
+
+# Validate the live schema and latest migration marker without starting the ETL
+python main.py --preflight-only
 ```
+
+The preflight-only command requires `SUPABASE_URL` and `SUPABASE_KEY`. It runs the same
+non-mutating table, migration-marker, and RPC checks used at the start of a normal run,
+prints `ETL_SUMMARY_JSON`, and exits before extractors, source quotas, or ETL writes.
+Use it after applying a migration and before starting a long scraper run.
 
 All scraper data sources are **free-tier or open-source** (no paid APIs). The news
 aggregator uses a multi-tier circuit-breaker strategy (Currents → NewsData.io →
