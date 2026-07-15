@@ -59,6 +59,7 @@ class SourceHealthTests(unittest.TestCase):
             "govtrack",
             "senate_roll_call_shadow",
             "house_roll_call_shadow",
+            "source_catalog_review",
             "openstates_votes",
             "house_disclosures",
         ):
