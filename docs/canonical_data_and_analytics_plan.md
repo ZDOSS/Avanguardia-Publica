@@ -325,6 +325,12 @@ Use this intake order:
    Senate roll-call XML, and GovInfo. These can replace or reconcile GovTrack-derived
    federal votes and add official bills, amendments, nominations, committees, public
    laws, Congressional Record, and bill text.
+
+   The Senate and House Clerk XML sources currently run only as bounded, read-only
+   reconciliation shadows. They join records exclusively through their stable roster IDs
+   (Senate LIS IDs and House Bioguide IDs), publish aggregate comparison metrics, and do
+   not create people or write public vote rows. Keep both catalog entries at `candidate`
+   until observed coverage and conflict metrics support a separately reviewed ingestion path.
 3. **Influence and organization graph after source records exist:** LDA.gov,
    USAspending, SAM.gov entity management, SAM.gov contract awards, and SAM.gov
    opportunities. These should wait for organization identity and source-record tables;
@@ -455,8 +461,11 @@ Every schema change in this plan must follow these rules:
 
 ## Next PR
 
-After `0021` is applied, the next safe slice can use the private review worklist to triage
-the existing catalog candidates or seed another small reviewed inventory batch from the
+Keep the Senate and House Clerk vote feeds in read-only shadow mode long enough to review
+their coverage, mismatch, and source-health metrics. The next vote-source change, if any,
+must be a separately reviewed provenance/conflict-safe ingestion path; do not turn shadow
+results into public vote rows directly. In parallel, use the private review worklist to
+triage existing catalog candidates or seed another small reviewed inventory batch from the
 remaining P1/P2 context sources. Do not ingest all 97 inventory rows as public facts, add
 new source APIs, or expose a source-review UI until source review decisions are being
 recorded consistently.

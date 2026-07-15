@@ -18,6 +18,10 @@ from extractors.senate_roll_calls import (
     get_recent_senate_roll_call_shadow,
     govtrack_senate_vote_casts,
 )
+from extractors.house_roll_calls import (
+    get_recent_house_roll_call_shadow,
+    govtrack_house_vote_casts,
+)
 from extractors.openstates import get_state_politicians
 from extractors.openstates_votes import get_state_voting_records
 from extractors.federal import get_federal_exec_judicial
@@ -147,6 +151,8 @@ def main():
     congress_upsert_errors = 0
     senate_lis_ids: set[str] = set()
     govtrack_senate_votes_by_lis_id: dict[str, dict[str, str]] = {}
+    house_bioguide_ids: set[str] = set()
+    govtrack_house_votes_by_bioguide_id: dict[str, dict[str, str]] = {}
     for index, member in enumerate(members, start=1):
         try:
             print(f"\n--- [{index}/{total}] Scraping data for {member['full_name']} ---")
@@ -171,6 +177,19 @@ def main():
                 else:
                     source_health["senate_roll_call_shadow"].record_skip(
                         "missing_lis_join_key"
+                    )
+
+            # The House Clerk's official XML uses Bioguide IDs in its name-id
+            # field. Preserve this deterministic crosswalk for the read-only
+            # shadow source; names, state, party, and office text never join it.
+            is_house_representative = member.get("office_type") == "representative"
+            bioguide_id = str(member.get("bioguide_id") or "").strip()
+            if is_house_representative:
+                if bioguide_id:
+                    house_bioguide_ids.add(bioguide_id)
+                else:
+                    source_health["house_roll_call_shadow"].record_skip(
+                        "missing_bioguide_join_key"
                     )
 
             # Only proceed with third-party data if we successfully upserted the politician
@@ -203,6 +222,10 @@ def main():
                     if is_senator and lis_id:
                         govtrack_senate_votes_by_lis_id[lis_id] = (
                             govtrack_senate_vote_casts(votes)
+                        )
+                    if is_house_representative and bioguide_id:
+                        govtrack_house_votes_by_bioguide_id[bioguide_id] = (
+                            govtrack_house_vote_casts(votes)
                         )
                 else:
                     source_health["govtrack"].record_skip("missing_govtrack_join_key")
@@ -288,6 +311,29 @@ def main():
         # reconciliation work.
         print(f"  [!] Senate roll-call shadow unavailable: {e}")
         shadow_health = source_health["senate_roll_call_shadow"]
+        shadow_health.record_attempt()
+        shadow_health.record_failure("unexpected_error")
+
+    # Official House Clerk roll-call XML is a bounded, read-only shadow feed. It
+    # uses only the exact Bioguide crosswalk above to compare recent official
+    # vote casts with this run's GovTrack records, and deliberately does not
+    # write a second vote source into voting_records before provenance and
+    # conflict-key handling are reviewed.
+    print("\n=== House roll-call XML shadow reconciliation ===")
+    try:
+        house_shadow_report = get_recent_house_roll_call_shadow(
+            house_bioguide_ids,
+            govtrack_house_votes_by_bioguide_id,
+            health=source_health["house_roll_call_shadow"],
+        )
+        for counter, amount in house_shadow_report.counters().items():
+            summary.increment(counter, amount)
+        print(f"  {house_shadow_report.description()}")
+    except Exception as e:
+        # This source is explicitly non-blocking: preserve its health signal
+        # without turning a healthy canonical-data run into a shadow-only failure.
+        print(f"  [!] House roll-call shadow unavailable: {e}")
+        shadow_health = source_health["house_roll_call_shadow"]
         shadow_health.record_attempt()
         shadow_health.record_failure("unexpected_error")
 

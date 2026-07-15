@@ -58,6 +58,7 @@ class SourceHealthTests(unittest.TestCase):
             "openfec",
             "govtrack",
             "senate_roll_call_shadow",
+            "house_roll_call_shadow",
             "openstates_votes",
             "house_disclosures",
         ):
