@@ -9,6 +9,7 @@ from etl_summary import ETLRunSummary
 from source_health_config import build_source_health_trackers
 from identity_health import run_identity_health_check
 from source_catalog_review import run_source_catalog_review_check
+from source_record_freshness import run_source_record_freshness_check
 from schema_preflight import SchemaPreflightError, run_schema_preflight
 from extractors.gov_api import get_congress_members
 from extractors.littlesis import get_littlesis
@@ -561,6 +562,26 @@ def main():
         summary.set_source_catalog_review(
             "warning",
             warnings=["Source catalog review check failed unexpectedly."],
+        )
+
+    # Source-record provenance stays private, while an aggregate freshness signal
+    # identifies active records that have stopped appearing in healthy source runs.
+    try:
+        run_source_record_freshness_check(
+            loader,
+            summary,
+            source_health["source_record_freshness"],
+        )
+    except Exception:
+        print("[!] Source record freshness check failed unexpectedly.")
+        freshness_health = source_health["source_record_freshness"]
+        if not freshness_health.failures:
+            if not freshness_health.attempts:
+                freshness_health.record_attempt()
+            freshness_health.record_failure("unexpected_error")
+        summary.set_source_record_freshness(
+            "warning",
+            warnings=["Source record freshness check failed unexpectedly."],
         )
 
     for source in summary.run_blocking_source_failures():

@@ -1,5 +1,6 @@
 ZERO_UUID = "00000000-0000-0000-0000-000000000000"
-REQUIRED_MIGRATION_KEY = "0022_project_stabilization"
+REQUIRED_MIGRATION_KEY = "0023_source_inventory_context_seed"
+REQUIRED_MIGRATION_FILE = "0023_source_inventory_context_seed.sql"
 
 REQUIRED_COLUMN_CHECKS = [
     (
@@ -178,7 +179,7 @@ class SchemaPreflightError(RuntimeError):
         self.failures = failures
         message = (
             "Supabase schema preflight failed. Apply only the next unapplied migration "
-            "(currently 0022_project_stabilization.sql) in the Supabase SQL editor; "
+            f"(currently {REQUIRED_MIGRATION_FILE}) in the Supabase SQL editor; "
             "never replay migration history. Then run "
             "NOTIFY pgrst, 'reload schema'; if the schema cache is stale.\n"
             + "\n".join(f"- {failure}" for failure in failures)
@@ -226,7 +227,7 @@ def run_schema_preflight(loader) -> list[str]:
         )
         if not marker.data:
             failures.append(
-                f"migration marker {REQUIRED_MIGRATION_KEY}: not found; apply migration 0022"
+                f"migration marker {REQUIRED_MIGRATION_KEY}: not found; apply {REQUIRED_MIGRATION_FILE}"
             )
         else:
             print(f"  [+] migration marker {REQUIRED_MIGRATION_KEY}")

@@ -301,7 +301,10 @@ inventory's OpenFEC and House Clerk financial disclosure rows to the existing wi
 catalog sources instead of creating duplicates. The review tooling slice is
 `migrations/0021_source_catalog_review_tools.sql`: it adds a private service-role
 worklist view and service-role-only review RPCs that update source/endpoint status while
-recording audit events.
+recording audit events. The follow-up context seed is
+`migrations/0023_source_inventory_context_seed.sql`: it adds the roadmap-listed FCC Area
+API and GSA Site Scanning API as private P1/P2 `candidate` sources. They remain review-only:
+the migration adds no extractor, credentials, public facts, or source-record writes.
 
 - source slug, name, agency, sub-agency, branch, category, source type, access level,
   auth type, credential provider, base URL, docs URL, formats, coverage, update cadence,
@@ -390,6 +393,18 @@ names, URLs, evidence, or credentials, and its temporary unavailability cannot f
 canonical-data run. Use this operational signal to prioritize maintainer review while keeping
 source-catalog facts private.
 
+The ETL also emits an aggregate-only source-record freshness section for active provenance
+records that have not been observed for 14 days. Its scan is bounded and can warn that its
+count is partial, never prints source-record identifiers or payload references, and cannot
+fail an otherwise healthy canonical-data run. Treat a stale count as a review signal rather
+than proof that a particular source is unavailable.
+
+Relationship ingestion also records aggregate exact-name resolution outcomes in the ETL row
+counts: queried targets, exact matches, names with no tracked match, and ambiguous matches.
+The last two categories remain unlinked and no names are emitted; a no-tracked-match count can
+represent an intentional external entity, so it is context for review rather than a fuzzy-link
+or identity-candidate queue.
+
 ## Phase 7: Canonical Analytics RPCs
 
 Build analytics only after identity-aware reads exist.
@@ -471,7 +486,7 @@ Keep the Senate and House Clerk vote feeds in read-only shadow mode long enough 
 their coverage, mismatch, and source-health metrics. The next vote-source change, if any,
 must be a separately reviewed provenance/conflict-safe ingestion path; do not turn shadow
 results into public vote rows directly. In parallel, use the private review worklist to
-triage existing catalog candidates or seed another small reviewed inventory batch from the
-remaining P1/P2 context sources. Do not ingest all 97 inventory rows as public facts, add
-new source APIs, or expose a source-review UI until source review decisions are being
-recorded consistently.
+triage existing catalog candidates, including the FCC/GSA context pair seeded by `0023`,
+before considering another small inventory batch. Do not ingest all 97 inventory rows as
+public facts, add new source APIs, or expose a source-review UI until source review decisions
+are being recorded consistently.

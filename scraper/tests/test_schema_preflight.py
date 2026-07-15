@@ -1,7 +1,9 @@
 import unittest
+from pathlib import Path
 
 from schema_preflight import (
     REQUIRED_COLUMN_CHECKS,
+    REQUIRED_MIGRATION_FILE,
     REQUIRED_MIGRATION_KEY,
     REQUIRED_RPC_CHECKS,
     ZERO_UUID,
@@ -200,13 +202,20 @@ class SchemaPreflightTests(unittest.TestCase):
         self.assertIn("rpc get_covoting(uuid)", message)
         self.assertEqual(3, len(raised.exception.failures))
 
-    def test_missing_0022_marker_fails_before_etl(self):
+    def test_missing_required_marker_fails_before_etl(self):
         loader = FakeLoader(FakeSupabase(migration_markers=set()))
 
         with self.assertRaises(SchemaPreflightError) as raised:
             run_schema_preflight(loader)
 
         self.assertIn(REQUIRED_MIGRATION_KEY, str(raised.exception))
+
+    def test_required_migration_file_records_the_preflight_marker(self):
+        migration_path = Path(__file__).resolve().parents[2] / "migrations" / REQUIRED_MIGRATION_FILE
+        migration_sql = migration_path.read_text(encoding="utf-8")
+
+        self.assertIn(REQUIRED_MIGRATION_KEY, migration_sql)
+        self.assertIn("INSERT INTO public.schema_migrations", migration_sql)
 
 
 if __name__ == "__main__":
