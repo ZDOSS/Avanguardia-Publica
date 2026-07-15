@@ -63,6 +63,12 @@ def build_source_health_trackers(summary: ETLRunSummary) -> dict:
         "house_roll_call_shadow": summary.source_tracker(
             "house_roll_call_shadow", min_attempts_for_rate=3, affects_run=False
         ),
+        # The private worklist is operational observability, not a roster or
+        # profile write path. Its unavailability must remain visible but cannot
+        # invalidate a healthy canonical-data run.
+        "source_catalog_review": summary.source_tracker(
+            "source_catalog_review", min_attempts_for_rate=1, affects_run=False
+        ),
         "openstates_votes": summary.source_tracker(
             "openstates_votes",
             min_attempts_for_rate=OPENSTATES_VOTES_MIN_ATTEMPTS_FOR_RATE,

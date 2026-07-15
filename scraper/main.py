@@ -8,6 +8,7 @@ from loader import SupabaseLoader
 from etl_summary import ETLRunSummary
 from source_health_config import build_source_health_trackers
 from identity_health import run_identity_health_check
+from source_catalog_review import run_source_catalog_review_check
 from schema_preflight import SchemaPreflightError, run_schema_preflight
 from extractors.gov_api import get_congress_members
 from extractors.littlesis import get_littlesis
@@ -539,6 +540,27 @@ def main():
         summary.set_identity_health(
             "warning",
             warnings=[f"Identity health check failed to run: {e}"],
+        )
+
+    # The source catalog remains private, but aggregate worklist health makes
+    # candidate/blocked review pressure observable in the ETL summary without
+    # exposing source details or adding a new data-ingestion path.
+    try:
+        run_source_catalog_review_check(
+            loader,
+            summary,
+            source_health["source_catalog_review"],
+        )
+    except Exception:
+        print("[!] Source catalog review check failed unexpectedly.")
+        catalog_health = source_health["source_catalog_review"]
+        if not catalog_health.failures:
+            if not catalog_health.attempts:
+                catalog_health.record_attempt()
+            catalog_health.record_failure("unexpected_error")
+        summary.set_source_catalog_review(
+            "warning",
+            warnings=["Source catalog review check failed unexpectedly."],
         )
 
     for source in summary.run_blocking_source_failures():

@@ -384,6 +384,12 @@ Track:
 This can start as SQL validation reports or ETL summary sections before becoming a UI.
 Do not expose unreviewed identity decisions as public facts.
 
+The ETL now emits an aggregate-only source-catalog review section from the private worklist:
+queue/status/focus counts and bounded-scan health only. It never prints candidate source
+names, URLs, evidence, or credentials, and its temporary unavailability cannot fail the
+canonical-data run. Use this operational signal to prioritize maintainer review while keeping
+source-catalog facts private.
+
 ## Phase 7: Canonical Analytics RPCs
 
 Build analytics only after identity-aware reads exist.
