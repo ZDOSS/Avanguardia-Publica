@@ -1,4 +1,4 @@
--- 0023_source_inventory_context_seed.sql
+-- 0024_source_inventory_context_seed.sql
 --
 -- Seed the remaining roadmap-listed FCC/GSA jurisdiction and official-domain
 -- context sources as private review candidates. This migration does not add an
@@ -216,7 +216,7 @@ WITH review_seed(source_slug, previous_status, new_status, reason, evidence) AS 
             'candidate',
             'Seeded from the roadmap-listed FCC jurisdiction/context source for maintainer review.',
             jsonb_build_object(
-                'migration', '0023_source_inventory_context_seed',
+                'migration', '0024_source_inventory_context_seed',
                 'inventory_file', 'canonical_data_and_analytics_plan',
                 'inventory_slug', 'fcc-area-census-block-api',
                 'official_docs_checked_at', '2026-07-15'
@@ -228,7 +228,7 @@ WITH review_seed(source_slug, previous_status, new_status, reason, evidence) AS 
             'candidate',
             'Seeded from the roadmap-listed GSA official-domain context source for maintainer review.',
             jsonb_build_object(
-                'migration', '0023_source_inventory_context_seed',
+                'migration', '0024_source_inventory_context_seed',
                 'inventory_file', 'canonical_data_and_analytics_plan',
                 'inventory_slug', 'gsa-site-scanning-api',
                 'official_docs_checked_at', '2026-07-15'
@@ -267,8 +267,8 @@ INSERT INTO public.schema_migrations (
     metadata
 )
 VALUES (
-    '0023_source_inventory_context_seed',
-    23,
+    '0024_source_inventory_context_seed',
+    24,
     'Private FCC and GSA jurisdiction/domain context catalog candidates.',
     jsonb_build_object(
         'source_catalog_candidates', ARRAY['fcc-area-api', 'gsa-site-scanning-api']::text[],

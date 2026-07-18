@@ -218,7 +218,9 @@ compatibility-row mutation and then written atomically with their trusted identi
 source record, and office term. Name-only packets and conflicting deterministic IDs are
 blocked for review. `ETL_SUMMARY_JSON` retains the end-of-run identity health block and
 reports pending candidates, OpenStates federal duplicate cleanup state, and stale legacy
-office rows.
+office rows. Migration `0023_uuid_v5_search_path_repair.sql` repairs the restricted
+search path used when that boundary creates a genuinely new canonical person and adds a
+non-mutating UUID-v5 probe to schema preflight.
 
 ## Phase 4: Role And Source Model
 
@@ -302,7 +304,7 @@ catalog sources instead of creating duplicates. The review tooling slice is
 `migrations/0021_source_catalog_review_tools.sql`: it adds a private service-role
 worklist view and service-role-only review RPCs that update source/endpoint status while
 recording audit events. The follow-up context seed is
-`migrations/0023_source_inventory_context_seed.sql`: it adds the roadmap-listed FCC Area
+`migrations/0024_source_inventory_context_seed.sql`: it adds the roadmap-listed FCC Area
 API and GSA Site Scanning API as private P1/P2 `candidate` sources. They remain review-only:
 the migration adds no extractor, credentials, public facts, or source-record writes.
 
@@ -486,7 +488,7 @@ Keep the Senate and House Clerk vote feeds in read-only shadow mode long enough 
 their coverage, mismatch, and source-health metrics. The next vote-source change, if any,
 must be a separately reviewed provenance/conflict-safe ingestion path; do not turn shadow
 results into public vote rows directly. In parallel, use the private review worklist to
-triage existing catalog candidates, including the FCC/GSA context pair seeded by `0023`,
+triage existing catalog candidates, including the FCC/GSA context pair seeded by `0024`,
 before considering another small inventory batch. Do not ingest all 97 inventory rows as
 public facts, add new source APIs, or expose a source-review UI until source review decisions
 are being recorded consistently.

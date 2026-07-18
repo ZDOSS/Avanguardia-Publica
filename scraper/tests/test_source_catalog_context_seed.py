@@ -8,7 +8,7 @@ class SourceCatalogContextSeedTests(unittest.TestCase):
         migration_path = (
             Path(__file__).resolve().parents[2]
             / "migrations"
-            / "0023_source_inventory_context_seed.sql"
+            / "0024_source_inventory_context_seed.sql"
         )
         cls.sql = migration_path.read_text(encoding="utf-8")
 
@@ -33,8 +33,8 @@ class SourceCatalogContextSeedTests(unittest.TestCase):
         self.assertIn("repo_fit = public.source_catalog_sources.repo_fit", self.sql)
         self.assertIn("status = public.source_catalog_endpoints.status", self.sql)
         self.assertIn("WHERE NOT EXISTS", self.sql)
-        self.assertIn("'0023_source_inventory_context_seed'", self.sql)
-        self.assertIn("'0023_source_inventory_context_seed',\n    23,", self.sql)
+        self.assertIn("'0024_source_inventory_context_seed'", self.sql)
+        self.assertIn("'0024_source_inventory_context_seed',\n    24,", self.sql)
         self.assertIn("BEGIN;", self.sql)
         self.assertIn("NOTIFY pgrst, 'reload schema';", self.sql)
         self.assertTrue(self.sql.rstrip().endswith("COMMIT;"))
