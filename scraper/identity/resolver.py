@@ -14,11 +14,11 @@ from .types import (
 
 class IdentityResolver:
     """
-    First Phase 3 resolver shape.
+    Pure, deterministic Phase 3 pre-write resolver.
 
-    This is intentionally pure and deterministic. It does not write database rows yet;
-    the loader can adopt it in small slices while preserving the existing legacy
-    politicians compatibility path.
+    The loader runs this resolver before the transactional source-profile RPC. The
+    resolver never mutates storage itself: deterministic conflicts and name-only
+    packets are blocked for review before compatibility or canonical rows can change.
     """
 
     def __init__(self, existing_identities=(), summary=None):
@@ -53,7 +53,8 @@ class IdentityResolver:
                     evidence={
                         "source_system_key": packet.source_system_key,
                         "source_record_key": packet.source_record_key,
-                        "normalized_names": [
+                        "normalized_names": list(packet.normalized_names)
+                        or [
                             name
                             for name in (
                                 normalize_identity_name(value) for value in packet.names

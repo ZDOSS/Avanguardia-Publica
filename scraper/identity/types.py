@@ -34,7 +34,15 @@ class IdentityPacket:
     legacy_politician_id: str | None = None
     source_url: str | None = None
     raw_payload_ref: str | None = None
+    source_catalog_slug: str | None = None
+    source_endpoint_slug: str | None = None
+    payload_hash: str | None = None
+    verified_lane: str | None = None
+    source_updated_at: Any | None = None
+    # ``names`` preserves source display strings. Normalized values live in a
+    # separate field so review evidence never loses what the source actually said.
     names: tuple[str, ...] = ()
+    normalized_names: tuple[str, ...] = ()
     external_ids: dict[str, Any] = field(default_factory=dict)
     role_facts: dict[str, Any] = field(default_factory=dict)
     spoke_facts: dict[str, Any] = field(default_factory=dict)

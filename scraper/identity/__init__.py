@@ -3,11 +3,13 @@ from .normalization import (
     identity_keys_from_packet,
     normalize_identity_name,
     packet_from_legacy_politician,
+    packet_from_source_profile,
     trusted_external_keys,
 )
 from .resolver import IdentityResolver
 from .types import (
     ExistingIdentity,
+    IDENTITY_SUMMARY_COUNTERS,
     IdentityKey,
     IdentityPacket,
     IdentityResolution,
@@ -16,6 +18,7 @@ from .types import (
 
 __all__ = [
     "ExistingIdentity",
+    "IDENTITY_SUMMARY_COUNTERS",
     "IdentityKey",
     "IdentityPacket",
     "IdentityResolution",
@@ -25,5 +28,6 @@ __all__ = [
     "identity_keys_from_packet",
     "normalize_identity_name",
     "packet_from_legacy_politician",
+    "packet_from_source_profile",
     "trusted_external_keys",
 ]

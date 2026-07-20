@@ -409,8 +409,11 @@ class LoaderIdentityObserverTests(unittest.TestCase):
                 "source_endpoint_slug": "people-tarball",
                 "source_url": "https://example.test/alex",
                 "raw_payload_ref": "data/ca/alex.yml",
+                "payload_hash": "sha256:alex",
                 "source_updated_at": datetime(2026, 7, 8, 12, 0, tzinfo=timezone.utc),
                 "verified_lane": "mixed",
+                "confidence": 0.95,
+                "review_metadata": {"lane": "official-roster"},
                 "source_term_key": "lower:4:2025-01-01",
                 "term_start": date(2025, 1, 1),
                 "term_end": date(2026, 1, 1),
@@ -428,12 +431,22 @@ class LoaderIdentityObserverTests(unittest.TestCase):
         self.assertEqual("ocd-person/alex", args["p_source_record_key"])
         self.assertEqual("openstates", args["p_source_catalog_slug"])
         self.assertEqual("people-tarball", args["p_source_endpoint_slug"])
+        self.assertEqual("sha256:alex", args["p_payload_hash"])
         self.assertEqual("2026-07-08T12:00:00+00:00", args["p_source_updated_at"])
         self.assertEqual(
             "lower:4:2025-01-01", args["p_office_term"]["source_term_key"]
         )
         self.assertEqual("2025-01-01", args["p_office_term"]["term_start"])
         self.assertEqual("2026-01-01", args["p_office_term"]["term_end"])
+        self.assertEqual(
+            {
+                "source_system_key": "openstates",
+                "confidence": 0.95,
+                "review_metadata": {"lane": "official-roster"},
+            },
+            args["p_office_term"]["metadata"],
+        )
+        self.assertEqual(1, summary.counts["identity_legacy_rows_mapped"])
 
     def test_congress_and_executive_roles_share_person_but_keep_source_profiles_separate(self):
         self.fake_client.table_data["person_external_ids"] = []
@@ -514,9 +527,13 @@ class LoaderIdentityObserverTests(unittest.TestCase):
                     "current_office": "US Representative",
                     "bioguide_id": "B000001",
                     "external_ids": {"fec": "H0CA00001"},
-                    "aliases": [],
+                    "aliases": ["Jane Q. Conflict"],
                     "source_system_key": "congress-legislators",
                     "source_record_key": "B000001",
+                    "source_url": "https://example.test/conflict",
+                    "raw_payload_ref": "legislators-current.yaml",
+                    "confidence": 0.9,
+                    "review_metadata": {"reason": "trusted-id-conflict"},
                 }
             )
 
@@ -531,6 +548,22 @@ class LoaderIdentityObserverTests(unittest.TestCase):
         self.assertEqual("pol-1", candidates[0]["source_legacy_politician_id"])
         self.assertEqual(
             "B000001", candidates[0]["evidence"]["source_record_key"]
+        )
+        evidence = candidates[0]["evidence"]
+        self.assertEqual("congress-legislators", evidence["source_system_key"])
+        self.assertEqual(
+            ["Jane Conflict", "Jane Q. Conflict"],
+            evidence["raw_names"],
+        )
+        self.assertEqual(
+            ["jane conflict", "jane q. conflict"],
+            evidence["normalized_names"],
+        )
+        self.assertEqual("legislators-current.yaml", evidence["raw_payload_ref"])
+        self.assertEqual(0.9, evidence["confidence"])
+        self.assertEqual(
+            {"reason": "trusted-id-conflict"},
+            evidence["review_metadata"],
         )
 
     def test_unanchored_source_conflict_still_creates_one_deduplicated_review_candidate(self):

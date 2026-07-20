@@ -2,6 +2,7 @@ import json
 from collections import Counter
 from datetime import datetime, timezone
 
+from identity import IDENTITY_SUMMARY_COUNTERS
 from source_health import SourceHealthTracker
 
 
@@ -9,7 +10,9 @@ class ETLRunSummary:
     def __init__(self):
         self.started_at = datetime.now(timezone.utc)
         self.finished_at = None
-        self.counters = Counter()
+        # Keep every required Phase 3 metric visible even when a healthy run has
+        # zero pending candidates or blocked conflicts.
+        self.counters = Counter({key: 0 for key in IDENTITY_SUMMARY_COUNTERS})
         self.skips = Counter()
         self.errors = []
         self.schema_preflight = {"status": "not_run"}
