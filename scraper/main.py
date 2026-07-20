@@ -1,3 +1,4 @@
+import argparse
 import os
 import sys
 import time
@@ -9,6 +10,7 @@ from etl_summary import ETLRunSummary
 from source_health_config import build_source_health_trackers
 from identity_health import run_identity_health_check
 from source_catalog_review import run_source_catalog_review_check
+from source_record_freshness import run_source_record_freshness_check
 from schema_preflight import SchemaPreflightError, run_schema_preflight
 from extractors.gov_api import get_congress_members
 from extractors.littlesis import get_littlesis
@@ -36,7 +38,23 @@ logging.basicConfig(
 
 _MIN_CONGRESS_RECONCILIATION_RECORDS = 500
 _MIN_OPENSTATES_RECONCILIATION_RECORDS = 5000
-def main():
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Run the Avanguardia-Publica scraper.")
+    parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help=(
+            "Validate the configured Supabase schema and latest migration marker, "
+            "then exit before extractors, source quotas, or ETL writes."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
     load_dotenv()
     print("Starting Avanguardia-Publica Phase 1 Scraper Pipeline...")
     summary = ETLRunSummary()
@@ -55,6 +73,16 @@ def main():
     supabase_url = os.environ.get("SUPABASE_URL")
     supabase_key = os.environ.get("SUPABASE_KEY")
     loader = SupabaseLoader(supabase_url, supabase_key, summary=summary)
+
+    if args.preflight_only and loader.supabase is None:
+        message = (
+            "SUPABASE_URL/SUPABASE_KEY are required for --preflight-only; "
+            "no live schema was validated."
+        )
+        summary.set_schema_preflight("failed", [message])
+        summary.error("configuration", message)
+        summary.print(success=False)
+        sys.exit(f"FATAL: {message}")
 
     # Fail loud if running in CI without credentials. Without a key the loader drops into
     # dry-run mode, which writes nothing and would otherwise exit 0 and trigger the Pages
@@ -80,6 +108,14 @@ def main():
         summary.error("schema_preflight", e)
         summary.print(success=False)
         sys.exit(str(e))
+
+    if args.preflight_only:
+        print(
+            "\nPreflight-only validation passed. No extractor, source quota, "
+            "or ETL write was started."
+        )
+        summary.print(success=True)
+        return
 
     # FEC donor enrichment only runs with a real api.data.gov key. DEMO_KEY's tiny
     # hourly limit would 429 almost immediately across all members, so it is treated
@@ -561,6 +597,26 @@ def main():
         summary.set_source_catalog_review(
             "warning",
             warnings=["Source catalog review check failed unexpectedly."],
+        )
+
+    # Source-record provenance stays private, while an aggregate freshness signal
+    # identifies active records that have stopped appearing in healthy source runs.
+    try:
+        run_source_record_freshness_check(
+            loader,
+            summary,
+            source_health["source_record_freshness"],
+        )
+    except Exception:
+        print("[!] Source record freshness check failed unexpectedly.")
+        freshness_health = source_health["source_record_freshness"]
+        if not freshness_health.failures:
+            if not freshness_health.attempts:
+                freshness_health.record_attempt()
+            freshness_health.record_failure("unexpected_error")
+        summary.set_source_record_freshness(
+            "warning",
+            warnings=["Source record freshness check failed unexpectedly."],
         )
 
     for source in summary.run_blocking_source_failures():

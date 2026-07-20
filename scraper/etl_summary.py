@@ -15,6 +15,7 @@ class ETLRunSummary:
         self.schema_preflight = {"status": "not_run"}
         self.identity_health = {"status": "not_run"}
         self.source_catalog_review = {"status": "not_run"}
+        self.source_record_freshness = {"status": "not_run"}
         self.news_providers = {}
         self.source_trackers: dict[str, SourceHealthTracker] = {}
 
@@ -60,6 +61,19 @@ class ETLRunSummary:
             payload["warnings"] = warnings
         self.source_catalog_review = payload
 
+    def set_source_record_freshness(
+        self,
+        status: str,
+        checks: dict | None = None,
+        warnings: list[str] | None = None,
+    ) -> None:
+        payload = {"status": status}
+        if checks is not None:
+            payload["checks"] = checks
+        if warnings:
+            payload["warnings"] = warnings
+        self.source_record_freshness = payload
+
     def set_news_providers(self, status: dict) -> None:
         self.news_providers = status
 
@@ -102,6 +116,7 @@ class ETLRunSummary:
             "schema_preflight": self.schema_preflight,
             "identity_health": self.identity_health,
             "source_catalog_review": self.source_catalog_review,
+            "source_record_freshness": self.source_record_freshness,
             "rows": dict(sorted(self.counters.items())),
             "source_skips": dict(sorted(self.skips.items())),
             "errors": self.errors,
@@ -138,6 +153,16 @@ class ETLRunSummary:
         if source_catalog_warnings:
             print("source_catalog_review_warnings:")
             for warning in source_catalog_warnings:
+                print(f"  {warning}")
+
+        print(f"source_record_freshness: {payload['source_record_freshness'].get('status')}")
+        source_record_checks = payload["source_record_freshness"].get("checks") or {}
+        for key, value in sorted(source_record_checks.items()):
+            print(f"  {key}: {value}")
+        source_record_warnings = payload["source_record_freshness"].get("warnings") or []
+        if source_record_warnings:
+            print("source_record_freshness_warnings:")
+            for warning in source_record_warnings:
                 print(f"  {warning}")
 
         print("rows:")

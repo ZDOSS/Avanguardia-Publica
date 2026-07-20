@@ -69,6 +69,11 @@ def build_source_health_trackers(summary: ETLRunSummary) -> dict:
         "source_catalog_review": summary.source_tracker(
             "source_catalog_review", min_attempts_for_rate=1, affects_run=False
         ),
+        # Freshness is derived from private provenance records. It informs review
+        # and source reliability work but must not fail a healthy canonical write.
+        "source_record_freshness": summary.source_tracker(
+            "source_record_freshness", min_attempts_for_rate=1, affects_run=False
+        ),
         "openstates_votes": summary.source_tracker(
             "openstates_votes",
             min_attempts_for_rate=OPENSTATES_VOTES_MIN_ATTEMPTS_FOR_RATE,

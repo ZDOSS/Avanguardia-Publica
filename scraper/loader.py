@@ -1148,7 +1148,7 @@ class SupabaseLoader:
             return
         # Resolve every related name in one query. A query failure raises before any
         # relationship upsert, so existing internal links cannot be nulled by a partial run.
-        name_to_id = self._resolve_exact_names(names)
+        name_to_id, resolution_counts = self._resolve_exact_names_with_outcomes(names)
 
         person_id = self._person_id_for_politician(politician_id)
         rows = []
@@ -1178,6 +1178,8 @@ class SupabaseLoader:
                 f"upsert {len(rows)} relationships for {politician_id}",
             )
             self._increment("relationship_rows_written", len(rows))
+            for outcome, count in resolution_counts.items():
+                self._increment(f"relationship_target_names_{outcome}", count)
             print(f"  [+] Upserted {len(rows)} relationships")
         except Exception as e:
             print(f"  [!] Error upserting relationships for {politician_id}: {e}")
@@ -1193,9 +1195,23 @@ class SupabaseLoader:
         Returns a dict on success (possibly empty — ran fine, no matches). Query failures
         raise so callers cannot overwrite previously-resolved links with unresolved rows.
         """
+        return self._resolve_exact_names_with_outcomes(names)[0]
+
+    def _resolve_exact_names_with_outcomes(self, names):
+        """Resolve exact relationship targets and report non-identifying outcomes.
+
+        ``not_tracked`` deliberately includes external entities. It is an aggregate
+        data-quality signal, not a reason to create an identity candidate or make a
+        fuzzy relationship link.
+        """
         name_list = [n for n in names if n]
         if not self.supabase or not name_list:
-            return {}
+            return {}, {
+                "queried": 0,
+                "resolved_exact": 0,
+                "not_tracked": 0,
+                "ambiguous": 0,
+            }
         try:
             resp = self.execute_supabase(
                 lambda: (
@@ -1216,7 +1232,23 @@ class SupabaseLoader:
         ids_by_name: dict[str, list] = {}
         for row in (resp.data or []):
             ids_by_name.setdefault(row["full_name"], []).append(row["id"])
-        return {name: ids[0] for name, ids in ids_by_name.items() if len(ids) == 1}
+        resolved = {}
+        not_tracked = 0
+        ambiguous = 0
+        for name in name_list:
+            ids = ids_by_name.get(name, [])
+            if len(ids) == 1:
+                resolved[name] = ids[0]
+            elif ids:
+                ambiguous += 1
+            else:
+                not_tracked += 1
+        return resolved, {
+            "queried": len(name_list),
+            "resolved_exact": len(resolved),
+            "not_tracked": not_tracked,
+            "ambiguous": ambiguous,
+        }
 
     def process_mentions(self, politician_id: str, data_list: list, source_api: str):
         """

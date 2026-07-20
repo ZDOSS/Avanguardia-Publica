@@ -51,13 +51,18 @@ class FakeQuery:
             return type("Response", (), {"data": [{"person_id": "person-1"}]})()
         if self.table_name in self.client.error_by_table:
             raise RuntimeError(self.client.error_by_table[self.table_name])
-        return type("Response", (), {"data": []})()
+        return type(
+            "Response",
+            (),
+            {"data": self.client.table_rows.get(self.table_name, [])},
+        )()
 
 
 class FakeSupabase:
     def __init__(self):
         self.operations = []
         self.error_by_table = {}
+        self.table_rows = {}
 
     def table(self, table_name):
         return FakeQuery(self, table_name=table_name)
@@ -216,6 +221,68 @@ class LoaderPersonIdTests(unittest.TestCase):
         self.assertFalse(
             any(item.get("table") == "relationships" for item in self.fake_client.operations)
         )
+
+    def test_relationship_resolution_reports_exact_outcomes_without_fuzzy_linking(self):
+        summary = SummaryStub()
+        loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+        loader.person_id_by_politician_id["pol-1"] = "person-1"
+        self.fake_client.table_rows["politicians"] = [
+            {"id": "related-resolved", "full_name": "Resolved Person"},
+            {"id": "related-ambiguous-1", "full_name": "Ambiguous Person"},
+            {"id": "related-ambiguous-2", "full_name": "Ambiguous Person"},
+        ]
+
+        loader.upsert_relationships(
+            "pol-1",
+            [
+                {"related_name": "Resolved Person", "relationship_type": "Position"},
+                {"related_name": "Ambiguous Person", "relationship_type": "Position"},
+                {"related_name": "External Entity", "relationship_type": "Position"},
+                {"related_name": "Resolved Person", "relationship_type": "Board"},
+            ],
+        )
+
+        self.assertEqual(
+            {
+                "relationship_rows_written": 4,
+                "relationship_target_names_queried": 3,
+                "relationship_target_names_resolved_exact": 1,
+                "relationship_target_names_not_tracked": 1,
+                "relationship_target_names_ambiguous": 1,
+            },
+            summary.counts,
+        )
+        relationship_operation = next(
+            item
+            for item in self.fake_client.operations
+            if item.get("table") == "relationships"
+        )
+        linked_ids = {
+            row["related_name"]: row["related_politician_id"]
+            for row in relationship_operation["payload"]
+        }
+        self.assertEqual("related-resolved", linked_ids["Resolved Person"])
+        self.assertIsNone(linked_ids["Ambiguous Person"])
+        self.assertIsNone(linked_ids["External Entity"])
+
+    def test_relationship_resolution_outcomes_are_not_counted_when_the_write_fails(self):
+        summary = SummaryStub()
+        loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+        loader.person_id_by_politician_id["pol-1"] = "person-1"
+        self.fake_client.table_rows["politicians"] = [
+            {"id": "related-resolved", "full_name": "Resolved Person"},
+        ]
+        self.fake_client.error_by_table = {
+            "relationships": "permission denied; 'code': '42501'"
+        }
+
+        with self.assertRaises(RuntimeError):
+            loader.upsert_relationships(
+                "pol-1",
+                [{"related_name": "Resolved Person", "relationship_type": "Position"}],
+            )
+
+        self.assertEqual({}, summary.counts)
 
 
 if __name__ == "__main__":

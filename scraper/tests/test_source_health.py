@@ -60,6 +60,7 @@ class SourceHealthTests(unittest.TestCase):
             "senate_roll_call_shadow",
             "house_roll_call_shadow",
             "source_catalog_review",
+            "source_record_freshness",
             "openstates_votes",
             "house_disclosures",
         ):
