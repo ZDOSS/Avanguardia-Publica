@@ -4,10 +4,10 @@ This is the active roadmap for remaining data-model, scraper, profile, search, d
 and analytics work. It supersedes the former separate roadmap docs, which were removed to
 avoid split-source planning.
 
-This plan tracks the current implementation frontier. Phases 1 and 2 are retained because
-Phase 3 depends on their compatibility contract, but new implementation should start from
-the first unfinished Phase 3 item unless the identity bridge or profile spokes need a bug
-fix.
+This plan tracks the current implementation frontier. Phases 1 through 3 are retained
+because the role/source model depends on their compatibility and identity contracts, but
+new implementation should start from Phase 4 unless an earlier bridge, profile spoke, or
+identity-boundary bug needs a fix.
 
 ## Goal
 
@@ -145,7 +145,7 @@ Remaining profile UX improvements should happen after the reads are identity-awa
   data
 - source/freshness labels that use the provenance fields added by this roadmap
 
-## Phase 3: Scraper Identity Resolver (Current)
+## Phase 3: Scraper Identity Resolver (Complete)
 
 Stop letting scraper upserts create identity implicitly through `upsert_politician`.
 
@@ -158,15 +158,15 @@ The VPS cutover is complete enough to start this phase: the frontend public bund
 at the VPS Supabase URL, the scraper smoke run completed successfully, and the Phase 2
 spoke backfill has been applied.
 
-The current Phase 3 slice keeps the resolver in observer mode while making the observer
-actionable: blocked deterministic conflicts and missing-key packets are queued as
-`pending` rows in `identity_resolution_candidates` with deterministic keys, matching
-person IDs, legacy person IDs, source profile context, and pending-candidate evidence.
-These rows fill the existing legacy-pair key columns so repeated scraper runs can update
-the same unresolved candidate while preserving reviewed `approved`/`rejected` decisions.
-The update path also recognizes earlier observer rows where the candidate legacy key was
-not yet filled, so reviewed null-key rows are not re-queued.
-The resolver still does not take over canonical writes or auto-merge fuzzy candidates.
+The resolver is now the production pre-write boundary. Each source-backed extractor fact
+is converted once into a normalized identity packet; that same packet drives deterministic
+resolution, review evidence, trusted-ID arguments, provenance, and the atomic canonical /
+compatibility / source-record / office-term write. Blocked deterministic conflicts and
+missing-key packets are queued as `pending` rows in `identity_resolution_candidates`
+before any hub mutation. Repeated runs update the same unresolved candidate while
+preserving reviewed `approved`/`rejected`/`blocked` decisions. Historical counter and
+candidate names retain the `identity_observer_` prefix for compatibility, but they now
+describe enforcement at the production boundary rather than a post-write observer.
 
 A post-observer scraper run found 80 pending conflicts caused by OpenStates `data/us`
 records being ingested as state officials even though those people are already covered by
@@ -221,6 +221,13 @@ reports pending candidates, OpenStates federal duplicate cleanup state, and stal
 office rows. Migration `0023_uuid_v5_search_path_repair.sql` repairs the restricted
 search path used when that boundary creates a genuinely new canonical person and adds a
 non-mutating UUID-v5 probe to schema preflight.
+
+The final Phase 3 slice makes raw source names and normalized names separately inspectable,
+keeps source/catalog/payload provenance plus role, spoke, confidence, and review facts on
+the packet, and guarantees that every run emits all five required identity counters even
+when a count is zero. `identity_legacy_rows_mapped` is recorded only after a successful
+atomic source-profile write or legacy identity-bridge sync. No additional schema migration
+is required for this slice.
 
 ## Phase 4: Role And Source Model
 

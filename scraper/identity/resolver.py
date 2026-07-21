@@ -14,11 +14,11 @@ from .types import (
 
 class IdentityResolver:
     """
-    First Phase 3 resolver shape.
+    Pure, deterministic Phase 3 pre-write resolver.
 
-    This is intentionally pure and deterministic. It does not write database rows yet;
-    the loader can adopt it in small slices while preserving the existing legacy
-    politicians compatibility path.
+    The loader runs this resolver before the transactional source-profile RPC. The
+    resolver never mutates storage itself: deterministic conflicts and name-only
+    packets are blocked for review before compatibility or canonical rows can change.
     """
 
     def __init__(self, existing_identities=(), summary=None):
@@ -53,7 +53,8 @@ class IdentityResolver:
                     evidence={
                         "source_system_key": packet.source_system_key,
                         "source_record_key": packet.source_record_key,
-                        "normalized_names": [
+                        "normalized_names": list(packet.normalized_names)
+                        or [
                             name
                             for name in (
                                 normalize_identity_name(value) for value in packet.names
@@ -91,7 +92,6 @@ class IdentityResolver:
                 )
 
             self._increment("identity_deterministic_matches")
-            self._increment_legacy_mapping(packet)
             return IdentityResolution(
                 action="matched_existing_person",
                 deterministic_keys=keys,
@@ -113,7 +113,6 @@ class IdentityResolver:
             )
 
         if len(legacy_person_ids) == 1:
-            self._increment_legacy_mapping(packet)
             return IdentityResolution(
                 action="matched_existing_person",
                 deterministic_keys=keys,
@@ -135,7 +134,6 @@ class IdentityResolver:
             )
 
         self._increment("identity_people_created")
-        self._increment_legacy_mapping(packet)
         return IdentityResolution(
             action="create_person",
             deterministic_keys=keys,
@@ -147,7 +145,6 @@ class IdentityResolver:
     def _resolve_by_legacy_id(self, packet: IdentityPacket) -> IdentityResolution | None:
         matching_person_ids = self._person_ids_for_legacy_id(packet)
         if len(matching_person_ids) == 1:
-            self._increment_legacy_mapping(packet)
             return IdentityResolution(
                 action="matched_existing_person",
                 legacy_politician_id=packet.legacy_politician_id,
@@ -179,10 +176,6 @@ class IdentityResolver:
         if not packet.legacy_politician_id:
             return []
         return sorted(self._person_ids_by_legacy_id.get(packet.legacy_politician_id, set()))
-
-    def _increment_legacy_mapping(self, packet: IdentityPacket) -> None:
-        if packet.legacy_politician_id:
-            self._increment("identity_legacy_rows_mapped")
 
     def _increment(self, key: str, amount: int = 1) -> None:
         if self.summary:

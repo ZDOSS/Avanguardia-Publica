@@ -8,9 +8,12 @@ from government_classification import normalize_government_classification, norma
 from identity import (
     ExistingIdentity,
     IdentityKey,
+    IdentityPacket,
     IdentityResolution,
     IdentityResolver,
+    identity_keys_from_packet,
     packet_from_legacy_politician,
+    packet_from_source_profile,
     trusted_external_keys,
 )
 
@@ -245,7 +248,8 @@ class SupabaseLoader:
             self._ensure_identity_observer_loaded()
             row = dict(member_data)
             row["id"] = politician_id
-            resolution = self.identity_resolver.resolve(packet_from_legacy_politician(row))
+            packet = packet_from_legacy_politician(row)
+            resolution = self.identity_resolver.resolve(packet)
         except Exception as e:
             logger.warning("Identity observer failed for %s: %s", politician_id, e)
             self._increment("identity_observer_errors")
@@ -263,7 +267,12 @@ class SupabaseLoader:
                 politician_id,
             )
         if resolution.action in ("blocked_conflict", "pending_review"):
-            self.record_identity_resolution_candidate(politician_id, member_data, resolution)
+            self.record_identity_resolution_candidate(
+                politician_id,
+                member_data,
+                resolution,
+                packet=packet,
+            )
         return resolution
 
     @staticmethod
@@ -313,20 +322,35 @@ class SupabaseLoader:
         politician_id: str | None,
         member_data: dict,
         resolution: IdentityResolution,
+        packet: IdentityPacket | None = None,
     ) -> dict:
+        identity_packet = packet or packet_from_source_profile(
+            member_data,
+            legacy_politician_id=politician_id,
+        )
+        raw_names = list(identity_packet.names)
         evidence = {
-            "source": "scraper_identity_observer",
+            "source": "scraper_identity_resolver",
             "observer_action": resolution.action,
+            "resolution_action": resolution.action,
             "blocked_reason": resolution.blocked_reason,
             "legacy_politician_id": politician_id,
-            "source_system_key": member_data.get("source_system_key"),
-            "source_record_key": member_data.get("source_record_key"),
-            "source_url": member_data.get("source_url"),
-            "full_name": member_data.get("full_name"),
-            "current_office": member_data.get("current_office"),
-            "party": member_data.get("party"),
-            "state": member_data.get("state"),
-            "district": member_data.get("district"),
+            "source_system_key": identity_packet.source_system_key,
+            "source_record_key": identity_packet.source_record_key,
+            "source_catalog_slug": identity_packet.source_catalog_slug,
+            "source_endpoint_slug": identity_packet.source_endpoint_slug,
+            "source_url": identity_packet.source_url,
+            "raw_payload_ref": identity_packet.raw_payload_ref,
+            "payload_hash": identity_packet.payload_hash,
+            "verified_lane": identity_packet.verified_lane,
+            "source_updated_at": identity_packet.source_updated_at,
+            "full_name": raw_names[0] if raw_names else member_data.get("full_name"),
+            "raw_names": raw_names,
+            "normalized_names": list(identity_packet.normalized_names),
+            "role_facts": identity_packet.role_facts,
+            "spoke_facts": identity_packet.spoke_facts,
+            "confidence": identity_packet.confidence,
+            "review_metadata": identity_packet.review_metadata,
             "deterministic_keys": self._identity_key_evidence(resolution.deterministic_keys),
             "matching_person_ids": list(resolution.matching_person_ids),
             "legacy_person_ids": list(resolution.legacy_person_ids),
@@ -344,6 +368,7 @@ class SupabaseLoader:
         politician_id: str | None,
         member_data: dict,
         resolution: IdentityResolution,
+        packet: IdentityPacket | None = None,
     ) -> None:
         if not self.supabase:
             return
@@ -365,9 +390,17 @@ class SupabaseLoader:
                     politician_id,
                     member_data,
                     resolution,
+                    packet,
                 ),
                 **self._identity_candidate_person_fields(resolution),
             }
+            payload = _json_compatible(payload)
+            source_system_key = (
+                packet.source_system_key if packet else member_data.get("source_system_key")
+            )
+            source_record_key = (
+                packet.source_record_key if packet else member_data.get("source_record_key")
+            )
 
             def select_existing_candidate():
                 query = (
@@ -381,8 +414,8 @@ class SupabaseLoader:
                     query = query.is_("source_legacy_politician_id", "null").contains(
                         "evidence",
                         {
-                            "source_system_key": member_data.get("source_system_key"),
-                            "source_record_key": member_data.get("source_record_key"),
+                            "source_system_key": source_system_key,
+                            "source_record_key": source_record_key,
                         },
                     )
                 return query.execute()
@@ -532,7 +565,11 @@ class SupabaseLoader:
         return None
 
     def _guard_identity_before_hub_write(
-        self, member_data: dict, existing_id: str | None
+        self,
+        member_data: dict,
+        existing_id: str | None,
+        *,
+        packet: IdentityPacket | None = None,
     ) -> IdentityResolution:
         """Block deterministic multi-person conflicts before changing ``politicians``.
 
@@ -542,11 +579,16 @@ class SupabaseLoader:
         first and fail the record before any update/insert.
         """
         self._ensure_identity_observer_loaded()
-        row = dict(member_data)
-        deterministic_keys = trusted_external_keys(row)
-        if existing_id and deterministic_keys:
-            row["id"] = existing_id
-        resolution = self.identity_resolver.resolve(packet_from_legacy_politician(row))
+        if packet is None:
+            row = dict(member_data)
+            deterministic_keys = trusted_external_keys(row)
+            if existing_id and deterministic_keys:
+                row["id"] = existing_id
+            if row.get("source_system_key") or row.get("source_record_key"):
+                packet = packet_from_source_profile(row)
+            else:
+                packet = packet_from_legacy_politician(row)
+        resolution = self.identity_resolver.resolve(packet)
         self._increment("identity_observer_packets_checked")
         self._increment(f"identity_observer_{resolution.action}")
         if resolution.action not in ("blocked_conflict", "pending_review"):
@@ -563,7 +605,10 @@ class SupabaseLoader:
         if candidate_legacy_id is None and member_data.get("source_system_key"):
             candidate_legacy_id = self._source_native_legacy_id(member_data)
         self.record_identity_resolution_candidate(
-            candidate_legacy_id, member_data, resolution
+            candidate_legacy_id,
+            member_data,
+            resolution,
+            packet=packet,
         )
         raise IdentityResolutionConflict(
             "Refusing hub mutation for "
@@ -575,14 +620,23 @@ class SupabaseLoader:
         self,
         member_data: dict,
         profile_payload: dict,
+        *,
+        packet: IdentityPacket | None = None,
     ) -> str:
         """Atomically resolve identity and write hub/source/term data via migration 0022.
 
         There is intentionally no production fallback to separate table writes. If the
         migration or RPC is missing, this record fails before a partial hub mutation.
         """
-        source_system_key = str(member_data.get("source_system_key") or "").strip()
-        source_record_key = str(member_data.get("source_record_key") or "").strip()
+        if packet is None:
+            classification = normalize_government_classification(member_data)
+            location = normalize_location_fields(member_data)
+            packet = packet_from_source_profile(
+                {**member_data, **classification, **location}
+            )
+
+        source_system_key = packet.source_system_key
+        source_record_key = packet.source_record_key or ""
         if not source_system_key or not source_record_key:
             raise ValueError("source profile packets require source_system_key and source_record_key")
 
@@ -592,39 +646,43 @@ class SupabaseLoader:
                 "external_id_type": key.external_id_type,
                 "external_id": key.external_id,
             }
-            for key in trusted_external_keys(member_data)
+            for key in identity_keys_from_packet(packet)
         ]
-        classification = normalize_government_classification(member_data)
-        location = normalize_location_fields(member_data)
+        role_facts = packet.role_facts
+        term_metadata = {"source_system_key": source_system_key}
+        if packet.confidence is not None:
+            term_metadata["confidence"] = packet.confidence
+        if packet.review_metadata:
+            term_metadata["review_metadata"] = packet.review_metadata
         office_term = {
-            "source_term_key": member_data.get("source_term_key") or "current-office",
-            "office_title": member_data.get("current_office") or "Public office",
-            "role_type": member_data.get("role_type") or "office",
-            "organization_name": member_data.get("organization_name"),
-            "government_level": classification["government_level"],
-            "government_branch": classification["government_branch"],
-            "office_type": classification["office_type"],
-            "jurisdiction": classification["jurisdiction"],
-            "state": location["state"],
-            "district": location["district"],
-            "term_start": member_data.get("term_start"),
-            "term_end": member_data.get("term_end"),
-            "term_status": member_data.get("term_status") or "current",
-            "metadata": {"source_system_key": source_system_key},
+            "source_term_key": role_facts.get("source_term_key") or "current-office",
+            "office_title": role_facts.get("current_office") or "Public office",
+            "role_type": role_facts.get("role_type") or "office",
+            "organization_name": role_facts.get("organization_name"),
+            "government_level": role_facts.get("government_level"),
+            "government_branch": role_facts.get("government_branch"),
+            "office_type": role_facts.get("office_type"),
+            "jurisdiction": role_facts.get("jurisdiction"),
+            "state": role_facts.get("state"),
+            "district": role_facts.get("district"),
+            "term_start": role_facts.get("term_start"),
+            "term_end": role_facts.get("term_end"),
+            "term_status": role_facts.get("term_status") or "current",
+            "metadata": term_metadata,
         }
         args = {
             "p_source_system_key": source_system_key,
             "p_source_record_key": source_record_key,
             "p_profile": profile_payload,
             "p_trusted_external_ids": trusted_ids,
-            "p_source_url": member_data.get("source_url"),
-            "p_raw_payload_ref": member_data.get("raw_payload_ref"),
-            "p_payload_hash": member_data.get("payload_hash"),
-            "p_verified_lane": member_data.get("verified_lane") or "unverified",
+            "p_source_url": packet.source_url,
+            "p_raw_payload_ref": packet.raw_payload_ref,
+            "p_payload_hash": packet.payload_hash,
+            "p_verified_lane": packet.verified_lane or "unverified",
             "p_office_term": office_term,
-            "p_source_catalog_slug": member_data.get("source_catalog_slug"),
-            "p_source_endpoint_slug": member_data.get("source_endpoint_slug"),
-            "p_source_updated_at": member_data.get("source_updated_at"),
+            "p_source_catalog_slug": packet.source_catalog_slug,
+            "p_source_endpoint_slug": packet.source_endpoint_slug,
+            "p_source_updated_at": packet.source_updated_at,
         }
         args = _json_compatible(args)
         resp = self.execute_supabase(
@@ -651,6 +709,7 @@ class SupabaseLoader:
         self._increment("source_records_upserted")
         self._increment("person_office_terms_upserted")
         self._increment("identity_profiles_synced")
+        self._increment("identity_legacy_rows_mapped")
         self._record_identity_observer_mapping(politician_id, member_data, person_id)
         print(f"  [+] Transactionally synced source profile for {member_data['full_name']}")
         return politician_id
@@ -777,8 +836,19 @@ class SupabaseLoader:
 
         try:
             if member_data.get("source_system_key") or member_data.get("source_record_key"):
-                self._guard_identity_before_hub_write(member_data, None)
-                return self._upsert_source_profile_identity(member_data, data_to_write)
+                packet = packet_from_source_profile(
+                    {**member_data, **classification, **location}
+                )
+                self._guard_identity_before_hub_write(
+                    member_data,
+                    None,
+                    packet=packet,
+                )
+                return self._upsert_source_profile_identity(
+                    member_data,
+                    data_to_write,
+                    packet=packet,
+                )
 
             existing_id = None
 
@@ -916,6 +986,8 @@ class SupabaseLoader:
                 person_id = resp.data[0].get("person_id")
                 self.person_id_by_politician_id[politician_id] = person_id
                 self._increment("identity_profiles_synced")
+                if person_id:
+                    self._increment("identity_legacy_rows_mapped")
                 print("  [+] Synced canonical identity bridge")
                 return person_id
         except Exception as e:

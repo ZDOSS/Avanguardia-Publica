@@ -73,6 +73,8 @@ class FakeQuery:
         return self
 
     def execute(self):
+        if self.rpc_name in self.client.rpc_errors:
+            raise self.client.rpc_errors[self.rpc_name]
         if self.rpc_name == "retire_source_profile_record":
             source_record_id = self.rpc_args["p_source_record_id"]
             source_row = next(
@@ -172,12 +174,19 @@ class FakeQuery:
 
 
 class FakeSupabase:
-    def __init__(self, table_data=None, rpc_person_ids=None, source_rpc_results=None):
+    def __init__(
+        self,
+        table_data=None,
+        rpc_person_ids=None,
+        source_rpc_results=None,
+        rpc_errors=None,
+    ):
         self.table_data = table_data or {}
         self.rpc_person_ids = rpc_person_ids or {}
         self.operations = []
         self.next_insert_id = "pol-new"
         self.source_rpc_results = source_rpc_results or {}
+        self.rpc_errors = rpc_errors or {}
 
     def table(self, table_name):
         return FakeQuery(self, table_name=table_name)
@@ -379,6 +388,7 @@ class LoaderIdentityObserverTests(unittest.TestCase):
         self.assertEqual(1, summary.counts["hub_rows_updated"])
         self.assertEqual(1, summary.counts["identity_observer_packets_checked"])
         self.assertEqual(1, summary.counts["identity_observer_matched_existing_person"])
+        self.assertEqual(1, summary.counts["identity_legacy_rows_mapped"])
         operation_types = [(item["type"], item.get("table") or item.get("name")) for item in self.fake_client.operations]
         self.assertEqual(
             [
@@ -387,6 +397,26 @@ class LoaderIdentityObserverTests(unittest.TestCase):
             ],
             operation_types,
         )
+
+    def test_legacy_mapping_counter_waits_for_successful_sync(self):
+        self.fake_client.rpc_errors["sync_legacy_profile_identity"] = RuntimeError(
+            "canonical sync failed"
+        )
+        summary = SummaryStub()
+        loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+
+        with self.assertRaisesRegex(RuntimeError, "canonical sync failed"):
+            loader.upsert_politician(
+                {
+                    "full_name": "Jane Public",
+                    "current_office": "US Representative",
+                    "bioguide_id": "B000001",
+                    "external_ids": {},
+                    "aliases": [],
+                }
+            )
+
+        self.assertEqual(0, summary.counts.get("identity_legacy_rows_mapped", 0))
 
     def test_source_profile_uses_atomic_identity_rpc(self):
         self.fake_client.table_data["person_external_ids"] = []
@@ -409,8 +439,11 @@ class LoaderIdentityObserverTests(unittest.TestCase):
                 "source_endpoint_slug": "people-tarball",
                 "source_url": "https://example.test/alex",
                 "raw_payload_ref": "data/ca/alex.yml",
+                "payload_hash": "sha256:alex",
                 "source_updated_at": datetime(2026, 7, 8, 12, 0, tzinfo=timezone.utc),
                 "verified_lane": "mixed",
+                "confidence": 0.95,
+                "review_metadata": {"lane": "official-roster"},
                 "source_term_key": "lower:4:2025-01-01",
                 "term_start": date(2025, 1, 1),
                 "term_end": date(2026, 1, 1),
@@ -428,12 +461,22 @@ class LoaderIdentityObserverTests(unittest.TestCase):
         self.assertEqual("ocd-person/alex", args["p_source_record_key"])
         self.assertEqual("openstates", args["p_source_catalog_slug"])
         self.assertEqual("people-tarball", args["p_source_endpoint_slug"])
+        self.assertEqual("sha256:alex", args["p_payload_hash"])
         self.assertEqual("2026-07-08T12:00:00+00:00", args["p_source_updated_at"])
         self.assertEqual(
             "lower:4:2025-01-01", args["p_office_term"]["source_term_key"]
         )
         self.assertEqual("2025-01-01", args["p_office_term"]["term_start"])
         self.assertEqual("2026-01-01", args["p_office_term"]["term_end"])
+        self.assertEqual(
+            {
+                "source_system_key": "openstates",
+                "confidence": 0.95,
+                "review_metadata": {"lane": "official-roster"},
+            },
+            args["p_office_term"]["metadata"],
+        )
+        self.assertEqual(1, summary.counts["identity_legacy_rows_mapped"])
 
     def test_congress_and_executive_roles_share_person_but_keep_source_profiles_separate(self):
         self.fake_client.table_data["person_external_ids"] = []
@@ -514,9 +557,13 @@ class LoaderIdentityObserverTests(unittest.TestCase):
                     "current_office": "US Representative",
                     "bioguide_id": "B000001",
                     "external_ids": {"fec": "H0CA00001"},
-                    "aliases": [],
+                    "aliases": ["Jane Q. Conflict"],
                     "source_system_key": "congress-legislators",
                     "source_record_key": "B000001",
+                    "source_url": "https://example.test/conflict",
+                    "raw_payload_ref": "legislators-current.yaml",
+                    "confidence": 0.9,
+                    "review_metadata": {"reason": "trusted-id-conflict"},
                 }
             )
 
@@ -531,6 +578,22 @@ class LoaderIdentityObserverTests(unittest.TestCase):
         self.assertEqual("pol-1", candidates[0]["source_legacy_politician_id"])
         self.assertEqual(
             "B000001", candidates[0]["evidence"]["source_record_key"]
+        )
+        evidence = candidates[0]["evidence"]
+        self.assertEqual("congress-legislators", evidence["source_system_key"])
+        self.assertEqual(
+            ["Jane Conflict", "Jane Q. Conflict"],
+            evidence["raw_names"],
+        )
+        self.assertEqual(
+            ["jane conflict", "jane q. conflict"],
+            evidence["normalized_names"],
+        )
+        self.assertEqual("legislators-current.yaml", evidence["raw_payload_ref"])
+        self.assertEqual(0.9, evidence["confidence"])
+        self.assertEqual(
+            {"reason": "trusted-id-conflict"},
+            evidence["review_metadata"],
         )
 
     def test_unanchored_source_conflict_still_creates_one_deduplicated_review_candidate(self):

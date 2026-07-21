@@ -97,8 +97,67 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual("avanguardia-legacy-profile", packet.source_system_key)
         self.assertEqual("legacy-1", packet.legacy_politician_id)
         self.assertEqual(("Jane Public", "Jane Q. Public"), packet.names)
+        self.assertEqual(("jane public", "jane q. public"), packet.normalized_names)
         self.assertEqual("P000001", packet.external_ids["bioguide"])
         self.assertEqual("Federal", packet.role_facts["government_level"])
+
+    def test_packet_from_source_profile_preserves_normalized_facts_and_provenance(self):
+        packet = self.identity.packet_from_source_profile(
+            {
+                "full_name": "  Jane Public  ",
+                "aliases": ["Jane Q. Public", "  Jane Public  "],
+                "bioguide_id": "P000001",
+                "external_ids": {"wikidata": "Q123"},
+                "current_office": "US Representative",
+                "party": "Independent",
+                "state": "CA",
+                "district": "12",
+                "government_level": "federal",
+                "government_branch": "legislative",
+                "office_type": "representative",
+                "jurisdiction": "US",
+                "source_term_key": "rep:2025-01-03",
+                "term_start": "2025-01-03",
+                "contact": {"website": "https://example.test/jane"},
+                "spoke_facts": {"votes": [{"bill": "hr-1"}]},
+                "source_system_key": " congress-legislators ",
+                "source_record_key": " P000001 ",
+                "source_catalog_slug": "congress-legislators",
+                "source_endpoint_slug": "repository",
+                "source_url": "https://example.test/source",
+                "raw_payload_ref": "legislators-current.yaml",
+                "payload_hash": "sha256:test",
+                "verified_lane": "mixed",
+                "source_updated_at": "2026-07-20T00:00:00Z",
+                "confidence": 0.98,
+                "review_metadata": {"reviewed_by": "extractor-rule"},
+            }
+        )
+
+        self.assertEqual("congress-legislators", packet.source_system_key)
+        self.assertEqual("P000001", packet.source_record_key)
+        self.assertIsNone(packet.legacy_politician_id)
+        self.assertEqual(
+            ("  Jane Public  ", "Jane Q. Public"),
+            packet.names,
+        )
+        self.assertEqual(("jane public", "jane q. public"), packet.normalized_names)
+        self.assertEqual("P000001", packet.external_ids["bioguide"])
+        self.assertEqual("Q123", packet.external_ids["wikidata"])
+        self.assertEqual("rep:2025-01-03", packet.role_facts["source_term_key"])
+        self.assertEqual(
+            {"website": "https://example.test/jane"},
+            packet.spoke_facts["contact"],
+        )
+        self.assertEqual([{"bill": "hr-1"}], packet.spoke_facts["votes"])
+        self.assertEqual("https://example.test/source", packet.source_url)
+        self.assertEqual("legislators-current.yaml", packet.raw_payload_ref)
+        self.assertEqual("sha256:test", packet.payload_hash)
+        self.assertEqual(0.98, packet.confidence)
+        self.assertEqual(
+            {"reviewed_by": "extractor-rule"},
+            packet.review_metadata,
+        )
 
     def test_existing_deterministic_key_matches_person_and_counts(self):
         summary = SummaryStub()
@@ -126,7 +185,7 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual("person-1", resolution.person_id)
         self.assertEqual(("person-1",), resolution.matching_person_ids)
         self.assertEqual(1, summary.counts["identity_deterministic_matches"])
-        self.assertEqual(1, summary.counts["identity_legacy_rows_mapped"])
+        self.assertNotIn("identity_legacy_rows_mapped", summary.counts)
 
     def test_new_deterministic_key_creates_person_intent(self):
         summary = SummaryStub()
@@ -143,7 +202,7 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual("create_person", resolution.action)
         self.assertIsNone(resolution.person_id)
         self.assertEqual(1, summary.counts["identity_people_created"])
-        self.assertEqual(1, summary.counts["identity_legacy_rows_mapped"])
+        self.assertNotIn("identity_legacy_rows_mapped", summary.counts)
 
     def test_missing_deterministic_key_goes_to_review(self):
         summary = SummaryStub()
@@ -193,7 +252,7 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual("matched_existing_person", resolution.action)
         self.assertEqual("person-1", resolution.person_id)
         self.assertEqual(("person-1",), resolution.legacy_person_ids)
-        self.assertEqual(1, summary.counts["identity_legacy_rows_mapped"])
+        self.assertNotIn("identity_legacy_rows_mapped", summary.counts)
         self.assertNotIn("identity_pending_candidates", summary.counts)
 
     def test_existing_legacy_mapping_matches_new_deterministic_key(self):
@@ -218,7 +277,7 @@ class IdentityResolverTests(unittest.TestCase):
 
         self.assertEqual("matched_existing_person", resolution.action)
         self.assertEqual("person-1", resolution.person_id)
-        self.assertEqual(1, summary.counts["identity_legacy_rows_mapped"])
+        self.assertNotIn("identity_legacy_rows_mapped", summary.counts)
         self.assertNotIn("identity_people_created", summary.counts)
 
     def test_deterministic_key_conflicting_with_legacy_mapping_is_blocked(self):
