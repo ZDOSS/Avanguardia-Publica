@@ -85,7 +85,7 @@ The catalog source and endpoint remain `candidate` during this shadow phase. A l
 authoritative ingestion change must first review the observed metrics, record source
 provenance and retention/attribution decisions, and add a conflict-safe vote storage path.
 
-### House Clerk roll-call XML (shadow candidate)
+### House Clerk roll-call XML (approved; writes disabled)
 
 The [Office of the Clerk's roll-call XML](https://clerk.house.gov/evs/) provides an
 official record for each House vote. The initial integration is deliberately read-only: it
@@ -95,6 +95,34 @@ matches a member only by the XML `name-id` Bioguide identifier already supplied 
 summary. It does **not** create people, write vote rows, retain raw XML, or expose House
 Clerk facts in the public UI.
 
-The catalog source and endpoint remain `candidate` during this shadow phase. A later
-authoritative ingestion change must first review the observed metrics, record source
-provenance and retention/attribution decisions, and add a conflict-safe vote storage path.
+The Phase 4 source review observed five successful 25-roll-call shadow runs
+([29673051187](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/29673051187),
+[29716133242](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/29716133242),
+[29717007354](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/29717007354),
+[29800415718](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/29800415718), and
+[29868730671](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/29868730671)). Across
+them, the source produced 53,996 member-vote observations, 53,996 exact Bioguide matches,
+zero unmatched Bioguide IDs, and zero vote-cast conflicts. The first run contained 25
+official votes that were not present in the bounded GovTrack comparison data; later runs
+reconciled completely, so those were missing comparison observations rather than conflicts.
+
+Migration `0025_house_roll_call_source_review.sql` therefore marks the catalog source and
+endpoint `approved`. Its `wired` repo-fit means the bounded shadow extractor exists; it
+does **not** enable production vote writes. The separate authoritative-ingestion PR must
+honor this contract:
+
+- Join members only by the XML `name-id` Bioguide identifier. Names and office text are not
+  identity keys.
+- Use stable source keys containing Congress, session, roll-call number, and (for a member
+  vote) Bioguide ID.
+- Retain normalized roll-call/member-vote facts, source record ID, fetched URL and time, and
+  payload hash. Raw XML is not retained.
+- Attribute displayed facts to the
+  [Office of the Clerk, U.S. House of Representatives](https://clerk.house.gov/Votes) and
+  preserve the source link. The Clerk's
+  [rights policy](https://clerk.house.gov/PrivacyPolicy) treats site information as public
+  information that may be distributed or copied unless otherwise specified, with citation.
+- Report attempts, successes, failures, and skips. When degraded, fail closed for new House
+  writes and retain the last valid normalized rows.
+- Ship authoritative writes behind an explicit disable control. Disabling them must return
+  the extractor to shadow-only operation without deleting provenance or identity mappings.
