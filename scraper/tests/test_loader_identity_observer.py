@@ -73,6 +73,8 @@ class FakeQuery:
         return self
 
     def execute(self):
+        if self.rpc_name in self.client.rpc_errors:
+            raise self.client.rpc_errors[self.rpc_name]
         if self.rpc_name == "retire_source_profile_record":
             source_record_id = self.rpc_args["p_source_record_id"]
             source_row = next(
@@ -172,12 +174,19 @@ class FakeQuery:
 
 
 class FakeSupabase:
-    def __init__(self, table_data=None, rpc_person_ids=None, source_rpc_results=None):
+    def __init__(
+        self,
+        table_data=None,
+        rpc_person_ids=None,
+        source_rpc_results=None,
+        rpc_errors=None,
+    ):
         self.table_data = table_data or {}
         self.rpc_person_ids = rpc_person_ids or {}
         self.operations = []
         self.next_insert_id = "pol-new"
         self.source_rpc_results = source_rpc_results or {}
+        self.rpc_errors = rpc_errors or {}
 
     def table(self, table_name):
         return FakeQuery(self, table_name=table_name)
@@ -379,6 +388,7 @@ class LoaderIdentityObserverTests(unittest.TestCase):
         self.assertEqual(1, summary.counts["hub_rows_updated"])
         self.assertEqual(1, summary.counts["identity_observer_packets_checked"])
         self.assertEqual(1, summary.counts["identity_observer_matched_existing_person"])
+        self.assertEqual(1, summary.counts["identity_legacy_rows_mapped"])
         operation_types = [(item["type"], item.get("table") or item.get("name")) for item in self.fake_client.operations]
         self.assertEqual(
             [
@@ -387,6 +397,26 @@ class LoaderIdentityObserverTests(unittest.TestCase):
             ],
             operation_types,
         )
+
+    def test_legacy_mapping_counter_waits_for_successful_sync(self):
+        self.fake_client.rpc_errors["sync_legacy_profile_identity"] = RuntimeError(
+            "canonical sync failed"
+        )
+        summary = SummaryStub()
+        loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+
+        with self.assertRaisesRegex(RuntimeError, "canonical sync failed"):
+            loader.upsert_politician(
+                {
+                    "full_name": "Jane Public",
+                    "current_office": "US Representative",
+                    "bioguide_id": "B000001",
+                    "external_ids": {},
+                    "aliases": [],
+                }
+            )
+
+        self.assertEqual(0, summary.counts.get("identity_legacy_rows_mapped", 0))
 
     def test_source_profile_uses_atomic_identity_rpc(self):
         self.fake_client.table_data["person_external_ids"] = []

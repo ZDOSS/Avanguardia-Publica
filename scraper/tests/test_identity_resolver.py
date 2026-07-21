@@ -185,7 +185,7 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual("person-1", resolution.person_id)
         self.assertEqual(("person-1",), resolution.matching_person_ids)
         self.assertEqual(1, summary.counts["identity_deterministic_matches"])
-        self.assertEqual(1, summary.counts["identity_legacy_rows_mapped"])
+        self.assertNotIn("identity_legacy_rows_mapped", summary.counts)
 
     def test_new_deterministic_key_creates_person_intent(self):
         summary = SummaryStub()
@@ -202,7 +202,7 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual("create_person", resolution.action)
         self.assertIsNone(resolution.person_id)
         self.assertEqual(1, summary.counts["identity_people_created"])
-        self.assertEqual(1, summary.counts["identity_legacy_rows_mapped"])
+        self.assertNotIn("identity_legacy_rows_mapped", summary.counts)
 
     def test_missing_deterministic_key_goes_to_review(self):
         summary = SummaryStub()
@@ -252,7 +252,7 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual("matched_existing_person", resolution.action)
         self.assertEqual("person-1", resolution.person_id)
         self.assertEqual(("person-1",), resolution.legacy_person_ids)
-        self.assertEqual(1, summary.counts["identity_legacy_rows_mapped"])
+        self.assertNotIn("identity_legacy_rows_mapped", summary.counts)
         self.assertNotIn("identity_pending_candidates", summary.counts)
 
     def test_existing_legacy_mapping_matches_new_deterministic_key(self):
@@ -277,7 +277,7 @@ class IdentityResolverTests(unittest.TestCase):
 
         self.assertEqual("matched_existing_person", resolution.action)
         self.assertEqual("person-1", resolution.person_id)
-        self.assertEqual(1, summary.counts["identity_legacy_rows_mapped"])
+        self.assertNotIn("identity_legacy_rows_mapped", summary.counts)
         self.assertNotIn("identity_people_created", summary.counts)
 
     def test_deterministic_key_conflicting_with_legacy_mapping_is_blocked(self):

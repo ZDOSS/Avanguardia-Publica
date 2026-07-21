@@ -986,6 +986,8 @@ class SupabaseLoader:
                 person_id = resp.data[0].get("person_id")
                 self.person_id_by_politician_id[politician_id] = person_id
                 self._increment("identity_profiles_synced")
+                if person_id:
+                    self._increment("identity_legacy_rows_mapped")
                 print("  [+] Synced canonical identity bridge")
                 return person_id
         except Exception as e:

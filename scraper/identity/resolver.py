@@ -92,7 +92,6 @@ class IdentityResolver:
                 )
 
             self._increment("identity_deterministic_matches")
-            self._increment_legacy_mapping(packet)
             return IdentityResolution(
                 action="matched_existing_person",
                 deterministic_keys=keys,
@@ -114,7 +113,6 @@ class IdentityResolver:
             )
 
         if len(legacy_person_ids) == 1:
-            self._increment_legacy_mapping(packet)
             return IdentityResolution(
                 action="matched_existing_person",
                 deterministic_keys=keys,
@@ -136,7 +134,6 @@ class IdentityResolver:
             )
 
         self._increment("identity_people_created")
-        self._increment_legacy_mapping(packet)
         return IdentityResolution(
             action="create_person",
             deterministic_keys=keys,
@@ -148,7 +145,6 @@ class IdentityResolver:
     def _resolve_by_legacy_id(self, packet: IdentityPacket) -> IdentityResolution | None:
         matching_person_ids = self._person_ids_for_legacy_id(packet)
         if len(matching_person_ids) == 1:
-            self._increment_legacy_mapping(packet)
             return IdentityResolution(
                 action="matched_existing_person",
                 legacy_politician_id=packet.legacy_politician_id,
@@ -180,10 +176,6 @@ class IdentityResolver:
         if not packet.legacy_politician_id:
             return []
         return sorted(self._person_ids_by_legacy_id.get(packet.legacy_politician_id, set()))
-
-    def _increment_legacy_mapping(self, packet: IdentityPacket) -> None:
-        if packet.legacy_politician_id:
-            self._increment("identity_legacy_rows_mapped")
 
     def _increment(self, key: str, amount: int = 1) -> None:
         if self.summary:

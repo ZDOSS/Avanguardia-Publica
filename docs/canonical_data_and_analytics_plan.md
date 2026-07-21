@@ -226,7 +226,8 @@ The final Phase 3 slice makes raw source names and normalized names separately i
 keeps source/catalog/payload provenance plus role, spoke, confidence, and review facts on
 the packet, and guarantees that every run emits all five required identity counters even
 when a count is zero. `identity_legacy_rows_mapped` is recorded only after a successful
-atomic source-profile write. No additional schema migration is required for this slice.
+atomic source-profile write or legacy identity-bridge sync. No additional schema migration
+is required for this slice.
 
 ## Phase 4: Role And Source Model
 
