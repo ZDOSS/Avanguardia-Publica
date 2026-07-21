@@ -314,6 +314,13 @@ recording audit events. The follow-up context seed is
 `migrations/0024_source_inventory_context_seed.sql`: it adds the roadmap-listed FCC Area
 API and GSA Site Scanning API as private P1/P2 `candidate` sources. They remain review-only:
 the migration adds no extractor, credentials, public facts, or source-record writes.
+The first Phase 4 source decision is
+`migrations/0025_house_roll_call_source_review.sql`: after five successful bounded shadow
+runs, it approves the official House Clerk roll-call source and endpoint, links them to the
+verified `house-clerk` source system, and records the exact-ID, retention, attribution,
+health, and disable contract. `repo_fit = wired` refers only to the existing shadow
+extractor; authoritative vote writes remain disabled until a separate ingestion migration
+and PR advance scraper preflight.
 
 - source slug, name, agency, sub-agency, branch, category, source type, access level,
   auth type, credential provider, base URL, docs URL, formats, coverage, update cadence,
@@ -341,8 +348,10 @@ Use this intake order:
    The Senate and House Clerk XML sources currently run only as bounded, read-only
    reconciliation shadows. They join records exclusively through their stable roster IDs
    (Senate LIS IDs and House Bioguide IDs), publish aggregate comparison metrics, and do
-   not create people or write public vote rows. Keep both catalog entries at `candidate`
-   until observed coverage and conflict metrics support a separately reviewed ingestion path.
+   not create people or write public vote rows. Migration `0025` approves the House source
+   after five reviewed runs while explicitly leaving writes disabled. Keep the Senate entry
+   at `candidate` until its own observed coverage and conflict metrics support a separately
+   reviewed decision.
 3. **Influence and organization graph after source records exist:** LDA.gov,
    USAspending, SAM.gov entity management, SAM.gov contract awards, and SAM.gov
    opportunities. These should wait for organization identity and source-record tables;
@@ -491,11 +500,11 @@ Every schema change in this plan must follow these rules:
 
 ## Next PR
 
-Keep the Senate and House Clerk vote feeds in read-only shadow mode long enough to review
-their coverage, mismatch, and source-health metrics. The next vote-source change, if any,
-must be a separately reviewed provenance/conflict-safe ingestion path; do not turn shadow
-results into public vote rows directly. In parallel, use the private review worklist to
-triage existing catalog candidates, including the FCC/GSA context pair seeded by `0024`,
-before considering another small inventory batch. Do not ingest all 97 inventory rows as
-public facts, add new source APIs, or expose a source-review UI until source review decisions
-are being recorded consistently.
+Add the House Clerk vote source through a separately reviewed, provenance-rich,
+conflict-safe ingestion path that honors the `0025` source contract. Do not turn shadow
+results into public rows directly or mix the Senate source into the same PR. Keep Senate in
+read-only shadow mode until its coverage and mismatch review is complete. Broader candidate
+triage, including the FCC/GSA context pair seeded by `0024`, stays separate from this vote
+slice; historical identity-review queue cleanup is deferred to Phase 6. Do not ingest all
+97 inventory rows as public facts, add unrelated source APIs, or expose a source-review UI
+until source review decisions are being recorded consistently.
