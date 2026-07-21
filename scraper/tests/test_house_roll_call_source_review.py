@@ -1,5 +1,8 @@
+import re
 import unittest
 from pathlib import Path
+
+from extractors.house_roll_calls import HouseRollCall
 
 
 class HouseRollCallSourceReviewTests(unittest.TestCase):
@@ -41,6 +44,41 @@ class HouseRollCallSourceReviewTests(unittest.TestCase):
         self.assertIn("'shadow_govtrack_vote_cast_mismatches', 0", self.sql)
         self.assertIn("'join_policy', 'exact_xml_name_id_to_bioguide_only'", self.sql)
 
+    def test_declared_source_keys_match_the_extractor_reconciliation_key(self):
+        roll_call = HouseRollCall(
+            congress=119,
+            session=2,
+            congress_year=2026,
+            vote_number=240,
+            vote_date="2026-07-21",
+            question="On Passage",
+            source_url="https://clerk.house.gov/evs/2026/roll240.xml",
+            member_votes=(),
+        )
+        roll_call_template = re.search(
+            r"'roll_call_source_record_key', '([^']+)'", self.sql
+        )
+        member_vote_template = re.search(
+            r"'member_vote_source_record_key', '([^']+)'", self.sql
+        )
+        self.assertIsNotNone(roll_call_template)
+        self.assertIsNotNone(member_vote_template)
+
+        format_values = {
+            "congress": roll_call.congress,
+            "congress_year": roll_call.congress_year,
+            "roll_call_number": roll_call.vote_number,
+            "bioguide_id": "A000001",
+        }
+        self.assertEqual(
+            roll_call.reconciliation_key,
+            roll_call_template.group(1).format(**format_values),
+        )
+        self.assertEqual(
+            f"{roll_call.reconciliation_key}:A000001",
+            member_vote_template.group(1).format(**format_values),
+        )
+
     def test_keeps_production_writes_disabled_and_records_the_source_contract(self):
         self.assertIn("'production_writes_enabled', false", self.sql)
         self.assertIn(
@@ -62,6 +100,15 @@ class HouseRollCallSourceReviewTests(unittest.TestCase):
         self.assertIn("'0025_house_roll_call_source_review',\n        25,", self.sql)
         self.assertIn("BEGIN;", self.sql)
         self.assertTrue(self.sql.rstrip().endswith("COMMIT;"))
+
+    def test_shared_source_system_notes_are_appended_not_replaced(self):
+        self.assertIn("UPDATE public.source_systems AS source_system", self.sql)
+        self.assertIn("NULLIF(btrim(source_system.notes), '')", self.sql)
+        self.assertIn("SET notes = concat_ws(", self.sql)
+        self.assertNotIn(
+            "SET notes = 'Official House Clerk source used",
+            self.sql,
+        )
 
     def test_public_policy_matches_the_database_decision(self):
         self.assertIn("House Clerk roll-call XML (approved; writes disabled)", self.policy)

@@ -43,8 +43,8 @@ DECLARE
         'join_policy', 'exact_xml_name_id_to_bioguide_only',
         'verified_lane', 'verified',
         'ingestion_method', 'house_clerk_roll_call_xml',
-        'roll_call_source_record_key', 'house:{congress}:{session}:{roll_call_number}',
-        'member_vote_source_record_key', 'house:{congress}:{session}:{roll_call_number}:{bioguide_id}',
+        'roll_call_source_record_key', 'house:{congress}:{congress_year}:{roll_call_number}',
+        'member_vote_source_record_key', 'house:{congress}:{congress_year}:{roll_call_number}:{bioguide_id}',
         'rights', jsonb_build_object(
             'classification', 'official_public_information',
             'decision', 'Retain and republish normalized facts with Office of the Clerk citation.',
@@ -187,9 +187,13 @@ BEGIN
     ON CONFLICT (source_slug, source_system_key, link_type) DO UPDATE SET
         notes = EXCLUDED.notes;
 
-    UPDATE public.source_systems
-    SET notes = 'Official House Clerk source used for House financial-disclosure filings and roll-call records.'
-    WHERE key = 'house-clerk';
+    UPDATE public.source_systems AS source_system
+    SET notes = concat_ws(
+        ' ',
+        NULLIF(btrim(source_system.notes), ''),
+        'Also represents the official House Clerk roll-call source reviewed by migration 0025.'
+    )
+    WHERE source_system.key = 'house-clerk';
 
     INSERT INTO public.schema_migrations (
         migration_key,

@@ -113,8 +113,8 @@ honor this contract:
 
 - Join members only by the XML `name-id` Bioguide identifier. Names and office text are not
   identity keys.
-- Use stable source keys containing Congress, session, roll-call number, and (for a member
-  vote) Bioguide ID.
+- Use the extractor's existing stable source-key shape: Congress, calendar year, roll-call
+  number, and (for a member vote) Bioguide ID.
 - Retain normalized roll-call/member-vote facts, source record ID, fetched URL and time, and
   payload hash. Raw XML is not retained.
 - Attribute displayed facts to the
