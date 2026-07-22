@@ -67,7 +67,8 @@ class SourceHealthTracker:
         if self.max_failure_seconds > 0 and self.failure_seconds >= self.max_failure_seconds:
             return "failure_time_budget_exhausted"
         if (
-            self.attempts >= self.min_attempts_for_rate
+            self.failures > 0
+            and self.attempts >= self.min_attempts_for_rate
             and self.failure_rate >= self.max_failure_rate
         ):
             return "failure_rate_threshold_exceeded"

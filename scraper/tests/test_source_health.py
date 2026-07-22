@@ -70,6 +70,28 @@ class SourceHealthTests(unittest.TestCase):
 
         self.assertEqual([], summary.run_blocking_source_failures())
 
+    def test_authoritative_house_roll_call_write_failures_block_the_run(self):
+        summary = ETLRunSummary()
+        trackers = build_source_health_trackers(summary)
+
+        trackers["house_roll_call_write"].trip_breaker("rpc_write_failed")
+
+        self.assertTrue(trackers["house_roll_call_write"].affects_run)
+        self.assertEqual(
+            ["house_roll_call_write"],
+            summary.run_blocking_source_failures(),
+        )
+
+    def test_zero_tolerance_write_tracker_stays_healthy_without_failures(self):
+        summary = ETLRunSummary()
+        tracker = build_source_health_trackers(summary)["house_roll_call_write"]
+
+        tracker.record_attempt()
+        tracker.record_success()
+
+        self.assertEqual("healthy", tracker.status)
+        self.assertEqual([], summary.run_blocking_source_failures())
+
     def test_openfec_long_crawl_tolerates_observed_scattered_timeouts(self):
         tracker = SourceHealthTracker(
             "openfec", min_attempts_for_rate=10, max_failure_seconds=0

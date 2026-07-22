@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from collections import defaultdict
 from datetime import date, datetime, timezone
@@ -66,16 +67,32 @@ class SupabaseLoader:
             self.supabase = create_client(self.url, self.key)
 
     @staticmethod
-    def _is_non_retryable_supabase_error(exc: Exception) -> bool:
+    def _is_duplicate_supabase_error(exc: Exception) -> bool:
         message = str(exc).lower()
-        non_retryable_markers = (
-            # Unique violations are expected for idempotent mention inserts. They often
-            # include an HTTP/2 transport string, so check them before transient markers.
-            "duplicate key value violates unique constraint",
-            "'code': '23505'",
-            '"code": "23505"',
+        return (
+            "duplicate key value violates unique constraint" in message
+            or bool(
+                re.search(r'''["']code["']\s*:\s*["']23505["']''', message)
+            )
         )
-        return any(marker in message for marker in non_retryable_markers)
+
+    @staticmethod
+    def _is_non_retryable_supabase_error(exc: Exception) -> bool:
+        if SupabaseLoader._is_duplicate_supabase_error(exc):
+            return True
+        message = str(exc).lower()
+        structured_code = re.search(
+            r'''["']code["']\s*:\s*["']([0-9a-z]{5})["']''', message
+        )
+        if structured_code and structured_code.group(1)[:2] in {
+            "22",  # data exceptions / invalid RPC arguments
+            "23",  # integrity-constraint and identity violations
+            "28",  # authorization failures
+            "42",  # schema and access-rule errors
+            "55",  # object state, including the disabled write gate
+        }:
+            return True
+        return False
 
     @staticmethod
     def _is_transient_supabase_error(exc: Exception) -> bool:
@@ -98,9 +115,6 @@ class SupabaseLoader:
             "gateway timeout",
             "http/2",
             "409 conflict",
-            "503",
-            "504",
-            "502",
         )
         return any(marker in message for marker in transient_markers)
 
@@ -1136,6 +1150,53 @@ class SupabaseLoader:
             print(f"  [!] Error upserting campaign donors for {politician_id}: {e}")
             raise
 
+    def upsert_house_roll_call(
+        self, roll_call: dict, member_votes: list[dict]
+    ) -> dict:
+        """Atomically persist one complete official House roll call via migration 0026."""
+        if not self.supabase:
+            raise RuntimeError(
+                "Supabase must be configured for authoritative House roll-call writes"
+            )
+        if not isinstance(roll_call, dict) or not roll_call:
+            raise ValueError("House roll-call payload must be a non-empty object")
+        if not isinstance(member_votes, list) or not member_votes:
+            raise ValueError("House member-vote payload must be a non-empty list")
+
+        args = _json_compatible(
+            {
+                "p_roll_call": roll_call,
+                "p_member_votes": member_votes,
+            }
+        )
+        source_record_key = str(roll_call.get("source_record_key") or "unknown")
+        response = self.execute_supabase(
+            lambda: self.supabase.rpc("upsert_house_roll_call", args).execute(),
+            f"atomic House roll-call upsert {source_record_key}",
+        )
+        result_rows = list(getattr(response, "data", None) or [])
+        if len(result_rows) != 1 or not isinstance(result_rows[0], dict):
+            raise RuntimeError(
+                "upsert_house_roll_call must return exactly one result row as an object"
+            )
+        result = result_rows[0]
+        returned_count = int(result.get("member_vote_count") or 0)
+        if (
+            not result.get("roll_call_source_record_id")
+            or returned_count != len(member_votes)
+        ):
+            raise RuntimeError(
+                "upsert_house_roll_call returned an incomplete write confirmation"
+            )
+
+        self._increment("house_roll_calls_written")
+        self._increment("house_member_votes_written", returned_count)
+        print(
+            "  [+] Atomically wrote official House roll call "
+            f"with {returned_count} member votes"
+        )
+        return result
+
     def upsert_voting_records(self, politician_id: str, records: list):
         """
         Upserts verified roll-call votes. The voting_records UNIQUE constraint is
@@ -1358,7 +1419,7 @@ class SupabaseLoader:
                 )
                 inserted_count += 1
             except Exception as e:
-                if self._is_non_retryable_supabase_error(e):
+                if self._is_duplicate_supabase_error(e):
                     self._increment("media_mentions_duplicates")
                     logger.debug(
                         "Duplicate mention from %s (%s): %s",

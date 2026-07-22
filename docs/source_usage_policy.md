@@ -88,11 +88,13 @@ provenance and retention/attribution decisions, and add a conflict-safe vote sto
 ### House Clerk roll-call XML (approved; writes disabled)
 
 The [Office of the Clerk's roll-call XML](https://clerk.house.gov/evs/) provides an
-official record for each House vote. The initial integration is deliberately read-only: it
-reads at most the 25 most recent current-session entries from the Clerk's public listing,
-matches a member only by the XML `name-id` Bioguide identifier already supplied by
-`congress-legislators`, and records aggregate coverage/comparison metrics in the ETL
-summary. It does **not** create people, write vote rows, retain raw XML, or expose House
+official record for each House vote. The integration reads at most the 25 most recent
+current-session entries from the Clerk's public listing, matches a member only by the XML
+`name-id` Bioguide identifier already supplied by `congress-legislators`, and records
+aggregate coverage/comparison metrics in the ETL summary. The same fetch now retains an
+in-memory normalized snapshot and provenance digest for the private migration `0026` RPC,
+but that call requires an explicit runtime opt-in and a separate database write gate. It
+does **not** create people, write legacy `voting_records`, retain raw XML, or expose House
 Clerk facts in the public UI.
 
 The Phase 4 source review observed five successful 25-roll-call shadow runs
@@ -107,14 +109,16 @@ official votes that were not present in the bounded GovTrack comparison data; la
 reconciled completely, so those were missing comparison observations rather than conflicts.
 
 Migration `0025_house_roll_call_source_review.sql` therefore marks the catalog source and
-endpoint `approved`. Its `wired` repo-fit means the bounded shadow extractor exists; it
-does **not** enable production vote writes. The separate authoritative-ingestion PR must
-honor this contract:
+endpoint `approved`. Its `wired` repo-fit means the bounded extractor and dormant runtime
+path exist; it does **not** enable production vote writes. The authoritative path honors
+this contract:
 
 - Join members only by the XML `name-id` Bioguide identifier. Names and office text are not
   identity keys.
 - Use the extractor's existing stable source-key shape: Congress, calendar year, roll-call
   number, and (for a member vote) Bioguide ID.
+- Treat overlapping listing pages as an incomplete source snapshot, and require parsed
+  member-vote category counts to match the Clerk XML's `totals-by-vote` exactly.
 - Retain normalized roll-call/member-vote facts, source record ID, fetched URL and time, and
   payload hash. Raw XML is not retained.
 - Attribute displayed facts to the
@@ -136,5 +140,9 @@ the whole roll call. Bioguide comparison is case-normalized but still requires e
 trusted owner. A later complete snapshot retires provenance for any omitted member vote
 without deleting its retained normalized fact. The RPC locks the catalog write-gate rows
 for the transaction, so a disable cannot race an in-flight commit. Raw XML remains
-unstored. The database write gate remains disabled; the next separately reviewed runtime
-change must both enable that gate and opt the scraper in explicitly.
+unstored. `HOUSE_ROLL_CALL_WRITE_MODE` defaults to `disabled` in code, the example
+environment, and the nightly workflow. The database write gate remains disabled. A
+separately reviewed forward migration must first make observations monotonic so an older
+`fetched_at` cannot overwrite or retire rows from a newer snapshot. Only after that hardening
+may a rollout enable the database gate and opt the scraper in explicitly; either disabled gate
+preserves shadow-only operation and the last valid rows.

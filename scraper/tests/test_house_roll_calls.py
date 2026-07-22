@@ -1,3 +1,4 @@
+import hashlib
 import unittest
 from datetime import date
 from unittest.mock import patch
@@ -14,6 +15,8 @@ def _listing(*vote_numbers: int, year: int = 2026) -> str:
 
 
 def _roll_call_xml(vote_number: int, first_vote: str) -> str:
+    yea_total = 1 if first_vote in {"Aye", "Yea"} else 0
+    nay_total = 1 + (1 if first_vote in {"Nay", "No"} else 0)
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <rollcall-vote>
   <vote-metadata>
@@ -22,6 +25,15 @@ def _roll_call_xml(vote_number: int, first_vote: str) -> str:
     <rollcall-num>{vote_number}</rollcall-num>
     <action-date>14-Jul-2026</action-date>
     <vote-question>On Passage</vote-question>
+    <vote-totals>
+      <totals-by-vote>
+        <total-stub>Totals</total-stub>
+        <yea-total>{yea_total}</yea-total>
+        <nay-total>{nay_total}</nay-total>
+        <present-total>1</present-total>
+        <not-voting-total>1</not-voting-total>
+      </totals-by-vote>
+    </vote-totals>
   </vote-metadata>
   <vote-data>
     <recorded-vote><legislator name-id="A000001">Alpha</legislator><vote>{first_vote}</vote></recorded-vote>
@@ -32,10 +44,38 @@ def _roll_call_xml(vote_number: int, first_vote: str) -> str:
 </rollcall-vote>"""
 
 
+def _writable_roll_call_xml(vote_number: int) -> str:
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<rollcall-vote>
+  <vote-metadata>
+    <congress>119</congress>
+    <session>2nd</session>
+    <rollcall-num>{vote_number}</rollcall-num>
+    <action-date>14-Jul-2026</action-date>
+    <vote-question>On Passage</vote-question>
+    <vote-result>Passed</vote-result>
+    <vote-totals>
+      <totals-by-vote>
+        <total-stub>Totals</total-stub>
+        <yea-total>1</yea-total>
+        <nay-total>1</nay-total>
+        <present-total>0</present-total>
+        <not-voting-total>0</not-voting-total>
+      </totals-by-vote>
+    </vote-totals>
+  </vote-metadata>
+  <vote-data>
+    <recorded-vote><legislator name-id="A000001">Alpha</legislator><vote>Aye</vote></recorded-vote>
+    <recorded-vote><legislator name-id="B000002">Bravo</legislator><vote>Nay</vote></recorded-vote>
+  </vote-data>
+</rollcall-vote>"""
+
+
 class _Response:
-    def __init__(self, status_code=200, text=""):
+    def __init__(self, status_code=200, text="", *, response_text=None):
         self.status_code = status_code
-        self.text = text
+        self.text = text if response_text is None else response_text
+        self.content = text.encode("utf-8")
 
 
 class HouseRollCallShadowTests(unittest.TestCase):
@@ -73,12 +113,14 @@ class HouseRollCallShadowTests(unittest.TestCase):
             )
 
     def test_listing_parser_allows_an_empty_official_result_set(self):
-        self.assertEqual(
-            [],
-            house_roll_calls._parse_member_votes_page(
-                "<div>0 Results</div>", 2026
-            ),
-        )
+        for markup in (
+            "<div>0 Results</div>",
+            '<p class="roll-call-description">No Votes Found</p>',
+        ):
+            with self.subTest(markup=markup):
+                self.assertEqual(
+                    [], house_roll_calls._parse_member_votes_page(markup, 2026)
+                )
 
     def test_member_votes_url_uses_the_official_session_suffix(self):
         self.assertIn(
@@ -133,6 +175,123 @@ class HouseRollCallShadowTests(unittest.TestCase):
             1,
             report.counters()["house_roll_call_shadow_unmatched_bioguide_ids"],
         )
+        self.assertTrue(
+            {
+                "missing_bioguide_ids",
+                "unmatched_bioguide_ids",
+                "reconciliation_mismatches",
+                "reconciliation_not_observed",
+                "invalid_write_payload",
+            }.issubset(report.authoritative_write_block_reasons(health))
+        )
+
+    def test_complete_shadow_retains_one_fetch_rpc_payload_with_provenance(self):
+        health = SourceHealthTracker("house_roll_call_shadow", min_attempts_for_rate=3)
+        xml = _writable_roll_call_xml(2)
+        govtrack_votes = {
+            "A000001": {"house:119:2026:2": "Yea"},
+            "B000002": {"house:119:2026:2": "Nay"},
+        }
+
+        with patch(
+            "extractors.house_roll_calls.requests.get",
+            side_effect=[_Response(text=_listing(2)), _Response(text=xml)],
+        ) as mock_get:
+            report = house_roll_calls.get_recent_house_roll_call_shadow(
+                {"A000001", "B000002"},
+                govtrack_votes,
+                limit=1,
+                health=health,
+                today=date(2026, 7, 14),
+            )
+
+        self.assertEqual(2, mock_get.call_count)
+        self.assertTrue(report.snapshot_complete)
+        self.assertEqual((), report.authoritative_write_block_reasons(health))
+        self.assertEqual(1, len(report.roll_calls))
+
+        roll_call_payload, member_votes = report.roll_calls[0].rpc_payload()
+        self.assertEqual("house:119:2026:2", roll_call_payload["source_record_key"])
+        self.assertEqual(2, roll_call_payload["roll_call_number"])
+        self.assertEqual("2026-07-14", roll_call_payload["vote_date"])
+        self.assertEqual("On Passage", roll_call_payload["question"])
+        self.assertEqual("Passed", roll_call_payload["vote_result"])
+        self.assertEqual(
+            hashlib.sha256(xml.encode("utf-8")).hexdigest(),
+            roll_call_payload["payload_hash"],
+        )
+        self.assertTrue(roll_call_payload["fetched_at"])
+        self.assertEqual(
+            [
+                {
+                    "source_record_key": "house:119:2026:2:A000001",
+                    "bioguide_id": "A000001",
+                    "vote_cast": "yea",
+                },
+                {
+                    "source_record_key": "house:119:2026:2:B000002",
+                    "bioguide_id": "B000002",
+                    "vote_cast": "nay",
+                },
+            ],
+            member_votes,
+        )
+
+    def test_official_tally_mismatch_blocks_the_snapshot_before_any_write(self):
+        health = SourceHealthTracker("house_roll_call_shadow", min_attempts_for_rate=3)
+        partial_xml = _writable_roll_call_xml(2).replace(
+            '<recorded-vote><legislator name-id="B000002">Bravo</legislator>'
+            "<vote>Nay</vote></recorded-vote>",
+            "",
+        )
+
+        with patch(
+            "extractors.house_roll_calls.requests.get",
+            side_effect=[_Response(text=_listing(2)), _Response(text=partial_xml)],
+        ):
+            report = house_roll_calls.get_recent_house_roll_call_shadow(
+                {"A000001", "B000002"},
+                {"A000001": {"house:119:2026:2": "Yea"}},
+                limit=1,
+                health=health,
+                today=date(2026, 7, 14),
+            )
+
+        self.assertEqual(0, report.roll_calls_fetched)
+        self.assertFalse(report.snapshot_complete)
+        self.assertIn(
+            "incomplete_snapshot", report.authoritative_write_block_reasons(health)
+        )
+        self.assertEqual("degraded", health.status)
+
+    def test_roll_call_xml_uses_declared_utf8_bytes_not_response_text_guess(self):
+        health = SourceHealthTracker("house_roll_call_shadow", min_attempts_for_rate=1)
+        xml = _writable_roll_call_xml(2).replace(
+            "On Passage", "On Veterans’ Access"
+        )
+        mojibake = xml.encode("utf-8").decode("iso-8859-1")
+
+        with patch(
+            "extractors.house_roll_calls.requests.get",
+            side_effect=[
+                _Response(text=_listing(2)),
+                _Response(text=xml, response_text=mojibake),
+            ],
+        ):
+            report = house_roll_calls.get_recent_house_roll_call_shadow(
+                {"A000001", "B000002"},
+                {
+                    "A000001": {"house:119:2026:2": "Aye"},
+                    "B000002": {"house:119:2026:2": "Nay"},
+                },
+                limit=1,
+                health=health,
+                today=date(2026, 7, 14),
+            )
+
+        self.assertTrue(report.snapshot_complete)
+        roll_call_payload, _ = report.roll_calls[0].rpc_payload()
+        self.assertEqual("On Veterans’ Access", roll_call_payload["question"])
 
     def test_shadow_pages_the_public_listing_to_reach_its_bounded_window(self):
         page_one = _listing(*range(11, 1, -1))
@@ -160,6 +319,86 @@ class HouseRollCallShadowTests(unittest.TestCase):
         self.assertEqual(13, mock_get.call_count)
         self.assertEqual(11, report.roll_calls_listed)
         self.assertEqual(11, report.roll_calls_fetched)
+
+    def test_short_session_ends_cleanly_on_the_live_empty_page_marker(self):
+        pages = {
+            1: _listing(*range(20, 10, -1)),
+            2: _listing(*range(10, 0, -1)),
+            3: '<p class="roll-call-description">No Votes Found</p>',
+        }
+
+        def response_for(url, **_kwargs):
+            for page, markup in pages.items():
+                if f"MemberVotes?Page={page}" in url:
+                    return _Response(text=markup)
+            vote_number = int(url.rsplit("roll", maxsplit=1)[1].split(".", maxsplit=1)[0])
+            return _Response(text=_writable_roll_call_xml(vote_number))
+
+        govtrack_votes = {
+            "A000001": {
+                f"house:119:2026:{vote_number}": "Yea"
+                for vote_number in range(1, 21)
+            },
+            "B000002": {
+                f"house:119:2026:{vote_number}": "Nay"
+                for vote_number in range(1, 21)
+            },
+        }
+        health = SourceHealthTracker("house_roll_call_shadow", min_attempts_for_rate=3)
+
+        with patch(
+            "extractors.house_roll_calls.requests.get", side_effect=response_for
+        ) as mock_get:
+            report = house_roll_calls.get_recent_house_roll_call_shadow(
+                {"A000001", "B000002"},
+                govtrack_votes,
+                limit=25,
+                health=health,
+                today=date(2026, 7, 14),
+            )
+
+        self.assertEqual(23, mock_get.call_count)
+        self.assertEqual(20, report.roll_calls_listed)
+        self.assertEqual(20, report.roll_calls_fetched)
+        self.assertTrue(report.snapshot_complete)
+        self.assertEqual((), report.authoritative_write_block_reasons(health))
+
+    def test_overlapping_listing_pages_block_an_incomplete_bounded_window(self):
+        page_one = _listing(*range(20, 10, -1))
+        page_two = _listing(*range(11, 1, -1))
+        responses = [_Response(text=page_one), _Response(text=page_two)] + [
+            _Response(text=_writable_roll_call_xml(vote_number))
+            for vote_number in range(20, 1, -1)
+        ]
+        govtrack_votes = {
+            "A000001": {
+                f"house:119:2026:{vote_number}": "Yea"
+                for vote_number in range(2, 21)
+            },
+            "B000002": {
+                f"house:119:2026:{vote_number}": "Nay"
+                for vote_number in range(2, 21)
+            },
+        }
+        health = SourceHealthTracker("house_roll_call_shadow", min_attempts_for_rate=3)
+
+        with patch(
+            "extractors.house_roll_calls.requests.get", side_effect=responses
+        ) as mock_get:
+            report = house_roll_calls.get_recent_house_roll_call_shadow(
+                {"A000001", "B000002"},
+                govtrack_votes,
+                limit=20,
+                health=health,
+                today=date(2026, 7, 14),
+            )
+
+        self.assertEqual(2, mock_get.call_count)
+        self.assertFalse(report.snapshot_complete)
+        self.assertIn(
+            "incomplete_snapshot", report.authoritative_write_block_reasons(health)
+        )
+        self.assertEqual(1, health.skip_reasons["duplicate_listing_entry"])
 
     def test_shadow_returns_early_without_bioguide_join_keys(self):
         health = SourceHealthTracker("house_roll_call_shadow", min_attempts_for_rate=3)

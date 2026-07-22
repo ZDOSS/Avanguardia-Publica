@@ -150,6 +150,7 @@ financial disclosures are not yet covered.
 | `OPENSTATES_API_KEY`            | scraper  | no       | OpenStates key for state roll-call votes             |
 | `STATE_UNVERIFIED_ENRICHMENT_LIMIT` | scraper | no    | Bounded count of state profiles to enrich via LittleSis |
 | `STATE_UNVERIFIED_ENRICHMENT_OFFSET` | scraper | no   | Zero-based start offset for rotating state LittleSis batches |
+| `HOUSE_ROLL_CALL_WRITE_MODE`    | scraper  | no       | `disabled` by default; `enabled` opts into the separately DB-gated House RPC |
 | `CURRENTS_API_KEY`              | scraper  | no       | News tier 1                                          |
 | `NEWSDATA_API_KEY`              | scraper  | no       | News tier 2 (requires attribution)                   |
 | `THENEWSAPI_KEY`                | scraper  | no       | News tier 3 credential                               |
@@ -159,6 +160,17 @@ financial disclosures are not yet covered.
 must explicitly set `ALLOW_MOCK_BUILD=true`. Production builds and runtime pages fail
 visibly instead of presenting fixtures as live data. The news aggregator works with no
 keys at all (it degrades to keyless GDELT URL discovery).
+
+The official House Clerk roll-call extractor always fetches one bounded window for aggregate
+reconciliation. `HOUSE_ROLL_CALL_WRITE_MODE=enabled` permits that same in-memory normalized
+snapshot to call migration `0026`'s private atomic RPC only when listing, XML parsing, exact
+Bioguide identity coverage, GovTrack reconciliation, and source health are all complete.
+Overlapping listing pages fail closed, and parsed vote categories must exactly match the
+Clerk XML's `totals-by-vote`. The database `production_writes_enabled` gate must also be
+enabled separately. Both checked-in defaults remain disabled; either disabled gate prevents
+writes, and this path never writes legacy `voting_records`. Do not enable either gate yet:
+migration `0026` serializes each roll call but does not reject an older `fetched_at` observation.
+A forward-only hardening migration must add that monotonic guard before production rollout.
 
 Never commit secrets. `.env` and `.env.*` are gitignored (except `.env.example`). Templates
 live in [`frontend/example.env`](frontend/example.env) and

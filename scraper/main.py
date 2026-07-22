@@ -29,6 +29,7 @@ from extractors.openstates import get_state_politicians
 from extractors.openstates_votes import get_state_voting_records
 from extractors.federal import get_federal_exec_judicial
 from extractors.financial_disclosures import get_house_disclosure_index, lookup_disclosures
+from house_roll_call_runtime import house_roll_call_write_mode, write_house_roll_calls
 from unverified_enrichment import state_unverified_enrichment_config, should_enrich_state_profile
 
 logging.basicConfig(
@@ -58,6 +59,12 @@ def main(argv=None):
     load_dotenv()
     print("Starting Avanguardia-Publica Phase 1 Scraper Pipeline...")
     summary = ETLRunSummary()
+    try:
+        house_write_mode = house_roll_call_write_mode(os.environ)
+    except ValueError as e:
+        summary.error("configuration", e)
+        summary.print(success=False)
+        sys.exit(str(e))
     source_health = build_source_health_trackers(summary)
     news_provider_health = {
         provider: summary.source_tracker(
@@ -351,11 +358,11 @@ def main(argv=None):
         shadow_health.record_attempt()
         shadow_health.record_failure("unexpected_error")
 
-    # Official House Clerk roll-call XML is a bounded, read-only shadow feed. It
-    # uses only the exact Bioguide crosswalk above to compare recent official
-    # vote casts with this run's GovTrack records, and deliberately does not
-    # write a second vote source into voting_records before provenance and
-    # conflict-key handling are reviewed.
+    # Official House Clerk roll-call XML is fetched once for bounded reconciliation.
+    # The normalized snapshot may also flow through migration 0026's private atomic
+    # RPC, but only when the explicit runtime switch is enabled and every upstream,
+    # identity, reconciliation, and source-health precondition is healthy. This path
+    # never writes the legacy voting_records table.
     print("\n=== House roll-call XML shadow reconciliation ===")
     try:
         house_shadow_report = get_recent_house_roll_call_shadow(
@@ -366,13 +373,46 @@ def main(argv=None):
         for counter, amount in house_shadow_report.counters().items():
             summary.increment(counter, amount)
         print(f"  {house_shadow_report.description()}")
+
+        try:
+            house_roll_calls_written = write_house_roll_calls(
+                loader,
+                house_shadow_report,
+                source_health["house_roll_call_shadow"],
+                source_health["house_roll_call_write"],
+                mode=house_write_mode,
+            )
+        except Exception as e:
+            # The runtime helper has already failed the blocking write tracker.
+            # Keep processing other sources so the final ETL summary remains useful.
+            print(f"  [!] Authoritative House roll-call write failed: {e}")
+        else:
+            write_health = source_health["house_roll_call_write"]
+            if house_write_mode == "disabled":
+                print("  Authoritative House writes disabled by runtime configuration.")
+            elif write_health.status == "failed":
+                reasons = ", ".join(sorted(write_health.skip_reasons)) or "unknown"
+                print(f"  [!] Authoritative House writes blocked: {reasons}")
+            else:
+                print(
+                    "  Authoritative House roll calls written: "
+                    f"{house_roll_calls_written}"
+                )
     except Exception as e:
-        # This source is explicitly non-blocking: preserve its health signal
-        # without turning a healthy canonical-data run into a shadow-only failure.
+        # The shadow source remains nonblocking while writes are disabled. Once writes
+        # are opted in, an unavailable source snapshot also blocks authoritative writes.
         print(f"  [!] House roll-call shadow unavailable: {e}")
         shadow_health = source_health["house_roll_call_shadow"]
         shadow_health.record_attempt()
         shadow_health.record_failure("unexpected_error")
+        write_health = source_health["house_roll_call_write"]
+        if house_write_mode == "disabled":
+            write_health.record_skip("runtime_mode_disabled")
+        else:
+            write_health.record_attempt()
+            write_health.record_skip("upstream_snapshot_unavailable")
+            write_health.trip_breaker("write_preconditions_not_met")
+            write_health.record_failure("write_preconditions_not_met")
 
     # 3. State legislators + governors (OpenStates). Hub + official contact by default.
     # Optional LittleSis enrichment is bounded and writes only to unverified spokes

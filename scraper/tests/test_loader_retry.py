@@ -60,6 +60,29 @@ class LoaderRetryTests(unittest.TestCase):
         self.assertEqual(summary.counts["supabase_transient_retries"], 1)
         self.assertEqual(len(self.created_clients), 2)
 
+    def test_execute_supabase_retries_bounded_http_gateway_statuses(self):
+        for message in (
+            "HTTP 502 Bad Gateway",
+            "HTTP 503 Service Unavailable",
+            "HTTP 504 Gateway Timeout",
+        ):
+            with self.subTest(message=message):
+                summary = SummaryStub()
+                loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+                attempts = {"count": 0}
+
+                def operation():
+                    attempts["count"] += 1
+                    if attempts["count"] == 1:
+                        raise Exception(message)
+                    return "ok"
+
+                self.assertEqual(
+                    "ok", loader.execute_supabase(operation, "gateway retry probe")
+                )
+                self.assertEqual(2, attempts["count"])
+                self.assertEqual(1, summary.counts["supabase_transient_retries"])
+
     def test_execute_supabase_does_not_retry_schema_errors(self):
         summary = SummaryStub()
         loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
@@ -92,6 +115,26 @@ class LoaderRetryTests(unittest.TestCase):
 
         self.assertEqual(attempts["count"], 1)
         self.assertNotIn("supabase_transient_retries", summary.counts)
+
+    def test_execute_supabase_does_not_retry_integrity_codes_containing_http_digits(self):
+        for code in ("22023", "23502", "23503", "23505", "55000"):
+            with self.subTest(code=code):
+                summary = SummaryStub()
+                loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+                attempts = {"count": 0}
+
+                def operation():
+                    attempts["count"] += 1
+                    raise Exception(
+                        f"{{'code': '{code}', 'message': 'deterministic database error'}} "
+                        "HTTP/2"
+                    )
+
+                with self.assertRaisesRegex(Exception, code):
+                    loader.execute_supabase(operation, "House identity validation")
+
+                self.assertEqual(attempts["count"], 1)
+                self.assertNotIn("supabase_transient_retries", summary.counts)
 
     def test_execute_supabase_retries_generic_conflict_transport_errors(self):
         summary = SummaryStub()
