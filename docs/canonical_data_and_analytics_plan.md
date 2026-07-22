@@ -352,13 +352,14 @@ Use this intake order:
    federal votes and add official bills, amendments, nominations, committees, public
    laws, Congressional Record, and bill text.
 
-   The Senate and House Clerk XML sources currently run only as bounded, read-only
-   reconciliation shadows. They join records exclusively through their stable roster IDs
-   (Senate LIS IDs and House Bioguide IDs), publish aggregate comparison metrics, and do
-   not create people or write public vote rows. Migration `0025` approves the House source
-   after five reviewed runs while explicitly leaving writes disabled. Keep the Senate entry
-   at `candidate` until its own observed coverage and conflict metrics support a separately
-   reviewed decision.
+   The Senate XML source remains a bounded, read-only reconciliation shadow. The House
+   Clerk extractor still publishes the same aggregate comparison metrics, but now retains
+   its one-fetch normalized snapshot for migration `0026`'s private atomic RPC. That House
+   path is disabled by default in both runtime configuration and the database and never
+   creates people or writes public/legacy vote rows. Both sources join exclusively through
+   stable roster IDs (Senate LIS IDs and House Bioguide IDs). Migration `0025` approved the
+   House source after five reviewed runs. Keep the Senate entry at `candidate` until its own
+   observed coverage and conflict metrics support a separately reviewed decision.
 3. **Influence and organization graph after source records exist:** LDA.gov,
    USAspending, SAM.gov entity management, SAM.gov contract awards, and SAM.gov
    opportunities. These should wait for organization identity and source-record tables;
@@ -507,13 +508,15 @@ Every schema change in this plan must follow these rules:
 
 ## Next PR
 
-Wire the House Clerk extractor to the private `0026` write contract behind an explicit
-runtime switch, enable the database write gate in a separately reviewed forward migration,
-and validate a bounded production ETL before expanding the window. Do not turn official
-facts into legacy `voting_records` or public rows directly, and do not mix the Senate source
-into the same PR. Keep Senate in read-only shadow mode until its coverage and mismatch
-review is complete. Broader candidate triage, including the FCC/GSA context pair seeded by
-`0024`, stays separate from this vote slice; historical identity-review queue cleanup is
-deferred to Phase 6. Do not ingest all 97 inventory rows as public facts, add unrelated
-source APIs, or expose a source-review UI until source review decisions are being recorded
-consistently.
+Add a monotonic-observation guard to the House Clerk RPC in a separately reviewed forward
+migration so an older `fetched_at` cannot overwrite or retire a newer snapshot. Keep both
+write gates disabled until that hardening is applied and reviewed; then enable the database
+gate, opt the runtime switch in deliberately, and validate a bounded production ETL before
+expanding the window. Do not turn
+official facts into legacy `voting_records` or public rows directly, and do not mix the
+Senate source into the same PR. Keep Senate in read-only shadow mode until its coverage and
+mismatch review is complete. Broader candidate triage, including the FCC/GSA context pair
+seeded by `0024`, stays separate from this vote slice; historical identity-review queue
+cleanup is deferred to Phase 6. Do not ingest all 97 inventory rows as public facts, add
+unrelated source APIs, or expose a source-review UI until source review decisions are being
+recorded consistently.

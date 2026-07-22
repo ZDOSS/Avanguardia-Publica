@@ -59,6 +59,8 @@ jobs:
           # Bounded state LittleSis enrichment (unverified; optional)
           STATE_UNVERIFIED_ENRICHMENT_LIMIT: ${{ github.event.inputs.state_unverified_enrichment_limit || vars.STATE_UNVERIFIED_ENRICHMENT_LIMIT }}
           STATE_UNVERIFIED_ENRICHMENT_OFFSET: ${{ github.event.inputs.state_unverified_enrichment_offset || vars.STATE_UNVERIFIED_ENRICHMENT_OFFSET }}
+          # Leave disabled until the monotonic-observation migration and DB gate are reviewed.
+          HOUSE_ROLL_CALL_WRITE_MODE: ${{ vars.HOUSE_ROLL_CALL_WRITE_MODE || 'disabled' }}
           # News API keys — all optional; aggregator falls back gracefully if absent
           CURRENTS_API_KEY: ${{ secrets.CURRENTS_API_KEY }}
           NEWSDATA_API_KEY: ${{ secrets.NEWSDATA_API_KEY }}

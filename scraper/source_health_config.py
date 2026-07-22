@@ -57,11 +57,19 @@ def build_source_health_trackers(summary: ETLRunSummary) -> dict:
         "senate_roll_call_shadow": summary.source_tracker(
             "senate_roll_call_shadow", min_attempts_for_rate=3, affects_run=False
         ),
-        # Read-only reconciliation against the official House Clerk source. Like
-        # the Senate shadow, it has no write path and must not invalidate a
-        # healthy canonical-data run when the public source is temporarily down.
+        # Fetch/reconciliation health for the official House Clerk source remains
+        # nonblocking in shadow-only mode. The separate write tracker below becomes
+        # blocking only when the dormant authoritative path is attempted.
         "house_roll_call_shadow": summary.source_tracker(
             "house_roll_call_shadow", min_attempts_for_rate=3, affects_run=False
+        ),
+        # Authoritative House writes are opt-in, but any attempted write failure
+        # invalidates the run rather than allowing a partial batch to look healthy.
+        "house_roll_call_write": summary.source_tracker(
+            "house_roll_call_write",
+            min_attempts_for_rate=1,
+            max_failure_rate=0.0,
+            affects_run=True,
         ),
         # The private worklist is operational observability, not a roster or
         # profile write path. Its unavailability must remain visible but cannot

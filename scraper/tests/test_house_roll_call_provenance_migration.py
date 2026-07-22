@@ -179,6 +179,9 @@ class HouseRollCallProvenanceMigrationTests(unittest.TestCase):
         self.assertIn("'disabled_pending_runtime_wiring'", self.sql)
         self.assertIn("'production_writes_enabled', false", self.roadmap)
         self.assertIn("write gate remains disabled", self.policy)
+        self.assertIn("monotonic-observation guard", self.roadmap)
+        self.assertIn("make observations monotonic", self.policy)
+        self.assertIn("`fetched_at` cannot overwrite", self.policy)
 
     def test_records_forward_only_marker_and_reloads_postgrest(self):
         self.assertIn("'0025_house_roll_call_source_review'", self.sql)
