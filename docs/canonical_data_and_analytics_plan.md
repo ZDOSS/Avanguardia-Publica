@@ -320,7 +320,14 @@ runs, it approves the official House Clerk roll-call source and endpoint, links 
 verified `house-clerk` source system, and records the exact-ID, retention, attribution,
 health, and disable contract. `repo_fit = wired` refers only to the existing shadow
 extractor; authoritative vote writes remain disabled until a separate ingestion migration
-and PR advance scraper preflight.
+and PR advance scraper preflight. Migration
+`0026_house_roll_call_provenance.sql` adds private, source-record-keyed
+`legislative_roll_calls` and `person_roll_call_votes` tables plus the service-role-only
+`upsert_house_roll_call` RPC. One call writes one roll call and all exact-Bioguide member
+votes atomically; malformed identity keys or a conflicting prior official vote abort the
+whole call. The migration advances scraper preflight but records
+`'production_writes_enabled', false`, so storage readiness cannot turn ingestion on by
+itself.
 
 - source slug, name, agency, sub-agency, branch, category, source type, access level,
   auth type, credential provider, base URL, docs URL, formats, coverage, update cadence,
@@ -500,11 +507,13 @@ Every schema change in this plan must follow these rules:
 
 ## Next PR
 
-Add the House Clerk vote source through a separately reviewed, provenance-rich,
-conflict-safe ingestion path that honors the `0025` source contract. Do not turn shadow
-results into public rows directly or mix the Senate source into the same PR. Keep Senate in
-read-only shadow mode until its coverage and mismatch review is complete. Broader candidate
-triage, including the FCC/GSA context pair seeded by `0024`, stays separate from this vote
-slice; historical identity-review queue cleanup is deferred to Phase 6. Do not ingest all
-97 inventory rows as public facts, add unrelated source APIs, or expose a source-review UI
-until source review decisions are being recorded consistently.
+Wire the House Clerk extractor to the private `0026` write contract behind an explicit
+runtime switch, enable the database write gate in a separately reviewed forward migration,
+and validate a bounded production ETL before expanding the window. Do not turn official
+facts into legacy `voting_records` or public rows directly, and do not mix the Senate source
+into the same PR. Keep Senate in read-only shadow mode until its coverage and mismatch
+review is complete. Broader candidate triage, including the FCC/GSA context pair seeded by
+`0024`, stays separate from this vote slice; historical identity-review queue cleanup is
+deferred to Phase 6. Do not ingest all 97 inventory rows as public facts, add unrelated
+source APIs, or expose a source-review UI until source review decisions are being recorded
+consistently.
