@@ -67,24 +67,29 @@ class SupabaseLoader:
             self.supabase = create_client(self.url, self.key)
 
     @staticmethod
+    def _structured_supabase_error_code(exc: Exception) -> str | None:
+        match = re.search(
+            r'''["']code["']\s*:\s*["']([0-9a-z]{5})["']''',
+            str(exc).lower(),
+        )
+        return match.group(1).upper() if match else None
+
+    @staticmethod
     def _is_duplicate_supabase_error(exc: Exception) -> bool:
         message = str(exc).lower()
         return (
             "duplicate key value violates unique constraint" in message
-            or bool(
-                re.search(r'''["']code["']\s*:\s*["']23505["']''', message)
-            )
+            or SupabaseLoader._structured_supabase_error_code(exc) == "23505"
         )
 
     @staticmethod
     def _is_non_retryable_supabase_error(exc: Exception) -> bool:
         if SupabaseLoader._is_duplicate_supabase_error(exc):
             return True
-        message = str(exc).lower()
-        structured_code = re.search(
-            r'''["']code["']\s*:\s*["']([0-9a-z]{5})["']''', message
-        )
-        if structured_code and structured_code.group(1)[:2] in {
+        structured_code = SupabaseLoader._structured_supabase_error_code(exc)
+        if structured_code in {"40001", "40P01", "55P03"}:
+            return False
+        if structured_code and structured_code[:2] in {
             "22",  # data exceptions / invalid RPC arguments
             "23",  # integrity-constraint and identity violations
             "28",  # authorization failures
@@ -96,6 +101,12 @@ class SupabaseLoader:
 
     @staticmethod
     def _is_transient_supabase_error(exc: Exception) -> bool:
+        if SupabaseLoader._structured_supabase_error_code(exc) in {
+            "40001",  # serialization failure
+            "40P01",  # deadlock detected
+            "55P03",  # lock not available
+        }:
+            return True
         if SupabaseLoader._is_non_retryable_supabase_error(exc):
             return False
 
@@ -114,7 +125,6 @@ class SupabaseLoader:
             "service unavailable",
             "gateway timeout",
             "http/2",
-            "409 conflict",
         )
         return any(marker in message for marker in transient_markers)
 

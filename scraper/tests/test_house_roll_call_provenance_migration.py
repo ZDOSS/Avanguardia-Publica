@@ -14,12 +14,6 @@ class HouseRollCallProvenanceMigrationTests(unittest.TestCase):
             / "migrations"
             / "0026_house_roll_call_provenance.sql"
         ).read_text(encoding="utf-8")
-        cls.roadmap = (
-            repository_root / "docs" / "canonical_data_and_analytics_plan.md"
-        ).read_text(encoding="utf-8")
-        cls.policy = (
-            repository_root / "docs" / "source_usage_policy.md"
-        ).read_text(encoding="utf-8")
 
     def test_adds_private_source_record_keyed_fact_tables(self):
         self.assertIn(
@@ -163,7 +157,7 @@ class HouseRollCallProvenanceMigrationTests(unittest.TestCase):
         self.assertLess(source_gate_lock, endpoint_gate_lock)
         self.assertLess(endpoint_gate_lock, first_fact_write)
 
-    def test_write_gate_stays_disabled_for_the_separate_runtime_pr(self):
+    def test_migration_0026_installs_the_write_gate_disabled(self):
         self.assertIn(
             "v_gate_source_writes_enabled IS DISTINCT FROM 'true'",
             self.sql,
@@ -177,11 +171,6 @@ class HouseRollCallProvenanceMigrationTests(unittest.TestCase):
             3,
         )
         self.assertIn("'disabled_pending_runtime_wiring'", self.sql)
-        self.assertIn("'production_writes_enabled', false", self.roadmap)
-        self.assertIn("write gate remains disabled", self.policy)
-        self.assertIn("monotonic-observation guard", self.roadmap)
-        self.assertIn("make observations monotonic", self.policy)
-        self.assertIn("`fetched_at` cannot overwrite", self.policy)
 
     def test_records_forward_only_marker_and_reloads_postgrest(self):
         self.assertIn("'0025_house_roll_call_source_review'", self.sql)

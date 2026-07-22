@@ -153,22 +153,41 @@ class LoaderRetryTests(unittest.TestCase):
         self.assertEqual(attempts["count"], 2)
         self.assertEqual(summary.counts["supabase_transient_retries"], 1)
 
-    def test_execute_supabase_retries_plain_conflict_transport_errors(self):
+    def test_execute_supabase_does_not_retry_plain_conflict_errors(self):
         summary = SummaryStub()
         loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
         attempts = {"count": 0}
 
         def operation():
             attempts["count"] += 1
-            if attempts["count"] == 1:
-                raise Exception("409 Conflict")
-            return "ok"
+            raise Exception("409 Conflict")
 
-        result = loader.execute_supabase(operation, "temporary plain conflict")
+        with self.assertRaisesRegex(Exception, "409 Conflict"):
+            loader.execute_supabase(operation, "deterministic plain conflict")
 
-        self.assertEqual("ok", result)
-        self.assertEqual(attempts["count"], 2)
-        self.assertEqual(summary.counts["supabase_transient_retries"], 1)
+        self.assertEqual(attempts["count"], 1)
+        self.assertNotIn("supabase_transient_retries", summary.counts)
+
+    def test_execute_supabase_retries_structured_concurrency_codes(self):
+        for code in ("40001", "40P01", "55P03"):
+            with self.subTest(code=code):
+                summary = SummaryStub()
+                loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+                attempts = {"count": 0}
+
+                def operation():
+                    attempts["count"] += 1
+                    if attempts["count"] == 1:
+                        raise Exception(
+                            f"{{'code': '{code}', 'message': 'retry transaction'}}"
+                        )
+                    return "ok"
+
+                self.assertEqual(
+                    "ok", loader.execute_supabase(operation, "concurrency retry")
+                )
+                self.assertEqual(2, attempts["count"])
+                self.assertEqual(1, summary.counts["supabase_transient_retries"])
 
 
 if __name__ == "__main__":

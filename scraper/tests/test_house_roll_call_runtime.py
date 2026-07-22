@@ -89,7 +89,7 @@ class HouseRollCallRuntimeTests(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 house_roll_call_write_mode({"HOUSE_ROLL_CALL_WRITE_MODE": invalid})
 
-    def test_checked_in_runtime_configuration_defaults_to_disabled(self):
+    def test_checked_in_runtime_configuration_supports_bounded_manual_opt_in(self):
         workflow = (_REPO_ROOT / ".github" / "workflows" / "scraper.yml").read_text(
             encoding="utf-8"
         )
@@ -97,10 +97,15 @@ class HouseRollCallRuntimeTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn(
-            "HOUSE_ROLL_CALL_WRITE_MODE: ${{ vars.HOUSE_ROLL_CALL_WRITE_MODE || 'disabled' }}",
-            workflow,
-        )
+        self.assertIn("house_roll_call_write_mode:", workflow)
+        self.assertIn("type: choice", workflow)
+        self.assertIn("default: 'disabled'", workflow)
+        self.assertIn("- 'disabled'", workflow)
+        self.assertIn("- 'enabled'", workflow)
+        self.assertIn("github.event_name == 'workflow_dispatch'", workflow)
+        self.assertIn("inputs.house_roll_call_write_mode", workflow)
+        self.assertIn("vars.HOUSE_ROLL_CALL_WRITE_MODE", workflow)
+        self.assertIn("|| 'disabled'", workflow)
         self.assertIn("HOUSE_ROLL_CALL_WRITE_MODE=disabled", example_env)
 
     def test_disabled_mode_never_calls_the_loader(self):

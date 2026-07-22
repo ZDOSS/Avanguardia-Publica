@@ -87,6 +87,16 @@ class FakeLoader:
 
 
 class SchemaPreflightTests(unittest.TestCase):
+    def test_preflight_requires_the_production_enablement_migration(self):
+        self.assertEqual(
+            "0027_house_roll_call_production_enablement",
+            REQUIRED_MIGRATION_KEY,
+        )
+        self.assertEqual(
+            "0027_house_roll_call_production_enablement.sql",
+            REQUIRED_MIGRATION_FILE,
+        )
+
     def test_dry_run_skips_without_client(self):
         loader = FakeLoader(None)
 

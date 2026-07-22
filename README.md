@@ -163,14 +163,33 @@ keys at all (it degrades to keyless GDELT URL discovery).
 
 The official House Clerk roll-call extractor always fetches one bounded window for aggregate
 reconciliation. `HOUSE_ROLL_CALL_WRITE_MODE=enabled` permits that same in-memory normalized
-snapshot to call migration `0026`'s private atomic RPC only when listing, XML parsing, exact
-Bioguide identity coverage, GovTrack reconciliation, and source health are all complete.
-Overlapping listing pages fail closed, and parsed vote categories must exactly match the
-Clerk XML's `totals-by-vote`. The database `production_writes_enabled` gate must also be
-enabled separately. Both checked-in defaults remain disabled; either disabled gate prevents
-writes, and this path never writes legacy `voting_records`. Do not enable either gate yet:
-migration `0026` serializes each roll call but does not reject an older `fetched_at` observation.
-A forward-only hardening migration must add that monotonic guard before production rollout.
+snapshot to call the private atomic House RPC only when listing, XML parsing, exact Bioguide
+identity coverage, GovTrack reconciliation, and source health are all complete. Overlapping
+listing pages fail closed, and parsed vote categories must exactly match the Clerk XML's
+`totals-by-vote`.
+
+Migration `0027_house_roll_call_production_enablement.sql` wraps migration `0026`'s reviewed
+writer with a per-roll-call monotonic guard: an older `fetched_at` is rejected before the
+private writer can mutate facts. An exact same-timestamp retry is non-mutating only after its
+stored parent, controlled metadata, and complete active member-vote set match in both directions.
+Before renaming the 0026 writer, the migration verifies its exact body, owner, security mode,
+search path, return contract, ACLs, and zero reverse dependencies. It requires strict
+JSON-boolean gates, enforces case-normalized Bioguide uniqueness, reduces service-role
+table/column access to read-only, and preserves only controlled security-definer mutation paths.
+A null-safe House event-prefix namespace constraint
+also prevents the unrelated generic profile and retirement RPCs from colliding with House
+provenance. The migration then enables the reviewed source-catalog database gates atomically.
+Runtime writes
+still default to `disabled` in code, the example environment, and GitHub Actions. A manual
+workflow run can deliberately choose `enabled` for bounded validation; scheduled runs use the
+repository variable and remain disabled while it is absent. This path never writes legacy
+`voting_records`.
+
+Before applying migration `0027`, quiesce all callers of the existing House write RPC: keep
+the repository write-mode variable absent, do not start a manual enabled run, and confirm no
+House write call is active in `pg_stat_activity`. The migration's gate-row locks serialize
+database changes, but they cannot convert an already-started migration `0026` function body
+into the new wrapper while that call is waiting.
 
 Never commit secrets. `.env` and `.env.*` are gitignored (except `.env.example`). Templates
 live in [`frontend/example.env`](frontend/example.env) and

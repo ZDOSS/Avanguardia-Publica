@@ -14,6 +14,14 @@ on:
         description: 'Optional zero-based state LittleSis start offset for this run'
         required: false
         default: ''
+      house_roll_call_write_mode:
+        description: 'Official House roll-call writes for this bounded manual run'
+        required: true
+        type: choice
+        default: 'disabled'
+        options:
+          - 'disabled'
+          - 'enabled'
 
 permissions:
   contents: read
@@ -59,8 +67,9 @@ jobs:
           # Bounded state LittleSis enrichment (unverified; optional)
           STATE_UNVERIFIED_ENRICHMENT_LIMIT: ${{ github.event.inputs.state_unverified_enrichment_limit || vars.STATE_UNVERIFIED_ENRICHMENT_LIMIT }}
           STATE_UNVERIFIED_ENRICHMENT_OFFSET: ${{ github.event.inputs.state_unverified_enrichment_offset || vars.STATE_UNVERIFIED_ENRICHMENT_OFFSET }}
-          # Leave disabled until the monotonic-observation migration and DB gate are reviewed.
-          HOUSE_ROLL_CALL_WRITE_MODE: ${{ vars.HOUSE_ROLL_CALL_WRITE_MODE || 'disabled' }}
+          # Manual runs can opt in for bounded validation. Scheduled runs use the
+          # repository variable and still default fail-closed when it is absent.
+          HOUSE_ROLL_CALL_WRITE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.house_roll_call_write_mode || vars.HOUSE_ROLL_CALL_WRITE_MODE || 'disabled' }}
           # News API keys — all optional; aggregator falls back gracefully if absent
           CURRENTS_API_KEY: ${{ secrets.CURRENTS_API_KEY }}
           NEWSDATA_API_KEY: ${{ secrets.NEWSDATA_API_KEY }}
