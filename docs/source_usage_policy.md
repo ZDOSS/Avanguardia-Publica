@@ -126,3 +126,15 @@ honor this contract:
   writes and retain the last valid normalized rows.
 - Ship authoritative writes behind an explicit disable control. Disabling them must return
   the extractor to shadow-only operation without deleting provenance or identity mappings.
+
+Migration `0026_house_roll_call_provenance.sql` supplies the private storage and atomic
+service-role write contract for that future runtime path. It keeps normalized events and
+member votes in source-record-keyed tables rather than copying them into legacy public
+`voting_records`. Each roll call must resolve every member through one trusted, active
+Bioguide owner before the transaction commits, and an existing vote-cast conflict aborts
+the whole roll call. Bioguide comparison is case-normalized but still requires exactly one
+trusted owner. A later complete snapshot retires provenance for any omitted member vote
+without deleting its retained normalized fact. The RPC locks the catalog write-gate rows
+for the transaction, so a disable cannot race an in-flight commit. Raw XML remains
+unstored. The database write gate remains disabled; the next separately reviewed runtime
+change must both enable that gate and opt the scraper in explicitly.

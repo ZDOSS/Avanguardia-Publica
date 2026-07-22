@@ -1,6 +1,6 @@
 ZERO_UUID = "00000000-0000-0000-0000-000000000000"
-REQUIRED_MIGRATION_KEY = "0024_source_inventory_context_seed"
-REQUIRED_MIGRATION_FILE = "0024_source_inventory_context_seed.sql"
+REQUIRED_MIGRATION_KEY = "0026_house_roll_call_provenance"
+REQUIRED_MIGRATION_FILE = "0026_house_roll_call_provenance.sql"
 
 REQUIRED_COLUMN_CHECKS = [
     (
@@ -82,6 +82,17 @@ REQUIRED_COLUMN_CHECKS = [
         "office_type,jurisdiction,state,district,term_start,term_end,term_status,"
         "metadata,created_at,updated_at",
     ),
+    (
+        "legislative_roll_calls",
+        "source_record_id,canonical_roll_call_key,chamber,congress,session,"
+        "congress_year,roll_call_number,vote_date,question,vote_result,metadata,"
+        "created_at,updated_at",
+    ),
+    (
+        "person_roll_call_votes",
+        "source_record_id,roll_call_source_record_id,person_id,vote_cast,metadata,"
+        "created_at,updated_at",
+    ),
     ("schema_migrations", "migration_key,applied_at"),
 ]
 
@@ -112,6 +123,14 @@ REQUIRED_RPC_CHECKS = [
             "p_source_updated_at": None,
         },
         "upsert_source_profile_identity(text, text, jsonb, jsonb, text, text, text, text, jsonb, text, text, timestamptz)",
+    ),
+    (
+        "upsert_house_roll_call",
+        {
+            "p_roll_call": {"preflight": True},
+            "p_member_votes": [],
+        },
+        "upsert_house_roll_call(jsonb, jsonb)",
     ),
     (
         "preflight_canonical_uuid_v5",

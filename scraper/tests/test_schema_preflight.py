@@ -117,6 +117,8 @@ class SchemaPreflightTests(unittest.TestCase):
                 "person_merge_events",
                 "source_records",
                 "person_office_terms",
+                "legislative_roll_calls",
+                "person_roll_call_votes",
                 "schema_migrations",
             },
             {table for table, _ in REQUIRED_COLUMN_CHECKS},
@@ -168,9 +170,17 @@ class SchemaPreflightTests(unittest.TestCase):
         self.assertIn("p_source_catalog_slug", source_profile_check)
         self.assertIn("p_source_endpoint_slug", source_profile_check)
         self.assertIn("p_source_updated_at", source_profile_check)
+        house_roll_call_check = next(
+            args
+            for rpc_name, args, _signature in REQUIRED_RPC_CHECKS
+            if rpc_name == "upsert_house_roll_call"
+        )
+        self.assertEqual({"preflight": True}, house_roll_call_check["p_roll_call"])
+        self.assertEqual([], house_roll_call_check["p_member_votes"])
         for rpc_name in (
             "retire_source_profile_record",
             "upsert_source_profile_identity",
+            "upsert_house_roll_call",
             "sync_legacy_profile_identity",
             "get_canonical_person_legacy_ids",
             "get_canonical_contact_info",
