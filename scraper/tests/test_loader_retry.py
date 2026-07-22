@@ -153,17 +153,40 @@ class LoaderRetryTests(unittest.TestCase):
         self.assertEqual(attempts["count"], 2)
         self.assertEqual(summary.counts["supabase_transient_retries"], 1)
 
-    def test_execute_supabase_does_not_retry_plain_conflict_errors(self):
+    def test_execute_supabase_retries_unstructured_plain_conflict_errors(self):
         summary = SummaryStub()
         loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
         attempts = {"count": 0}
 
         def operation():
             attempts["count"] += 1
-            raise Exception("409 Conflict")
+            if attempts["count"] == 1:
+                raise Exception("409 Conflict")
+            return "ok"
 
-        with self.assertRaisesRegex(Exception, "409 Conflict"):
-            loader.execute_supabase(operation, "deterministic plain conflict")
+        result = loader.execute_supabase(operation, "unstructured gateway conflict")
+
+        self.assertEqual("ok", result)
+        self.assertEqual(attempts["count"], 2)
+        self.assertEqual(summary.counts["supabase_transient_retries"], 1)
+
+    def test_structured_integrity_attribute_overrides_plain_conflict_text(self):
+        class StructuredIntegrityConflict(Exception):
+            code = "23505"
+
+            def __str__(self):
+                return "409 Conflict"
+
+        summary = SummaryStub()
+        loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+        attempts = {"count": 0}
+
+        def operation():
+            attempts["count"] += 1
+            raise StructuredIntegrityConflict()
+
+        with self.assertRaisesRegex(StructuredIntegrityConflict, "409 Conflict"):
+            loader.execute_supabase(operation, "structured integrity conflict")
 
         self.assertEqual(attempts["count"], 1)
         self.assertNotIn("supabase_transient_retries", summary.counts)

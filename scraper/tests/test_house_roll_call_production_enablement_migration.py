@@ -29,7 +29,7 @@ class HouseRollCallProductionEnablementMigrationTests(unittest.TestCase):
             self.migration_path.is_file(),
             "migration 0027 must harden House observations before enabling writes",
         )
-        self.assertIn("quiesce all callers", self.sql)
+        self.assertIn("committed, fail-closed cutover", self.sql)
 
     def test_preflight_locks_the_disabled_reviewed_gate_rows_in_order(self):
         self.assertIn("SET LOCAL statement_timeout = '30s';", self.sql)
@@ -88,8 +88,77 @@ class HouseRollCallProductionEnablementMigrationTests(unittest.TestCase):
         self.assertIn("dependency.refclassid = 'pg_proc'::regclass", preflight_sql)
         self.assertIn("dependency.refobjid = v_write_rpc_oid", preflight_sql)
 
+    def test_committed_fail_closed_barrier_drains_every_pre_barrier_transaction(self):
+        barrier = self.sql.index("House roll-call cutover barrier is active")
+        first_commit = self.sql.index("\nCOMMIT;\n", barrier)
+        second_transaction = self.sql.index(
+            "\nBEGIN;\n\nSET LOCAL statement_timeout",
+            first_commit,
+        )
+        cutoff = self.sql.index("v_barrier_visible_at", second_transaction)
+        transaction_drain = self.sql.index("FROM pg_stat_activity", cutoff)
+        final_wrapper = self.sql.rindex(
+            "CREATE OR REPLACE FUNCTION public.upsert_house_roll_call"
+        )
+        gate_enablement = self.sql.index(
+            "UPDATE public.source_catalog_sources",
+            final_wrapper,
+        )
+
+        self.assertLess(barrier, first_commit)
+        self.assertLess(first_commit, second_transaction)
+        self.assertLess(second_transaction, cutoff)
+        self.assertLess(cutoff, transaction_drain)
+        self.assertLess(transaction_drain, final_wrapper)
+        self.assertLess(final_wrapper, gate_enablement)
+        self.assertIn("backend_type = 'client backend'", self.sql[cutoff:final_wrapper])
+        self.assertIn("xact_start <= v_barrier_visible_at", self.sql[cutoff:final_wrapper])
+        self.assertIn("pg_get_functiondef", self.sql[:first_commit])
+        self.assertIn("cutover_barrier_installed", self.sql[:first_commit])
+        self.assertNotIn("RENAME TO upsert_house_roll_call_0026", self.sql)
+        self.assertIn("Do not pass --single-transaction", self.sql[:barrier])
+
+    def test_cutover_installer_must_see_every_client_transaction_timestamp(self):
+        first_commit = self.sql.index("\nCOMMIT;\n")
+        phase_one = self.sql[:first_commit]
+        readme = (self.repository_root / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("current_setting('is_superuser')", phase_one)
+        self.assertIn(
+            "pg_has_role(current_user, 'pg_read_all_stats', 'USAGE')",
+            phase_one,
+        )
+        self.assertIn("USING ERRCODE = '42501'", phase_one)
+        self.assertIn("pg_read_all_stats", readme)
+
+    def test_committed_barrier_closes_direct_service_role_dml(self):
+        first_commit = self.sql.index("\nCOMMIT;\n")
+        phase_one = self.sql[:first_commit]
+
+        self.assertIn("REVOKE ALL PRIVILEGES ON TABLE", phase_one)
+        self.assertIn("REVOKE ALL PRIVILEGES (%I) ON TABLE", phase_one)
+        self.assertIn("GRANT SELECT ON TABLE", phase_one)
+        self.assertIn("has_table_privilege", phase_one)
+        self.assertIn("has_column_privilege", phase_one)
+
+    def test_activation_locks_and_requires_the_zero_house_fact_baseline(self):
+        first_commit = self.sql.index("\nCOMMIT;\n")
+        final_wrapper = self.sql.rindex(
+            "CREATE OR REPLACE FUNCTION public.upsert_house_roll_call"
+        )
+        phase_two_pre_wrapper = self.sql[first_commit:final_wrapper]
+
+        fact_lock = phase_two_pre_wrapper.index("LOCK TABLE public.source_records")
+        zero_precondition = phase_two_pre_wrapper.index(
+            "expected zero preexisting House facts"
+        )
+        self.assertLess(fact_lock, zero_precondition)
+        self.assertIn("public.legislative_roll_calls", phase_two_pre_wrapper)
+        self.assertIn("public.person_roll_call_votes", phase_two_pre_wrapper)
+        self.assertIn("USING ERRCODE = '55000'", phase_two_pre_wrapper[zero_precondition:])
+
     def test_rpc_rejects_stale_observations_before_any_fact_mutation(self):
-        function_start = self.sql.index(
+        function_start = self.sql.rindex(
             "CREATE OR REPLACE FUNCTION public.upsert_house_roll_call"
         )
         function_end = self.sql.index("END;\n$function$;", function_start)
@@ -119,7 +188,7 @@ class HouseRollCallProductionEnablementMigrationTests(unittest.TestCase):
         self.assertIn("USING ERRCODE = '55000'", function_sql[stale_guard:first_fact_write])
 
     def test_exact_observation_retry_is_a_non_mutating_idempotent_replay(self):
-        function_start = self.sql.index(
+        function_start = self.sql.rindex(
             "CREATE OR REPLACE FUNCTION public.upsert_house_roll_call"
         )
         function_end = self.sql.index("END;\n$function$;", function_start)
@@ -215,8 +284,8 @@ class HouseRollCallProductionEnablementMigrationTests(unittest.TestCase):
         unique_index = self.sql.index(
             "CREATE UNIQUE INDEX uq_person_external_ids_bioguide_normalized"
         )
-        wrapper_install = self.sql.index(
-            "ALTER FUNCTION public.upsert_house_roll_call(jsonb, jsonb)"
+        wrapper_install = self.sql.rindex(
+            "CREATE OR REPLACE FUNCTION public.upsert_house_roll_call"
         )
 
         self.assertLess(duplicate_preflight, unique_index)
@@ -258,16 +327,10 @@ class HouseRollCallProductionEnablementMigrationTests(unittest.TestCase):
             self.sql,
         )
         self.assertIn("NOTIFY pgrst, 'reload schema';", self.sql)
-        self.assertIn(
-            "ALTER FUNCTION public.upsert_house_roll_call(jsonb, jsonb)\n"
-            "    RENAME TO upsert_house_roll_call_0026;",
-            self.sql,
-        )
-        self.assertIn(
-            "REVOKE EXECUTE ON FUNCTION public.upsert_house_roll_call_0026(jsonb, jsonb)",
-            self.sql,
-        )
-        self.assertIn("REVOKE EXECUTE ON FUNCTION", self.sql)
+        self.assertIn("pg_get_functiondef", self.sql)
+        self.assertIn("FUNCTION public.upsert_house_roll_call_0026(", self.sql)
+        self.assertIn("REVOKE ALL PRIVILEGES ON FUNCTION", self.sql)
+        self.assertNotIn("RENAME TO upsert_house_roll_call_0026", self.sql)
         self.assertIn("TO service_role;", self.sql)
         self.assertIn("'case_normalized_bioguide_unique', true", marker_sql)
         self.assertIn("'monotonic_observations', true", marker_sql)
@@ -276,6 +339,12 @@ class HouseRollCallProductionEnablementMigrationTests(unittest.TestCase):
         self.assertIn("'house_roll_call_source_record_contract', true", marker_sql)
         self.assertIn("'service_role_direct_dml_revoked'", marker_sql)
         self.assertIn("'strict_json_boolean_gates', true", marker_sql)
+        self.assertIn("'database_enforced_cutover_barrier', true", marker_sql)
+        self.assertIn(
+            "'cutover_barrier_body_md5', '684fd078d5d2149fe0950a0141cdd7b6'",
+            marker_sql,
+        )
+        self.assertIn("'pre_barrier_client_transactions_drained', true", marker_sql)
         self.assertNotIn("INSERT INTO public.voting_records", self.sql)
         self.assertNotIn("UPDATE public.voting_records", self.sql)
         self.assertNotIn("senate", self.sql.lower())
@@ -296,8 +365,12 @@ class HouseRollCallProductionEnablementMigrationTests(unittest.TestCase):
         self.assertIn("table/column access to read-only", self.policy)
         self.assertIn("bounded production ETL", self.roadmap)
         self.assertIn("table/column access to read-only", self.roadmap)
-        self.assertIn("quiesce", self.readme)
-        self.assertIn("quiesce", self.roadmap)
+        self.assertNotIn("quiesce", self.readme.lower())
+        self.assertNotIn("quiesce", self.roadmap.lower())
+        for document in (self.readme, self.roadmap):
+            self.assertIn("fail-closed", document)
+            self.assertIn("without", document.lower())
+            self.assertIn("--single-transaction", document)
 
 
 if __name__ == "__main__":

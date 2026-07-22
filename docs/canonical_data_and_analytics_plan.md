@@ -328,6 +328,7 @@ whole call. The migration advances scraper preflight but records
 `'production_writes_enabled', false`, so storage readiness cannot turn ingestion on by
 itself. Migration `0027_house_roll_call_production_enablement.sql` adds the monotonic
 wrapper, verifies the exact reviewed `0026` helper contract and zero reverse dependencies,
+commits a fail-closed same-OID public barrier, drains every pre-barrier client transaction,
 requires strict JSON-boolean gates and case-normalized Bioguide uniqueness, reduces service-role
 table/column access to read-only, and reserves the null-safe canonical House event-prefix
 namespace from unrelated profile-lifecycle RPCs.
@@ -523,14 +524,17 @@ constrains the null-safe canonical House event-prefix namespace against generic 
 collisions. It enables both strict JSON-boolean database gates in the same transaction.
 Same-timestamp success requires
 bidirectional stored-state and controlled-metadata equality.
-Scraper and workflow defaults remain disabled. Before applying `0027`, quiesce the existing
-House RPC and confirm that no old-body call is active; gate locks alone do not upgrade a call
-that began before the wrapper was installed. Apply only migration `0027`, run the live schema
-preflight, then select the manual workflow's `enabled` option for one bounded production ETL.
+Scraper defaults remain disabled and scheduled workflows hard-disable House writes. Apply only
+migration `0027` with `ON_ERROR_STOP=1` and without external `--single-transaction`: its first
+checked-in transaction commits a fail-closed public barrier with both gates false and also closes
+direct service-role table/column mutations. Its second drains every client
+transaction that could have observed the old body, locks the House fact tables, and requires the
+reviewed zero-fact rollout baseline before installing the wrapper and atomically enabling the
+gates/marker. Then run the live schema
+preflight and select the manual workflow's `enabled` option for one bounded production ETL.
 Review the full `ETL_SUMMARY_JSON`, provenance counts, exact Bioguide ownership,
-retirement/reactivation,
-idempotent replay, and absence of legacy `voting_records` writes before setting the
-scheduled-run repository variable.
+retirement/reactivation, idempotent replay, and absence of legacy `voting_records` writes before
+a later reviewed workflow change enables scheduled House writes.
 
 Do not expand the bounded window or turn official facts into legacy/public rows during that
 validation. Keep the Senate source in read-only shadow mode until its coverage and mismatch

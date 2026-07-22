@@ -148,9 +148,14 @@ and per-roll-call locks before checking `fetched_at`. An older observation fails
 helper is reachable. An exact retry at the stored timestamp returns without mutation only
 when its official payload hash, source URL, exact JSONB argument fingerprint, mutable parent
 state and controlled metadata, trusted identity owners, and complete active member-vote set
-agree in both directions. Before renaming the helper, the migration verifies the exact reviewed
+agree in both directions. Before cloning the writer, the migration verifies the exact reviewed
 `0026` body, owner, security mode, search path, return contract, effective execute grants, and
-zero reverse dependencies. It requires strict JSON-boolean gates and case-normalized Bioguide
+zero reverse dependencies. It clones that body to an owner-only helper, replaces the same public
+function OID with a fail-closed barrier, closes direct service-role table/column mutations, and
+commits with both gates false. It then drains every client transaction that could have observed
+the old body, locks the House fact tables, and requires the reviewed zero-fact rollout baseline
+before final activation. It requires strict
+JSON-boolean gates and case-normalized Bioguide
 uniqueness, reduces service-role table/column access to read-only, and preserves only controlled
 security-definer mutation paths.
 A null-safe House event-prefix namespace
@@ -159,6 +164,6 @@ without reserving unrelated Clerk record families. The same transaction then ena
 reviewed database gate rows.
 `HOUSE_ROLL_CALL_WRITE_MODE` nevertheless defaults to `disabled`
 in code, the example environment, and GitHub Actions. Manual runs may explicitly select
-`enabled` for bounded validation; scheduled runs remain disabled while the repository
-variable is absent. Disabling either the runtime control or database gates preserves
+`enabled` for bounded validation; scheduled runs force the disabled path regardless of
+repository variables. Disabling either the runtime control or database gates preserves
 shadow-only behavior and the last valid rows.

@@ -234,6 +234,23 @@ class SchemaPreflightTests(unittest.TestCase):
 
         self.assertIn(REQUIRED_MIGRATION_KEY, str(raised.exception))
 
+    def test_predecessor_marker_cannot_satisfy_the_production_preflight(self):
+        client = FakeSupabase(
+            migration_markers={"0026_house_roll_call_provenance"}
+        )
+        loader = FakeLoader(client)
+
+        with self.assertRaises(SchemaPreflightError) as raised:
+            run_schema_preflight(loader)
+
+        self.assertIn(REQUIRED_MIGRATION_KEY, str(raised.exception))
+        marker_query = next(
+            check
+            for check in client.table_checks
+            if check[0] == "schema_migrations" and check[1] == "migration_key"
+        )
+        self.assertEqual(("schema_migrations", "migration_key", 1), marker_query)
+
     def test_uuid_v5_probe_failure_blocks_before_etl(self):
         loader = FakeLoader(
             FakeSupabase(failing_rpcs={"preflight_canonical_uuid_v5"})

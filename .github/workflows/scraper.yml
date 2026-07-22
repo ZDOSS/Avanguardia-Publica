@@ -67,9 +67,9 @@ jobs:
           # Bounded state LittleSis enrichment (unverified; optional)
           STATE_UNVERIFIED_ENRICHMENT_LIMIT: ${{ github.event.inputs.state_unverified_enrichment_limit || vars.STATE_UNVERIFIED_ENRICHMENT_LIMIT }}
           STATE_UNVERIFIED_ENRICHMENT_OFFSET: ${{ github.event.inputs.state_unverified_enrichment_offset || vars.STATE_UNVERIFIED_ENRICHMENT_OFFSET }}
-          # Manual runs can opt in for bounded validation. Scheduled runs use the
-          # repository variable and still default fail-closed when it is absent.
-          HOUSE_ROLL_CALL_WRITE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.house_roll_call_write_mode || vars.HOUSE_ROLL_CALL_WRITE_MODE || 'disabled' }}
+          # Only an explicit manual dispatch can opt in for bounded validation.
+          # Scheduled runs stay disabled regardless of repository variables.
+          HOUSE_ROLL_CALL_WRITE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.house_roll_call_write_mode || 'disabled' }}
           # News API keys — all optional; aggregator falls back gracefully if absent
           CURRENTS_API_KEY: ${{ secrets.CURRENTS_API_KEY }}
           NEWSDATA_API_KEY: ${{ secrets.NEWSDATA_API_KEY }}

@@ -1,3 +1,4 @@
+import re
 import unittest
 from pathlib import Path
 
@@ -102,11 +103,28 @@ class HouseRollCallRuntimeTests(unittest.TestCase):
         self.assertIn("default: 'disabled'", workflow)
         self.assertIn("- 'disabled'", workflow)
         self.assertIn("- 'enabled'", workflow)
-        self.assertIn("github.event_name == 'workflow_dispatch'", workflow)
-        self.assertIn("inputs.house_roll_call_write_mode", workflow)
-        self.assertIn("vars.HOUSE_ROLL_CALL_WRITE_MODE", workflow)
-        self.assertIn("|| 'disabled'", workflow)
+        expression = re.search(
+            r"HOUSE_ROLL_CALL_WRITE_MODE:\s*\$\{\{\s*(.*?)\s*\}\}",
+            workflow,
+        )
+        self.assertIsNotNone(expression)
+        self.assertEqual(
+            expression.group(1),
+            "github.event_name == 'workflow_dispatch' "
+            "&& inputs.house_roll_call_write_mode || 'disabled'",
+        )
+        self.assertNotIn("vars.HOUSE_ROLL_CALL_WRITE_MODE", workflow)
         self.assertIn("HOUSE_ROLL_CALL_WRITE_MODE=disabled", example_env)
+
+        def resolve(event_name, manual_input, _repository_variable):
+            return (
+                manual_input if event_name == "workflow_dispatch" else None
+            ) or "disabled"
+
+        self.assertEqual(resolve("workflow_dispatch", "disabled", "enabled"), "disabled")
+        self.assertEqual(resolve("workflow_dispatch", "enabled", "disabled"), "enabled")
+        self.assertEqual(resolve("schedule", None, "disabled"), "disabled")
+        self.assertEqual(resolve("schedule", None, "enabled"), "disabled")
 
     def test_disabled_mode_never_calls_the_loader(self):
         loader = _Loader()

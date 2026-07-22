@@ -172,8 +172,11 @@ Migration `0027_house_roll_call_production_enablement.sql` wraps migration `0026
 writer with a per-roll-call monotonic guard: an older `fetched_at` is rejected before the
 private writer can mutate facts. An exact same-timestamp retry is non-mutating only after its
 stored parent, controlled metadata, and complete active member-vote set match in both directions.
-Before renaming the 0026 writer, the migration verifies its exact body, owner, security mode,
-search path, return contract, ACLs, and zero reverse dependencies. It requires strict
+Before cloning the 0026 writer as an owner-only helper, the migration verifies its exact body,
+owner, security mode, search path, return contract, ACLs, and zero reverse dependencies. It
+replaces the same public function OID with a fail-closed barrier and commits while both gates
+remain false. A second transaction drains every client transaction that could have observed the
+old body before installing the final wrapper. It requires strict
 JSON-boolean gates, enforces case-normalized Bioguide uniqueness, reduces service-role
 table/column access to read-only, and preserves only controlled security-definer mutation paths.
 A null-safe House event-prefix namespace constraint
@@ -181,15 +184,19 @@ also prevents the unrelated generic profile and retirement RPCs from colliding w
 provenance. The migration then enables the reviewed source-catalog database gates atomically.
 Runtime writes
 still default to `disabled` in code, the example environment, and GitHub Actions. A manual
-workflow run can deliberately choose `enabled` for bounded validation; scheduled runs use the
-repository variable and remain disabled while it is absent. This path never writes legacy
+workflow run can deliberately choose `enabled` for bounded validation; scheduled runs force the
+hard-disabled path regardless of repository variables. This path never writes legacy
 `voting_records`.
 
-Before applying migration `0027`, quiesce all callers of the existing House write RPC: keep
-the repository write-mode variable absent, do not start a manual enabled run, and confirm no
-House write call is active in `pg_stat_activity`. The migration's gate-row locks serialize
-database changes, but they cannot convert an already-started migration `0026` function body
-into the new wrapper while that call is waiting.
+Apply migration `0027` with `ON_ERROR_STOP=1` and without psql's external
+`--single-transaction` option. Its two checked-in transactions are the database-enforced cutover:
+The installer must be a superuser or have `pg_read_all_stats`, otherwise preflight fails with
+`42501` before installing the barrier.
+Phase one commits the fail-closed public barrier and removes direct service-role table/column
+mutation privileges. Phase two uses a fixed `pg_stat_activity` cutoff to drain pre-barrier client
+transactions, locks the House fact tables, and requires the reviewed zero-fact rollout baseline
+before any gate can become true. If phase two fails, the exact barrier/helper/read-only state
+remains resumable and both gates remain false.
 
 Never commit secrets. `.env` and `.env.*` are gitignored (except `.env.example`). Templates
 live in [`frontend/example.env`](frontend/example.env) and
@@ -282,7 +289,9 @@ only runs the ETL and `nextjs.yml` only builds.
   by scraper preflight.
 - **`psql`:** run each migration with `--single-transaction` unless that migration explicitly
   documents different handling. This keeps temporary tables alive for the whole file and
-  prevents half-applied data changes.
+  prevents half-applied data changes. Migration `0027` is the explicit exception: use
+  `ON_ERROR_STOP=1` but omit `--single-transaction` so its committed cutover barrier can become
+  visible before its second transaction drains old callers and atomically enables both gates.
 
 Do **not** replay the full historical migration directory against an upgraded database.
 Some migrations contain guarded data decisions and review-state transitions, not just

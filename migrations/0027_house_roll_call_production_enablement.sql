@@ -1,12 +1,15 @@
 -- 0027_house_roll_call_production_enablement.sql
 --
 -- Harden official House roll-call observations against stale snapshots and
--- enable the reviewed database gates atomically. Runtime writes remain an
--- explicit, disabled-by-default scraper decision.
+-- enable the reviewed database gates after a committed, fail-closed cutover
+-- barrier. Runtime writes remain an explicit, disabled-by-default decision.
 --
--- Deployment prerequisite: quiesce all callers of the migration 0026 RPC
--- before BEGIN. An old-body call waiting on a gate lock could otherwise resume
--- after this transaction activates those gates.
+-- This migration intentionally uses two explicit transactions.
+-- Do not pass --single-transaction to psql: phase one must commit the public RPC barrier
+-- before phase two can prove that every transaction which could have observed
+-- the migration 0026 body has drained. If phase two fails, both database gates
+-- remain false and rerunning this same unapplied migration resumes safely from
+-- the exact barrier/helper state.
 
 BEGIN;
 
@@ -52,6 +55,13 @@ BEGIN
             USING ERRCODE = '55000';
     END IF;
 
+    IF current_setting('is_superuser')::boolean IS DISTINCT FROM true
+       AND NOT pg_has_role(current_user, 'pg_read_all_stats', 'USAGE') THEN
+        RAISE EXCEPTION
+            'migration 0027 requires visibility into every client transaction via pg_read_all_stats'
+            USING ERRCODE = '42501';
+    END IF;
+
     SELECT
         status,
         repo_fit,
@@ -89,6 +99,26 @@ BEGIN
         RAISE EXCEPTION
             'required source catalog endpoint is missing: house-clerk-roll-call-xml.evs-roll-call-feed'
             USING ERRCODE = '23503';
+    END IF;
+
+    -- A failed phase-two transaction leaves this exact committed barrier state.
+    -- Accept it only as a resume point; phase two revalidates both function bodies,
+    -- ACLs, metadata, and the transaction drain before changing any facts or gates.
+    IF to_regprocedure(
+        'public.upsert_house_roll_call_0026(jsonb,jsonb)'
+    ) IS NOT NULL THEN
+        IF v_source_status IS DISTINCT FROM 'approved'
+           OR v_source_repo_fit IS DISTINCT FROM 'wired'
+           OR v_endpoint_status IS DISTINCT FROM 'approved'
+           OR v_source_write_status IS DISTINCT FROM 'cutover_barrier_installed'
+           OR v_endpoint_write_status IS DISTINCT FROM 'cutover_barrier_installed'
+           OR v_source_writes_enabled IS DISTINCT FROM 'false'::jsonb
+           OR v_endpoint_writes_enabled IS DISTINCT FROM 'false'::jsonb THEN
+            RAISE EXCEPTION
+                'House cutover resume expected the exact committed disabled barrier state'
+                USING ERRCODE = '55000';
+        END IF;
+        RETURN;
     END IF;
 
     IF v_source_status IS DISTINCT FROM 'approved'
@@ -204,6 +234,478 @@ BEGIN
 END
 $migration_preflight$;
 
+-- Phase one preserves the reviewed 0026 implementation as an owner-only clone,
+-- then replaces the same public function OID with a fail-closed barrier. Keeping
+-- the OID closes prepared-plan/name-resolution gaps while the committed barrier
+-- prevents every new service-role invocation from entering the old body.
+DO $install_cutover_barrier$
+DECLARE
+    v_public_oid oid;
+    v_public_definition text;
+    v_private_definition text;
+    v_updated_rows integer;
+BEGIN
+    IF to_regprocedure(
+        'public.upsert_house_roll_call_0026(jsonb,jsonb)'
+    ) IS NULL THEN
+        SELECT p.oid, pg_get_functiondef(p.oid)
+        INTO v_public_oid, v_public_definition
+        FROM pg_proc AS p
+        WHERE p.oid = to_regprocedure(
+            'public.upsert_house_roll_call(jsonb,jsonb)'
+        );
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'migration 0026 House write RPC disappeared during cutover'
+                USING ERRCODE = '42883';
+        END IF;
+
+        v_private_definition := replace(
+            v_public_definition,
+            'FUNCTION public.upsert_house_roll_call(',
+            'FUNCTION public.upsert_house_roll_call_0026('
+        );
+        IF v_private_definition IS NOT DISTINCT FROM v_public_definition THEN
+            RAISE EXCEPTION 'could not derive the private migration 0026 helper definition'
+                USING ERRCODE = '55000';
+        END IF;
+
+        EXECUTE v_private_definition;
+        EXECUTE
+            'REVOKE ALL PRIVILEGES ON FUNCTION '
+            'public.upsert_house_roll_call_0026(jsonb,jsonb) '
+            'FROM PUBLIC, anon, authenticated, service_role';
+
+        EXECUTE $barrier_ddl$
+            CREATE OR REPLACE FUNCTION public.upsert_house_roll_call(
+                p_roll_call jsonb,
+                p_member_votes jsonb
+            )
+            RETURNS TABLE (
+                roll_call_source_record_id uuid,
+                member_vote_count integer
+            )
+            LANGUAGE plpgsql
+            VOLATILE
+            SECURITY DEFINER
+            SET search_path = ''
+            AS $barrier_function$
+            BEGIN
+                RAISE EXCEPTION
+                    'House roll-call cutover barrier is active'
+                    USING ERRCODE = '55000';
+            END;
+            $barrier_function$;
+        $barrier_ddl$;
+
+        EXECUTE
+            'REVOKE ALL PRIVILEGES ON FUNCTION '
+            'public.upsert_house_roll_call(jsonb,jsonb) '
+            'FROM PUBLIC, anon, authenticated, service_role';
+        EXECUTE
+            'GRANT EXECUTE ON FUNCTION '
+            'public.upsert_house_roll_call(jsonb,jsonb) TO service_role';
+
+        UPDATE public.source_catalog_sources
+        SET metadata = metadata || jsonb_build_object(
+            'ingestion_status', 'cutover_barrier_installed',
+            'production_write_status', 'cutover_barrier_installed',
+            'production_writes_enabled', false,
+            'runtime_write_status', 'disabled_for_database_cutover',
+            'cutover_barrier_migration',
+                '0027_house_roll_call_production_enablement',
+            'cutover_barrier_installed_at', clock_timestamp()
+        )
+        WHERE slug = 'house-clerk-roll-call-xml';
+        GET DIAGNOSTICS v_updated_rows = ROW_COUNT;
+        IF v_updated_rows <> 1 THEN
+            RAISE EXCEPTION 'House source cutover barrier updated % rows, expected 1',
+                v_updated_rows
+                USING ERRCODE = '55000';
+        END IF;
+
+        UPDATE public.source_catalog_endpoints
+        SET metadata = metadata || jsonb_build_object(
+            'ingestion_status', 'cutover_barrier_installed',
+            'production_write_status', 'cutover_barrier_installed',
+            'production_writes_enabled', false,
+            'runtime_write_status', 'disabled_for_database_cutover',
+            'cutover_barrier_migration',
+                '0027_house_roll_call_production_enablement',
+            'cutover_barrier_installed_at', clock_timestamp()
+        )
+        WHERE source_slug = 'house-clerk-roll-call-xml'
+          AND endpoint_slug = 'evs-roll-call-feed';
+        GET DIAGNOSTICS v_updated_rows = ROW_COUNT;
+        IF v_updated_rows <> 1 THEN
+            RAISE EXCEPTION 'House endpoint cutover barrier updated % rows, expected 1',
+                v_updated_rows
+                USING ERRCODE = '55000';
+        END IF;
+    END IF;
+END
+$install_cutover_barrier$;
+
+-- Close every direct application mutation path in the same committed phase as
+-- the public RPC barrier. The phase-two drain then covers calls or DML statements
+-- which began while the migration-0026 privileges were still visible.
+REVOKE ALL PRIVILEGES ON TABLE
+    public.source_records,
+    public.legislative_roll_calls,
+    public.person_roll_call_votes,
+    public.source_catalog_sources,
+    public.source_catalog_endpoints
+FROM service_role;
+
+GRANT SELECT ON TABLE
+    public.source_records,
+    public.legislative_roll_calls,
+    public.person_roll_call_votes,
+    public.source_catalog_sources,
+    public.source_catalog_endpoints
+TO service_role;
+
+DO $close_direct_dml$
+DECLARE
+    v_table text;
+    v_column record;
+    v_privilege text;
+    v_tables text[] := ARRAY[
+        'public.source_records',
+        'public.legislative_roll_calls',
+        'public.person_roll_call_votes',
+        'public.source_catalog_sources',
+        'public.source_catalog_endpoints'
+    ];
+BEGIN
+    FOR v_column IN
+        SELECT
+            format('%I.%I', columns.table_schema, columns.table_name)
+                AS qualified_table_name,
+            columns.column_name
+        FROM information_schema.columns AS columns
+        WHERE format('%I.%I', columns.table_schema, columns.table_name)
+              = ANY(v_tables)
+        ORDER BY columns.table_schema, columns.table_name, columns.ordinal_position
+    LOOP
+        EXECUTE format(
+            'REVOKE ALL PRIVILEGES (%I) ON TABLE %s FROM service_role',
+            v_column.column_name,
+            v_column.qualified_table_name
+        );
+    END LOOP;
+
+    FOREACH v_table IN ARRAY v_tables LOOP
+        IF has_table_privilege('service_role', v_table, 'SELECT') IS DISTINCT FROM true THEN
+            RAISE EXCEPTION
+                'service_role SELECT privilege closure failed for % during cutover',
+                v_table
+                USING ERRCODE = '42501';
+        END IF;
+
+        FOREACH v_privilege IN ARRAY ARRAY[
+            'INSERT',
+            'UPDATE',
+            'DELETE',
+            'TRUNCATE',
+            'REFERENCES',
+            'TRIGGER'
+        ] LOOP
+            IF has_table_privilege('service_role', v_table, v_privilege) THEN
+                RAISE EXCEPTION
+                    'service_role retains % privilege on % during cutover',
+                    v_privilege,
+                    v_table
+                    USING ERRCODE = '42501';
+            END IF;
+        END LOOP;
+    END LOOP;
+
+    FOR v_column IN
+        SELECT
+            format('%I.%I', columns.table_schema, columns.table_name)
+                AS qualified_table_name,
+            columns.column_name
+        FROM information_schema.columns AS columns
+        WHERE format('%I.%I', columns.table_schema, columns.table_name)
+              = ANY(v_tables)
+        ORDER BY columns.table_schema, columns.table_name, columns.ordinal_position
+    LOOP
+        FOREACH v_privilege IN ARRAY ARRAY['INSERT', 'UPDATE', 'REFERENCES'] LOOP
+            IF has_column_privilege(
+                'service_role',
+                v_column.qualified_table_name,
+                v_column.column_name,
+                v_privilege
+            ) THEN
+                RAISE EXCEPTION
+                    'service_role retains column % privilege on %.% during cutover',
+                    v_privilege,
+                    v_column.qualified_table_name,
+                    v_column.column_name
+                    USING ERRCODE = '42501';
+            END IF;
+        END LOOP;
+    END LOOP;
+END
+$close_direct_dml$;
+
+NOTIFY pgrst, 'reload schema';
+
+COMMIT;
+
+-- The committed public barrier is now visible to every new transaction. Capture
+-- one fixed cutoff and drain every older client transaction, regardless of query
+-- text, before phase two can lock or enable either gate.
+BEGIN;
+
+SET LOCAL statement_timeout = '30s';
+
+DO $drain_pre_barrier_transactions$
+DECLARE
+    v_barrier_visible_at timestamptz := clock_timestamp();
+    v_remaining_transactions integer;
+BEGIN
+    FOR v_attempt IN 1..100 LOOP
+        SELECT count(*)
+        INTO v_remaining_transactions
+        FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND pid <> pg_backend_pid()
+          AND backend_type = 'client backend'
+          AND xact_start IS NOT NULL
+          AND xact_start <= v_barrier_visible_at;
+
+        EXIT WHEN v_remaining_transactions = 0;
+        PERFORM pg_sleep(0.1);
+    END LOOP;
+
+    IF v_remaining_transactions <> 0 THEN
+        RAISE EXCEPTION
+            'House cutover barrier could not drain % pre-barrier client transactions',
+            v_remaining_transactions
+            USING ERRCODE = '55000';
+    END IF;
+END
+$drain_pre_barrier_transactions$;
+
+DO $activation_preflight$
+DECLARE
+    v_source_status text;
+    v_source_repo_fit text;
+    v_source_write_status text;
+    v_source_writes_enabled jsonb;
+    v_source_barrier_migration text;
+    v_endpoint_status text;
+    v_endpoint_write_status text;
+    v_endpoint_writes_enabled jsonb;
+    v_endpoint_barrier_migration text;
+    v_public_oid oid;
+    v_private_oid oid;
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM public.schema_migrations
+        WHERE migration_key = '0027_house_roll_call_production_enablement'
+    ) THEN
+        RAISE EXCEPTION
+            'migration 0027_house_roll_call_production_enablement is already recorded; do not replay forward-only migrations'
+            USING ERRCODE = '55000';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.schema_migrations
+        WHERE migration_key = '0026_house_roll_call_provenance'
+          AND migration_version = 26
+    ) THEN
+        RAISE EXCEPTION 'migration 0026_house_roll_call_provenance must be applied first'
+            USING ERRCODE = '55000';
+    END IF;
+
+    SELECT
+        status,
+        repo_fit,
+        metadata ->> 'production_write_status',
+        metadata -> 'production_writes_enabled',
+        metadata ->> 'cutover_barrier_migration'
+    INTO
+        v_source_status,
+        v_source_repo_fit,
+        v_source_write_status,
+        v_source_writes_enabled,
+        v_source_barrier_migration
+    FROM public.source_catalog_sources
+    WHERE slug = 'house-clerk-roll-call-xml'
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'required House source row disappeared after cutover barrier'
+            USING ERRCODE = '23503';
+    END IF;
+
+    SELECT
+        status,
+        metadata ->> 'production_write_status',
+        metadata -> 'production_writes_enabled',
+        metadata ->> 'cutover_barrier_migration'
+    INTO
+        v_endpoint_status,
+        v_endpoint_write_status,
+        v_endpoint_writes_enabled,
+        v_endpoint_barrier_migration
+    FROM public.source_catalog_endpoints
+    WHERE source_slug = 'house-clerk-roll-call-xml'
+      AND endpoint_slug = 'evs-roll-call-feed'
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'required House endpoint row disappeared after cutover barrier'
+            USING ERRCODE = '23503';
+    END IF;
+
+    LOCK TABLE public.source_records,
+        public.legislative_roll_calls,
+        public.person_roll_call_votes
+    IN SHARE ROW EXCLUSIVE MODE;
+
+    IF EXISTS (
+        SELECT 1
+        FROM public.source_records
+        WHERE source_system_key = 'house-clerk'
+          AND (
+              source_record_key
+                  ~ '^house:[1-9][0-9]*:[0-9]{4}:[1-9][0-9]*(:.*)?$'
+              OR source_catalog_slug = 'house-clerk-roll-call-xml'
+              OR source_endpoint_slug = 'evs-roll-call-feed'
+          )
+    ) OR EXISTS (
+        SELECT 1
+        FROM public.legislative_roll_calls
+    ) OR EXISTS (
+        SELECT 1
+        FROM public.person_roll_call_votes
+    ) THEN
+        RAISE EXCEPTION
+            'House production enablement expected zero preexisting House facts'
+            USING ERRCODE = '55000';
+    END IF;
+
+    IF v_source_status IS DISTINCT FROM 'approved'
+       OR v_source_repo_fit IS DISTINCT FROM 'wired'
+       OR v_endpoint_status IS DISTINCT FROM 'approved'
+       OR v_source_write_status IS DISTINCT FROM 'cutover_barrier_installed'
+       OR v_endpoint_write_status IS DISTINCT FROM 'cutover_barrier_installed'
+       OR v_source_writes_enabled IS DISTINCT FROM 'false'::jsonb
+       OR v_endpoint_writes_enabled IS DISTINCT FROM 'false'::jsonb
+       OR v_source_barrier_migration IS DISTINCT FROM
+            '0027_house_roll_call_production_enablement'
+       OR v_endpoint_barrier_migration IS DISTINCT FROM
+            '0027_house_roll_call_production_enablement' THEN
+        RAISE EXCEPTION 'House production gates differ from the committed cutover barrier state'
+            USING ERRCODE = '55000';
+    END IF;
+
+    v_public_oid := to_regprocedure(
+        'public.upsert_house_roll_call(jsonb,jsonb)'
+    );
+    v_private_oid := to_regprocedure(
+        'public.upsert_house_roll_call_0026(jsonb,jsonb)'
+    );
+
+    IF v_public_oid IS NULL OR v_private_oid IS NULL THEN
+        RAISE EXCEPTION 'House cutover barrier or private 0026 helper is missing'
+            USING ERRCODE = '42883';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_proc AS p
+        WHERE p.oid = v_public_oid
+          AND pg_get_userbyid(p.proowner) = current_user
+          AND p.prosecdef
+          AND p.provolatile = 'v'
+          AND p.proconfig IS NOT DISTINCT FROM ARRAY['search_path=""']::text[]
+          AND pg_get_function_result(p.oid) =
+                'TABLE(roll_call_source_record_id uuid, member_vote_count integer)'
+          AND md5(replace(p.prosrc, E'\r\n', E'\n')) =
+                '684fd078d5d2149fe0950a0141cdd7b6'
+          AND has_function_privilege('service_role', p.oid, 'EXECUTE')
+          AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')
+          AND NOT has_function_privilege('authenticated', p.oid, 'EXECUTE')
+    ) THEN
+        RAISE EXCEPTION 'public House cutover barrier differs from its reviewed contract'
+            USING ERRCODE = '55000';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_proc AS p
+        WHERE p.oid = v_private_oid
+          AND pg_get_userbyid(p.proowner) = current_user
+          AND p.prosecdef
+          AND p.provolatile = 'v'
+          AND p.proconfig IS NOT DISTINCT FROM ARRAY['search_path=""']::text[]
+          AND pg_get_function_result(p.oid) =
+                'TABLE(roll_call_source_record_id uuid, member_vote_count integer)'
+          AND md5(replace(p.prosrc, E'\r\n', E'\n')) =
+                'dbd0d605e017550c959157926400d395'
+          AND NOT has_function_privilege('service_role', p.oid, 'EXECUTE')
+          AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')
+          AND NOT has_function_privilege('authenticated', p.oid, 'EXECUTE')
+    ) THEN
+        RAISE EXCEPTION 'private migration 0026 helper differs from its reviewed contract'
+            USING ERRCODE = '55000';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM pg_proc AS p
+        CROSS JOIN LATERAL aclexplode(
+            COALESCE(p.proacl, acldefault('f', p.proowner))
+        ) AS acl
+        WHERE p.oid = v_public_oid
+          AND acl.privilege_type = 'EXECUTE'
+          AND acl.grantee NOT IN (p.proowner, 'service_role'::regrole::oid)
+    ) OR EXISTS (
+        SELECT 1
+        FROM pg_proc AS p
+        CROSS JOIN LATERAL aclexplode(
+            COALESCE(p.proacl, acldefault('f', p.proowner))
+        ) AS acl
+        WHERE p.oid = v_private_oid
+          AND acl.privilege_type = 'EXECUTE'
+          AND acl.grantee <> p.proowner
+    ) THEN
+        RAISE EXCEPTION 'House cutover function ACLs differ from the reviewed contract'
+            USING ERRCODE = '55000';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM pg_depend AS dependency
+        WHERE dependency.refclassid = 'pg_proc'::regclass
+          AND dependency.refobjid IN (v_public_oid, v_private_oid)
+    ) THEN
+        RAISE EXCEPTION 'House cutover functions have an unexpected dependent object'
+            USING ERRCODE = '55000';
+    END IF;
+
+    IF EXISTS (
+        SELECT upper(btrim(external_id))
+        FROM public.person_external_ids
+        WHERE source_system_key = 'bioguide'
+          AND external_id_type = 'bioguide_id'
+        GROUP BY upper(btrim(external_id))
+        HAVING count(*) > 1
+    ) THEN
+        RAISE EXCEPTION
+            'case-equivalent Bioguide identity rows must be resolved before migration 0027'
+            USING ERRCODE = '23505';
+    END IF;
+END
+$activation_preflight$;
+
 CREATE UNIQUE INDEX uq_person_external_ids_bioguide_normalized
     ON public.person_external_ids (
         source_system_key,
@@ -275,14 +777,6 @@ ALTER TABLE public.source_records
 
 ALTER TABLE public.source_records
     VALIDATE CONSTRAINT source_records_house_roll_call_contract;
-
--- Preserve the reviewed migration 0026 implementation as an owner-only helper.
--- The public PostgREST entry point below is the only service-role path to it.
-ALTER FUNCTION public.upsert_house_roll_call(jsonb, jsonb)
-    RENAME TO upsert_house_roll_call_0026;
-
-REVOKE EXECUTE ON FUNCTION public.upsert_house_roll_call_0026(jsonb, jsonb)
-    FROM PUBLIC, anon, authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.upsert_house_roll_call(
     p_roll_call jsonb,
@@ -1086,7 +1580,9 @@ BEGIN
         'production_write_status', 'production_enabled_monotonic',
         'production_writes_enabled', true,
         'runtime_write_status', 'runtime_opt_in_required',
-        'monotonic_guard_migration', '0027_house_roll_call_production_enablement'
+        'monotonic_guard_migration', '0027_house_roll_call_production_enablement',
+        'cutover_barrier_status', 'completed',
+        'cutover_barrier_completed_at', clock_timestamp()
     )
     WHERE slug = 'house-clerk-roll-call-xml';
     GET DIAGNOSTICS v_updated_rows = ROW_COUNT;
@@ -1102,7 +1598,9 @@ BEGIN
         'production_write_status', 'production_enabled_monotonic',
         'production_writes_enabled', true,
         'runtime_write_status', 'runtime_opt_in_required',
-        'monotonic_guard_migration', '0027_house_roll_call_production_enablement'
+        'monotonic_guard_migration', '0027_house_roll_call_production_enablement',
+        'cutover_barrier_status', 'completed',
+        'cutover_barrier_completed_at', clock_timestamp()
     )
     WHERE source_slug = 'house-clerk-roll-call-xml'
       AND endpoint_slug = 'evs-roll-call-feed';
@@ -1146,6 +1644,9 @@ VALUES (
         ),
         'service_role_table_access', 'select_only_no_column_mutation',
         'strict_json_boolean_gates', true,
+        'database_enforced_cutover_barrier', true,
+        'cutover_barrier_body_md5', '684fd078d5d2149fe0950a0141cdd7b6',
+        'pre_barrier_client_transactions_drained', true,
         'production_writes_enabled', true,
         'runtime_opt_in_required', true,
         'scraper_preflight_required', true

@@ -68,6 +68,21 @@ class SupabaseLoader:
 
     @staticmethod
     def _structured_supabase_error_code(exc: Exception) -> str | None:
+        candidates = [
+            getattr(exc, "code", None),
+            getattr(exc, "sqlstate", None),
+            getattr(exc, "pgcode", None),
+        ]
+        candidates.extend(
+            argument.get("code")
+            for argument in getattr(exc, "args", ())
+            if isinstance(argument, dict)
+        )
+        for value in candidates:
+            code = str(value).strip().upper() if value is not None else ""
+            if re.fullmatch(r"[0-9A-Z]{5}", code):
+                return code
+
         match = re.search(
             r'''["']code["']\s*:\s*["']([0-9a-z]{5})["']''',
             str(exc).lower(),
@@ -124,6 +139,7 @@ class SupabaseLoader:
             "bad gateway",
             "service unavailable",
             "gateway timeout",
+            "409 conflict",
             "http/2",
         )
         return any(marker in message for marker in transient_markers)
