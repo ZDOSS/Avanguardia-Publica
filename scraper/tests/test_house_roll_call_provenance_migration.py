@@ -68,6 +68,15 @@ class HouseRollCallProvenanceMigrationTests(unittest.TestCase):
         self.assertIn("external_id.external_id_type = 'bioguide_id'", function_sql)
         self.assertIn("v_identity_is_trusted IS DISTINCT FROM true", function_sql)
         self.assertIn("v_person_status IS DISTINCT FROM 'active'", function_sql)
+        self.assertIn(
+            "upper(btrim(external_id.external_id)) = v_bioguide_id",
+            function_sql,
+        )
+        self.assertIn("v_identity_match_count <> 1", function_sql)
+        self.assertIn(
+            "idx_person_external_ids_bioguide_normalized",
+            self.sql,
+        )
         self.assertNotIn("person_names", function_sql)
         self.assertNotIn("name_text", function_sql)
 
@@ -114,13 +123,53 @@ class HouseRollCallProvenanceMigrationTests(unittest.TestCase):
         self.assertIn("preserving the last valid vote", self.sql)
         self.assertNotIn("vote_cast = EXCLUDED.vote_cast", self.sql)
 
+    def test_complete_snapshot_retires_omitted_vote_provenance(self):
+        function_start = self.sql.index(
+            "CREATE OR REPLACE FUNCTION public.upsert_house_roll_call"
+        )
+        function_end = self.sql.index("END;\n$function$;", function_start)
+        function_sql = self.sql[function_start:function_end]
+        loop_end = function_sql.index("END LOOP;")
+        retirement = function_sql.index(
+            "UPDATE public.source_records AS source",
+            loop_end,
+        )
+
+        self.assertGreater(retirement, loop_end)
+        self.assertIn("record_status = 'retired'", function_sql[retirement:])
+        self.assertIn(
+            "omitted_from_complete_house_roll_call_snapshot",
+            function_sql[retirement:],
+        )
+        self.assertIn("= ANY(v_supplied_bioguide_ids)", function_sql[retirement:])
+        self.assertNotIn("DELETE FROM public.person_roll_call_votes", function_sql)
+
+    def test_write_gate_rows_are_locked_before_fact_writes(self):
+        function_start = self.sql.index(
+            "CREATE OR REPLACE FUNCTION public.upsert_house_roll_call"
+        )
+        function_end = self.sql.index("END;\n$function$;", function_start)
+        function_sql = self.sql[function_start:function_end]
+        source_gate_lock = function_sql.index(
+            "FROM public.source_catalog_sources AS source"
+        )
+        endpoint_gate_lock = function_sql.index(
+            "FROM public.source_catalog_endpoints AS endpoint",
+            source_gate_lock,
+        )
+        first_fact_write = function_sql.index("INSERT INTO public.source_records")
+
+        self.assertIn("FOR SHARE;", function_sql[source_gate_lock:first_fact_write])
+        self.assertLess(source_gate_lock, endpoint_gate_lock)
+        self.assertLess(endpoint_gate_lock, first_fact_write)
+
     def test_write_gate_stays_disabled_for_the_separate_runtime_pr(self):
         self.assertIn(
-            "source.metadata ->> 'production_writes_enabled' = 'true'",
+            "v_gate_source_writes_enabled IS DISTINCT FROM 'true'",
             self.sql,
         )
         self.assertIn(
-            "endpoint.metadata ->> 'production_writes_enabled' = 'true'",
+            "v_gate_endpoint_writes_enabled IS DISTINCT FROM 'true'",
             self.sql,
         )
         self.assertGreaterEqual(

@@ -132,6 +132,9 @@ service-role write contract for that future runtime path. It keeps normalized ev
 member votes in source-record-keyed tables rather than copying them into legacy public
 `voting_records`. Each roll call must resolve every member through one trusted, active
 Bioguide owner before the transaction commits, and an existing vote-cast conflict aborts
-the whole roll call. Raw XML remains unstored. The database write gate remains disabled;
-the next separately reviewed runtime change must both enable that gate and opt the scraper
-in explicitly.
+the whole roll call. Bioguide comparison is case-normalized but still requires exactly one
+trusted owner. A later complete snapshot retires provenance for any omitted member vote
+without deleting its retained normalized fact. The RPC locks the catalog write-gate rows
+for the transaction, so a disable cannot race an in-flight commit. Raw XML remains
+unstored. The database write gate remains disabled; the next separately reviewed runtime
+change must both enable that gate and opt the scraper in explicitly.

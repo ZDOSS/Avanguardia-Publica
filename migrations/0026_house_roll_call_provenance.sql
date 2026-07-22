@@ -214,6 +214,13 @@ CREATE INDEX IF NOT EXISTS idx_legislative_roll_calls_canonical_key
 CREATE INDEX IF NOT EXISTS idx_person_roll_call_votes_person_roll_call
     ON public.person_roll_call_votes(person_id, roll_call_source_record_id);
 
+-- Bioguide IDs are canonically uppercase, but this index lets the ingestion
+-- boundary recognize and fail safely around any historical mixed-case value.
+CREATE INDEX IF NOT EXISTS idx_person_external_ids_bioguide_normalized
+    ON public.person_external_ids(upper(btrim(external_id)))
+    WHERE source_system_key = 'bioguide'
+      AND external_id_type = 'bioguide_id';
+
 DROP TRIGGER IF EXISTS legislative_roll_calls_set_updated_at
     ON public.legislative_roll_calls;
 CREATE TRIGGER legislative_roll_calls_set_updated_at
@@ -283,9 +290,16 @@ DECLARE
     v_vote_cast text;
     v_member_key text;
     v_supplied_member_key text;
+    v_supplied_bioguide_ids text[];
     v_person_id uuid;
     v_person_status text;
     v_identity_is_trusted boolean;
+    v_identity_match_count integer;
+    v_gate_source_status text;
+    v_gate_source_repo_fit text;
+    v_gate_source_writes_enabled text;
+    v_gate_endpoint_status text;
+    v_gate_endpoint_writes_enabled text;
     v_member_source_record_id uuid;
     v_existing_vote_source_record_id uuid;
     v_existing_vote_roll_call_id uuid;
@@ -339,6 +353,13 @@ BEGIN
         RAISE EXCEPTION 'member_votes contains duplicate Bioguide IDs'
             USING ERRCODE = '22023';
     END IF;
+
+    SELECT array_agg(
+        upper(btrim(item.value ->> 'bioguide_id'))
+        ORDER BY upper(btrim(item.value ->> 'bioguide_id'))
+    )
+    INTO v_supplied_bioguide_ids
+    FROM jsonb_array_elements(p_member_votes) AS item(value);
 
     BEGIN
         v_congress := NULLIF(btrim(p_roll_call ->> 'congress'), '')::integer;
@@ -429,19 +450,47 @@ BEGIN
             USING ERRCODE = '55000';
     END IF;
 
-    IF NOT EXISTS (
-        SELECT 1
-        FROM public.source_catalog_sources AS source
-        JOIN public.source_catalog_endpoints AS endpoint
-          ON endpoint.source_slug = source.slug
-         AND endpoint.endpoint_slug = 'evs-roll-call-feed'
-        WHERE source.slug = 'house-clerk-roll-call-xml'
-          AND source.status = 'approved'
-          AND source.repo_fit = 'wired'
-          AND endpoint.status = 'approved'
-          AND source.metadata ->> 'production_writes_enabled' = 'true'
-          AND endpoint.metadata ->> 'production_writes_enabled' = 'true'
-    ) THEN
+    -- Lock the source and endpoint in the same order used by the enable/disable
+    -- migration. A disable therefore either wins before this check or waits for
+    -- this roll call to commit; ingestion can never commit after the disable.
+    SELECT
+        source.status,
+        source.repo_fit,
+        source.metadata ->> 'production_writes_enabled'
+    INTO
+        v_gate_source_status,
+        v_gate_source_repo_fit,
+        v_gate_source_writes_enabled
+    FROM public.source_catalog_sources AS source
+    WHERE source.slug = 'house-clerk-roll-call-xml'
+    FOR SHARE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'House roll-call source catalog row is missing'
+            USING ERRCODE = '23503';
+    END IF;
+
+    SELECT
+        endpoint.status,
+        endpoint.metadata ->> 'production_writes_enabled'
+    INTO
+        v_gate_endpoint_status,
+        v_gate_endpoint_writes_enabled
+    FROM public.source_catalog_endpoints AS endpoint
+    WHERE endpoint.source_slug = 'house-clerk-roll-call-xml'
+      AND endpoint.endpoint_slug = 'evs-roll-call-feed'
+    FOR SHARE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'House roll-call source catalog endpoint is missing'
+            USING ERRCODE = '23503';
+    END IF;
+
+    IF v_gate_source_status IS DISTINCT FROM 'approved'
+       OR v_gate_source_repo_fit IS DISTINCT FROM 'wired'
+       OR v_gate_endpoint_status IS DISTINCT FROM 'approved'
+       OR v_gate_source_writes_enabled IS DISTINCT FROM 'true'
+       OR v_gate_endpoint_writes_enabled IS DISTINCT FROM 'true' THEN
         RAISE EXCEPTION
             'authoritative House roll-call writes are disabled in the source catalog'
             USING ERRCODE = '55000';
@@ -635,6 +684,26 @@ BEGIN
                 USING ERRCODE = '22023';
         END IF;
 
+        -- Lock every case-equivalent identity row and require exactly one owner.
+        -- This accepts a historical mixed-case Bioguide value without making an
+        -- ambiguous case-folded identity decision.
+        PERFORM 1
+        FROM public.person_external_ids AS external_id
+        JOIN public.people AS person ON person.id = external_id.person_id
+        WHERE external_id.source_system_key = 'bioguide'
+          AND external_id.external_id_type = 'bioguide_id'
+          AND upper(btrim(external_id.external_id)) = v_bioguide_id
+        ORDER BY external_id.person_id
+        FOR SHARE OF external_id, person;
+        GET DIAGNOSTICS v_identity_match_count = ROW_COUNT;
+
+        IF v_identity_match_count <> 1 THEN
+            RAISE EXCEPTION
+                'House member Bioguide ID % does not resolve to exactly one canonical identity row',
+                v_bioguide_id
+                USING ERRCODE = '23503';
+        END IF;
+
         SELECT
             external_id.person_id,
             external_id.is_trusted,
@@ -647,8 +716,7 @@ BEGIN
         JOIN public.people AS person ON person.id = external_id.person_id
         WHERE external_id.source_system_key = 'bioguide'
           AND external_id.external_id_type = 'bioguide_id'
-          AND external_id.external_id = v_bioguide_id
-        FOR SHARE OF external_id, person;
+          AND upper(btrim(external_id.external_id)) = v_bioguide_id;
 
         IF NOT FOUND
            OR v_identity_is_trusted IS DISTINCT FROM true
@@ -790,6 +858,29 @@ BEGIN
         ON CONFLICT (source_record_id) DO UPDATE SET
             metadata = public.person_roll_call_votes.metadata || EXCLUDED.metadata;
     END LOOP;
+
+    -- The input is one complete official roll-call snapshot. Retain omitted
+    -- normalized facts for provenance, but retire their source records so future
+    -- readers cannot mix a prior snapshot with the current one. Reappearance in a
+    -- later complete snapshot reactivates the same stable source record.
+    UPDATE public.source_records AS source
+    SET
+        record_status = 'retired',
+        retired_at = GREATEST(source.last_seen_at, v_fetched_at),
+        metadata = source.metadata || jsonb_build_object(
+            'retirement_reason', 'omitted_from_complete_house_roll_call_snapshot',
+            'retired_by_payload_hash', v_payload_hash
+        )
+    FROM public.person_roll_call_votes AS vote
+    WHERE vote.source_record_id = source.id
+      AND vote.roll_call_source_record_id = v_roll_call_source_record_id
+      AND source.source_system_key = 'house-clerk'
+      AND source.record_type = 'person_roll_call_vote'
+      AND source.record_status = 'active'
+      AND NOT (
+          COALESCE(upper(btrim(source.metadata ->> 'bioguide_id')), '')
+          = ANY(v_supplied_bioguide_ids)
+      );
 
     RETURN QUERY SELECT v_roll_call_source_record_id, v_member_count;
 END;
