@@ -1,4 +1,5 @@
 import hashlib
+import json
 import unittest
 from datetime import date
 from unittest.mock import patch
@@ -235,6 +236,236 @@ class HouseRollCallShadowTests(unittest.TestCase):
                 },
             ],
             member_votes,
+        )
+
+    def test_shadow_fetches_vote_centric_govtrack_snapshot_without_profile_map(self):
+        health = SourceHealthTracker("house_roll_call_shadow", min_attempts_for_rate=3)
+        govtrack_vote = {
+            "congress": 119,
+            "chamber": "house",
+            "session": "2026",
+            "number": 2,
+        }
+        govtrack_voters = {
+            "meta": {"limit": 600, "offset": 0, "total_count": 2},
+            "objects": [
+                {
+                    "person": {"bioguideid": "A000001"},
+                    "option": {"value": "Yea", "vote": 128911},
+                    "vote": govtrack_vote,
+                },
+                {
+                    "person": {"bioguideid": "B000002"},
+                    "option": {"value": "Nay", "vote": 128911},
+                    "vote": govtrack_vote,
+                },
+            ],
+        }
+
+        with patch(
+            "extractors.house_roll_calls.requests.get",
+            side_effect=[
+                _Response(text=_listing(2)),
+                _Response(text=_writable_roll_call_xml(2)),
+                _Response(text='<h1 data-vote-id="128911">Vote</h1>'),
+                _Response(text=json.dumps(govtrack_voters)),
+            ],
+        ) as mock_get:
+            report = house_roll_calls.get_recent_house_roll_call_shadow(
+                {"A000001", "B000002"},
+                limit=1,
+                health=health,
+                today=date(2026, 7, 14),
+            )
+
+        self.assertEqual(4, mock_get.call_count)
+        self.assertEqual(
+            "https://www.govtrack.us/congress/votes/119-2026/h2",
+            mock_get.call_args_list[2].args[0],
+        )
+        self.assertEqual(
+            "https://www.govtrack.us/api/v2/vote_voter/?vote=128911&limit=600",
+            mock_get.call_args_list[3].args[0],
+        )
+        self.assertEqual("healthy", health.status)
+        self.assertEqual(4, health.attempts)
+        self.assertEqual(4, health.successes)
+        self.assertEqual(2, report.govtrack_vote_cast_matches)
+        self.assertEqual(0, report.govtrack_vote_not_observed)
+        self.assertEqual((), report.authoritative_write_block_reasons(health))
+
+    def test_govtrack_voter_parser_rejects_noncanonical_pagination_metadata(self):
+        voter = {
+            "person": {"bioguideid": "A000001"},
+            "option": {"value": "Yea", "vote": 128911},
+            "vote": {
+                "congress": 119,
+                "chamber": "house",
+                "session": "2026",
+                "number": 2,
+            },
+        }
+        invalid_metadata = {
+            "missing_limit": {"offset": 0, "total_count": 1},
+            "wrong_limit": {"limit": 1, "offset": 0, "total_count": 1},
+            "string_limit": {"limit": "600", "offset": 0, "total_count": 1},
+            "float_limit": {"limit": 600.0, "offset": 0, "total_count": 1},
+            "boolean_limit": {"limit": True, "offset": 0, "total_count": 1},
+            "missing_offset": {"limit": 600, "total_count": 1},
+            "string_offset": {"limit": 600, "offset": "0", "total_count": 1},
+            "fractional_offset": {
+                "limit": 600,
+                "offset": 0.5,
+                "total_count": 1,
+            },
+            "boolean_offset": {"limit": 600, "offset": False, "total_count": 1},
+            "nonzero_offset": {"limit": 600, "offset": 1, "total_count": 1},
+            "missing_total_count": {"limit": 600, "offset": 0},
+            "string_total_count": {
+                "limit": 600,
+                "offset": 0,
+                "total_count": "1",
+            },
+            "float_total_count": {
+                "limit": 600,
+                "offset": 0,
+                "total_count": 1.0,
+            },
+            "boolean_total_count": {
+                "limit": 600,
+                "offset": 0,
+                "total_count": True,
+            },
+            "zero_total_count": {"limit": 600, "offset": 0, "total_count": 0},
+            "over_limit_total_count": {
+                "limit": 600,
+                "offset": 0,
+                "total_count": 601,
+            },
+            "mismatched_total_count": {
+                "limit": 600,
+                "offset": 0,
+                "total_count": 2,
+            },
+            "next_page": {
+                "limit": 600,
+                "offset": 0,
+                "total_count": 1,
+                "next": "/api/v2/vote_voter/?offset=600",
+            },
+            "previous_page": {
+                "limit": 600,
+                "offset": 0,
+                "total_count": 1,
+                "previous": "/api/v2/vote_voter/?offset=0",
+            },
+        }
+
+        for case_name, meta in invalid_metadata.items():
+            with self.subTest(case=case_name):
+                with self.assertRaisesRegex(ValueError, "pagination"):
+                    house_roll_calls._parse_govtrack_voters(
+                        json.dumps({"meta": meta, "objects": [voter]}),
+                        expected_vote_id=128911,
+                        expected_congress=119,
+                        expected_year=2026,
+                        expected_vote_number=2,
+                    )
+
+    def test_govtrack_voter_parser_rejects_noncanonical_vote_metadata(self):
+        invalid_values = {
+            "fractional_congress": ("vote", "congress", 119.9),
+            "string_congress": ("vote", "congress", "119"),
+            "numeric_session": ("vote", "session", 2026),
+            "fractional_session": ("vote", "session", 2026.9),
+            "fractional_number": ("vote", "number", 2.9),
+            "string_number": ("vote", "number", "2"),
+            "fractional_vote_id": ("option", "vote", 128911.9),
+            "string_vote_id": ("option", "vote", "128911"),
+        }
+
+        for case_name, (section, field, value) in invalid_values.items():
+            voter = {
+                "person": {"bioguideid": "A000001"},
+                "option": {"value": "Yea", "vote": 128911},
+                "vote": {
+                    "congress": 119,
+                    "chamber": "house",
+                    "session": "2026",
+                    "number": 2,
+                },
+            }
+            voter[section][field] = value
+            with self.subTest(case=case_name):
+                with self.assertRaisesRegex(ValueError, "vote metadata"):
+                    house_roll_calls._parse_govtrack_voters(
+                        json.dumps(
+                            {
+                                "meta": {
+                                    "limit": 600,
+                                    "offset": 0,
+                                    "total_count": 1,
+                                },
+                                "objects": [voter],
+                            }
+                        ),
+                        expected_vote_id=128911,
+                        expected_congress=119,
+                        expected_year=2026,
+                        expected_vote_number=2,
+                    )
+
+    def test_vote_centric_govtrack_incomplete_voter_page_blocks_write(self):
+        health = SourceHealthTracker("house_roll_call_shadow", min_attempts_for_rate=3)
+        partial_voters = {
+            "meta": {"limit": 600, "offset": 0, "total_count": 3},
+            "objects": [
+                {
+                    "person": {"bioguideid": "A000001"},
+                    "option": {"value": "Yea", "vote": 128911},
+                    "vote": {
+                        "congress": 119,
+                        "chamber": "house",
+                        "session": "2026",
+                        "number": 2,
+                    },
+                },
+                {
+                    "person": {"bioguideid": "B000002"},
+                    "option": {"value": "Nay", "vote": 128911},
+                    "vote": {
+                        "congress": 119,
+                        "chamber": "house",
+                        "session": "2026",
+                        "number": 2,
+                    },
+                },
+            ],
+        }
+
+        with patch(
+            "extractors.house_roll_calls.requests.get",
+            side_effect=[
+                _Response(text=_listing(2)),
+                _Response(text=_writable_roll_call_xml(2)),
+                _Response(text='<h1 data-vote-id="128911">Vote</h1>'),
+                _Response(text=json.dumps(partial_voters)),
+            ],
+        ):
+            report = house_roll_calls.get_recent_house_roll_call_shadow(
+                {"A000001", "B000002"},
+                limit=1,
+                health=health,
+                today=date(2026, 7, 14),
+            )
+
+        self.assertTrue(report.snapshot_complete)
+        self.assertEqual(0, report.govtrack_vote_cast_matches)
+        self.assertEqual(2, report.govtrack_vote_not_observed)
+        self.assertEqual("failed", health.status)
+        self.assertEqual(
+            ("reconciliation_not_observed", "source_health_not_healthy"),
+            report.authoritative_write_block_reasons(health),
         )
 
     def test_official_tally_mismatch_blocks_the_snapshot_before_any_write(self):

@@ -21,10 +21,7 @@ from extractors.senate_roll_calls import (
     get_recent_senate_roll_call_shadow,
     govtrack_senate_vote_casts,
 )
-from extractors.house_roll_calls import (
-    get_recent_house_roll_call_shadow,
-    govtrack_house_vote_casts,
-)
+from extractors.house_roll_calls import get_recent_house_roll_call_shadow
 from extractors.openstates import get_state_politicians
 from extractors.openstates_votes import get_state_voting_records
 from extractors.federal import get_federal_exec_judicial
@@ -196,7 +193,6 @@ def main(argv=None):
     senate_lis_ids: set[str] = set()
     govtrack_senate_votes_by_lis_id: dict[str, dict[str, str]] = {}
     house_bioguide_ids: set[str] = set()
-    govtrack_house_votes_by_bioguide_id: dict[str, dict[str, str]] = {}
     for index, member in enumerate(members, start=1):
         try:
             print(f"\n--- [{index}/{total}] Scraping data for {member['full_name']} ---")
@@ -266,10 +262,6 @@ def main(argv=None):
                     if is_senator and lis_id:
                         govtrack_senate_votes_by_lis_id[lis_id] = (
                             govtrack_senate_vote_casts(votes)
-                        )
-                    if is_house_representative and bioguide_id:
-                        govtrack_house_votes_by_bioguide_id[bioguide_id] = (
-                            govtrack_house_vote_casts(votes)
                         )
                 else:
                     source_health["govtrack"].record_skip("missing_govtrack_join_key")
@@ -359,15 +351,16 @@ def main(argv=None):
         shadow_health.record_failure("unexpected_error")
 
     # Official House Clerk roll-call XML is fetched once for bounded reconciliation.
-    # The normalized snapshot may also flow through migration 0026's private atomic
-    # RPC, but only when the explicit runtime switch is enabled and every upstream,
-    # identity, reconciliation, and source-health precondition is healthy. This path
-    # never writes the legacy voting_records table.
+    # Each selected roll call obtains its own complete GovTrack voter snapshot instead
+    # of depending on the legacy per-politician crawl above. The normalized Clerk
+    # snapshot may also flow through migration 0026's private atomic RPC, but only when
+    # the explicit runtime switch is enabled and every upstream, identity,
+    # reconciliation, and source-health precondition is healthy. This path never writes
+    # the legacy voting_records table.
     print("\n=== House roll-call XML shadow reconciliation ===")
     try:
         house_shadow_report = get_recent_house_roll_call_shadow(
             house_bioguide_ids,
-            govtrack_house_votes_by_bioguide_id,
             health=source_health["house_roll_call_shadow"],
         )
         for counter, amount in house_shadow_report.counters().items():

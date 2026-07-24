@@ -13,6 +13,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 import hashlib
+import json
 import logging
 import re
 import time
@@ -28,11 +29,14 @@ logger = logging.getLogger(__name__)
 
 _HOUSE_XML_BASE = "https://clerk.house.gov/evs"
 _HOUSE_LIST_URL = "https://clerk.house.gov/Votes/MemberVotes"
+_GOVTRACK_VOTE_BASE = "https://www.govtrack.us/congress/votes"
+_GOVTRACK_VOTER_API = "https://www.govtrack.us/api/v2/vote_voter/"
 _TIMEOUT_SECONDS = 15
 _RETRY_BACKOFF_SECONDS = 0.5
 _MAX_CONSECUTIVE_FAILURES = 3
 _RECENT_ROLL_CALL_LIMIT = 25
 _LIST_PAGE_SIZE = 10
+_GOVTRACK_VOTER_LIMIT = 600
 _USER_AGENT = "Avanguardia-Publica ETL house-roll-call reconciliation"
 
 _HOUSE_VOTE_PATH_RE = re.compile(
@@ -41,6 +45,10 @@ _HOUSE_VOTE_PATH_RE = re.compile(
 _GOVTRACK_HOUSE_LINK_RE = re.compile(
     r"https?://www\.govtrack\.us/congress/votes/"
     r"(?P<congress>\d+)-(?P<year>\d+)/h(?P<number>\d+)",
+    re.IGNORECASE,
+)
+_GOVTRACK_VOTE_ID_RE = re.compile(
+    r"\bdata-vote-id\s*=\s*(?P<quote>[\"'])(?P<id>[1-9]\d*)(?P=quote)",
     re.IGNORECASE,
 )
 _HOUSE_SESSION_VALUES = {"1st": 1, "2nd": 2}
@@ -275,6 +283,97 @@ def _roll_call_url(year: int, vote_number: int) -> str:
     return f"{_HOUSE_XML_BASE}/{year}/roll{vote_number:03d}.xml"
 
 
+def _govtrack_roll_call_url(congress: int, year: int, vote_number: int) -> str:
+    return f"{_GOVTRACK_VOTE_BASE}/{congress}-{year}/h{vote_number}"
+
+
+def _govtrack_voters_url(vote_id: int) -> str:
+    return f"{_GOVTRACK_VOTER_API}?vote={vote_id}&limit={_GOVTRACK_VOTER_LIMIT}"
+
+
+def _parse_govtrack_vote_id(text: str) -> int:
+    vote_ids = {int(match.group("id")) for match in _GOVTRACK_VOTE_ID_RE.finditer(text)}
+    if len(vote_ids) != 1:
+        raise ValueError("GovTrack roll-call page did not expose exactly one vote ID")
+    return vote_ids.pop()
+
+
+def _parse_govtrack_voters(
+    text: str,
+    *,
+    expected_vote_id: int,
+    expected_congress: int,
+    expected_year: int,
+    expected_vote_number: int,
+) -> dict[str, str]:
+    payload = json.loads(text)
+    if not isinstance(payload, dict):
+        raise ValueError("GovTrack voter response is not an object")
+
+    meta = payload.get("meta")
+    objects = payload.get("objects")
+    if not isinstance(meta, dict) or not isinstance(objects, list):
+        raise ValueError("GovTrack voter response is missing pagination metadata")
+    page_limit = meta.get("limit")
+    offset = meta.get("offset")
+    total_count = meta.get("total_count")
+    if any(type(value) is not int for value in (page_limit, offset, total_count)):
+        raise ValueError("GovTrack voter response has invalid pagination metadata")
+    if (
+        page_limit != _GOVTRACK_VOTER_LIMIT
+        or offset != 0
+        or total_count <= 0
+        or total_count > page_limit
+        or total_count != len(objects)
+        or meta.get("next") not in (None, "")
+        or meta.get("previous") not in (None, "")
+    ):
+        raise ValueError("GovTrack voter response has incomplete pagination metadata")
+
+    votes_by_bioguide_id = {}
+    for item in objects:
+        if not isinstance(item, dict):
+            raise ValueError("GovTrack voter response contains an invalid voter")
+        person = item.get("person")
+        option = item.get("option")
+        vote = item.get("vote")
+        if not all(isinstance(value, dict) for value in (person, option, vote)):
+            raise ValueError("GovTrack voter response contains incomplete voter data")
+        congress = vote.get("congress")
+        chamber = vote.get("chamber")
+        session = vote.get("session")
+        vote_number = vote.get("number")
+        option_vote_id = option.get("vote")
+        if (
+            type(congress) is not int
+            or type(chamber) is not str
+            or type(session) is not str
+            or type(vote_number) is not int
+            or type(option_vote_id) is not int
+        ):
+            raise ValueError("GovTrack voter response has invalid vote metadata")
+        matches_requested_vote = (
+            congress == expected_congress
+            and chamber == "house"
+            and session == str(expected_year)
+            and vote_number == expected_vote_number
+            and option_vote_id == expected_vote_id
+        )
+        if not matches_requested_vote:
+            raise ValueError("GovTrack voter response did not match its requested vote")
+
+        bioguide_id = _normalize_bioguide_id(person.get("bioguideid"))
+        vote_cast = _clean(option.get("value"))
+        if not bioguide_id or not re.fullmatch(r"[A-Z][0-9]{6}", bioguide_id):
+            raise ValueError("GovTrack voter response contains an invalid Bioguide ID")
+        if not vote_cast or _canonical_vote_cast(vote_cast) is None:
+            raise ValueError("GovTrack voter response contains an unsupported vote cast")
+        if bioguide_id in votes_by_bioguide_id:
+            raise ValueError("GovTrack voter response contains duplicate Bioguide IDs")
+        votes_by_bioguide_id[bioguide_id] = vote_cast
+    return votes_by_bioguide_id
+
+
 def _parse_member_votes_page(text: str, expected_year: int) -> list[tuple[int, int]]:
     """Read only official current-session vote paths from the Clerk's listing HTML."""
     vote_keys = {
@@ -453,7 +552,11 @@ def _fetch_parsed(
                     )
                     parsed = parser(document)
                 except (ElementTree.ParseError, ValueError, TypeError) as exc:
-                    logger.warning("[House XML] Could not parse %s: %s", url, exc)
+                    logger.warning(
+                        "[House roll-call reconciliation] Could not parse %s: %s",
+                        url,
+                        exc,
+                    )
                     failure_reason = "parse_error"
                     retryable = False
                 else:
@@ -465,7 +568,9 @@ def _fetch_parsed(
             failure_reason = "timeout"
             retryable = True
         except requests.RequestException as exc:
-            logger.warning("[House XML] Request failed for %s: %s", url, exc)
+            logger.warning(
+                "[House roll-call reconciliation] Request failed for %s: %s", url, exc
+            )
             failure_reason = "request_error"
             retryable = True
 
@@ -489,7 +594,7 @@ def _fetch_parsed(
 
 
 def govtrack_house_vote_casts(records: list[dict]) -> dict[str, str]:
-    """Derive exact reconciliation keys from authoritative House GovTrack URLs."""
+    """Derive exact reconciliation keys from House GovTrack URLs."""
     by_roll_call: dict[str, str] = {}
     for record in records:
         summary = str(record.get("bill_summary") or "")
@@ -503,6 +608,39 @@ def govtrack_house_vote_casts(records: list[dict]) -> dict[str, str]:
         )
         by_roll_call[key] = vote_cast
     return by_roll_call
+
+
+def _fetch_govtrack_roll_call_votes(
+    roll_call: HouseRollCall,
+    *,
+    health: SourceHealthTracker | None,
+    state: _FetchState,
+) -> dict[str, str]:
+    vote_id = _fetch_parsed(
+        _govtrack_roll_call_url(
+            roll_call.congress, roll_call.congress_year, roll_call.vote_number
+        ),
+        lambda document: _parse_govtrack_vote_id(document.text),
+        health=health,
+        state=state,
+    )
+    if vote_id is None:
+        return {}
+    return (
+        _fetch_parsed(
+            _govtrack_voters_url(vote_id),
+            lambda document: _parse_govtrack_voters(
+                document.text,
+                expected_vote_id=vote_id,
+                expected_congress=roll_call.congress,
+                expected_year=roll_call.congress_year,
+                expected_vote_number=roll_call.vote_number,
+            ),
+            health=health,
+            state=state,
+        )
+        or {}
+    )
 
 
 def _canonical_vote_cast(value: str | None) -> str | None:
@@ -525,19 +663,26 @@ def _normalized_vote_cast(value: str) -> str:
 
 def get_recent_house_roll_call_shadow(
     known_bioguide_ids: set[str],
-    govtrack_votes_by_bioguide_id: dict[str, dict[str, str]],
+    govtrack_votes_by_bioguide_id: dict[str, dict[str, str]] | None = None,
     *,
     limit: int = _RECENT_ROLL_CALL_LIMIT,
     health: SourceHealthTracker | None = None,
     today: date | None = None,
 ) -> HouseRollCallShadowReport:
-    """Fetch and reconcile a bounded current House session without database writes."""
+    """Fetch and reconcile a bounded current House session without database writes.
+
+    Production callers omit ``govtrack_votes_by_bioguide_id`` so each selected roll call
+    receives a complete, vote-centric GovTrack comparison snapshot. Supplying a map keeps
+    deterministic injected comparisons available to tests and offline callers.
+    """
     report = HouseRollCallShadowReport()
-    normalized_govtrack_votes = {}
-    for bioguide_id, vote_map in govtrack_votes_by_bioguide_id.items():
-        normalized_bioguide_id = _normalize_bioguide_id(bioguide_id)
-        if normalized_bioguide_id and isinstance(vote_map, dict):
-            normalized_govtrack_votes[normalized_bioguide_id] = vote_map
+    normalized_govtrack_votes = None
+    if govtrack_votes_by_bioguide_id is not None:
+        normalized_govtrack_votes = {}
+        for bioguide_id, vote_map in govtrack_votes_by_bioguide_id.items():
+            normalized_bioguide_id = _normalize_bioguide_id(bioguide_id)
+            if normalized_bioguide_id and isinstance(vote_map, dict):
+                normalized_govtrack_votes[normalized_bioguide_id] = vote_map
     normalized_bioguide_ids = {
         normalized
         for bioguide_id in known_bioguide_ids
@@ -614,6 +759,11 @@ def get_recent_house_roll_call_shadow(
 
         report.roll_calls_fetched += 1
         report.roll_calls.append(roll_call)
+        vote_centric_govtrack_votes = None
+        if normalized_govtrack_votes is None:
+            vote_centric_govtrack_votes = _fetch_govtrack_roll_call_votes(
+                roll_call, health=health, state=state
+            )
         for member_vote in roll_call.member_votes:
             report.member_votes_seen += 1
             bioguide_id = _normalize_bioguide_id(member_vote.bioguide_id)
@@ -629,9 +779,12 @@ def get_recent_house_roll_call_shadow(
                 continue
 
             report.exact_bioguide_matches += 1
-            govtrack_vote_cast = normalized_govtrack_votes.get(bioguide_id, {}).get(
-                roll_call.reconciliation_key
-            )
+            if vote_centric_govtrack_votes is not None:
+                govtrack_vote_cast = vote_centric_govtrack_votes.get(bioguide_id)
+            else:
+                govtrack_vote_cast = normalized_govtrack_votes.get(
+                    bioguide_id, {}
+                ).get(roll_call.reconciliation_key)
             if not govtrack_vote_cast:
                 report.govtrack_vote_not_observed += 1
             elif _normalized_vote_cast(govtrack_vote_cast) == _normalized_vote_cast(

@@ -6,7 +6,7 @@ import sys
 import types
 import unittest
 from contextlib import redirect_stdout
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 class FakeLoader:
     def __init__(self, configured=True):
@@ -110,6 +110,80 @@ class MainCliTests(unittest.TestCase):
         self.assertFalse(payload["success"])
         self.assertEqual(1, len(payload["errors"]))
         self.assertEqual("configuration", payload["errors"][0]["scope"])
+
+    def test_house_shadow_does_not_receive_legacy_profile_vote_map(self):
+        loader = MagicMock()
+        loader.supabase = object()
+        loader.upsert_politician.return_value = "politician-id"
+        member = {
+            "full_name": "Test Representative",
+            "bioguide_id": "T000001",
+            "office_type": "representative",
+            "current_office": "US Representative",
+            "external_ids": {"govtrack": 12345},
+            "contact": {},
+            "source_system_key": "congress-legislators",
+            "source_record_key": "bioguide:T000001",
+        }
+        shadow_report = MagicMock()
+        shadow_report.counters.return_value = {}
+        shadow_report.description.return_value = "bounded shadow"
+        output = io.StringIO()
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "SUPABASE_URL": "https://example.invalid",
+                    "SUPABASE_KEY": "service-key",
+                },
+                clear=True,
+            ),
+            patch.object(self.scraper_main, "load_dotenv"),
+            patch.object(self.scraper_main, "SupabaseLoader", return_value=loader),
+            patch.object(self.scraper_main, "run_schema_preflight"),
+            patch.object(self.scraper_main, "get_congress_members", return_value=[member]),
+            patch.object(self.scraper_main, "get_house_disclosure_index", return_value={}),
+            patch.object(
+                self.scraper_main,
+                "get_voting_records",
+                return_value=[
+                    {
+                        "bill_summary": (
+                            "https://www.govtrack.us/congress/votes/119-2026/h2"
+                        ),
+                        "vote_cast": "Yea",
+                    }
+                ],
+            ),
+            patch.object(self.scraper_main, "get_littlesis", return_value=([], [])),
+            patch.object(self.scraper_main, "get_news_data", return_value=[]),
+            patch.object(
+                self.scraper_main,
+                "get_recent_senate_roll_call_shadow",
+                return_value=shadow_report,
+            ),
+            patch.object(
+                self.scraper_main,
+                "get_recent_house_roll_call_shadow",
+                return_value=shadow_report,
+            ) as house_shadow,
+            patch.object(self.scraper_main, "write_house_roll_calls", return_value=0),
+            patch.object(self.scraper_main, "get_state_politicians", return_value=[]),
+            patch.object(
+                self.scraper_main, "get_federal_exec_judicial", return_value=[]
+            ),
+            patch.object(self.scraper_main, "get_provider_status", return_value={}),
+            patch.object(self.scraper_main, "run_identity_health_check"),
+            patch.object(self.scraper_main, "run_source_catalog_review_check"),
+            patch.object(self.scraper_main, "run_source_record_freshness_check"),
+            patch.object(self.scraper_main.time, "sleep"),
+            redirect_stdout(output),
+        ):
+            self.scraper_main.main([])
+
+        house_shadow.assert_called_once()
+        self.assertEqual(({"T000001"},), house_shadow.call_args.args)
 
 
 if __name__ == "__main__":
