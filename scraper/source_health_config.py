@@ -57,9 +57,9 @@ def build_source_health_trackers(summary: ETLRunSummary) -> dict:
         "senate_roll_call_shadow": summary.source_tracker(
             "senate_roll_call_shadow", min_attempts_for_rate=3, affects_run=False
         ),
-        # Fetch/reconciliation health for the official House Clerk source remains
-        # nonblocking in shadow-only mode. The separate write tracker below becomes
-        # blocking only when the dormant authoritative path is attempted.
+        # Health for the bounded Clerk fetch plus vote-centric GovTrack comparison
+        # remains nonblocking in shadow-only mode. The separate write tracker below
+        # becomes blocking only when the dormant authoritative path is attempted.
         "house_roll_call_shadow": summary.source_tracker(
             "house_roll_call_shadow", min_attempts_for_rate=3, affects_run=False
         ),
