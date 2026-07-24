@@ -1,3 +1,4 @@
+import re
 import unittest
 from pathlib import Path
 
@@ -89,7 +90,7 @@ class HouseRollCallRuntimeTests(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 house_roll_call_write_mode({"HOUSE_ROLL_CALL_WRITE_MODE": invalid})
 
-    def test_checked_in_runtime_configuration_defaults_to_disabled(self):
+    def test_checked_in_runtime_configuration_supports_bounded_manual_opt_in(self):
         workflow = (_REPO_ROOT / ".github" / "workflows" / "scraper.yml").read_text(
             encoding="utf-8"
         )
@@ -97,11 +98,33 @@ class HouseRollCallRuntimeTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn(
-            "HOUSE_ROLL_CALL_WRITE_MODE: ${{ vars.HOUSE_ROLL_CALL_WRITE_MODE || 'disabled' }}",
+        self.assertIn("house_roll_call_write_mode:", workflow)
+        self.assertIn("type: choice", workflow)
+        self.assertIn("default: 'disabled'", workflow)
+        self.assertIn("- 'disabled'", workflow)
+        self.assertIn("- 'enabled'", workflow)
+        expression = re.search(
+            r"HOUSE_ROLL_CALL_WRITE_MODE:\s*\$\{\{\s*(.*?)\s*\}\}",
             workflow,
         )
+        self.assertIsNotNone(expression)
+        self.assertEqual(
+            expression.group(1),
+            "github.event_name == 'workflow_dispatch' "
+            "&& inputs.house_roll_call_write_mode || 'disabled'",
+        )
+        self.assertNotIn("vars.HOUSE_ROLL_CALL_WRITE_MODE", workflow)
         self.assertIn("HOUSE_ROLL_CALL_WRITE_MODE=disabled", example_env)
+
+        def resolve(event_name, manual_input, _repository_variable):
+            return (
+                manual_input if event_name == "workflow_dispatch" else None
+            ) or "disabled"
+
+        self.assertEqual(resolve("workflow_dispatch", "disabled", "enabled"), "disabled")
+        self.assertEqual(resolve("workflow_dispatch", "enabled", "disabled"), "enabled")
+        self.assertEqual(resolve("schedule", None, "disabled"), "disabled")
+        self.assertEqual(resolve("schedule", None, "enabled"), "disabled")
 
     def test_disabled_mode_never_calls_the_loader(self):
         loader = _Loader()

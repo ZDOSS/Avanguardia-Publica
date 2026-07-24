@@ -153,7 +153,7 @@ class LoaderRetryTests(unittest.TestCase):
         self.assertEqual(attempts["count"], 2)
         self.assertEqual(summary.counts["supabase_transient_retries"], 1)
 
-    def test_execute_supabase_retries_plain_conflict_transport_errors(self):
+    def test_execute_supabase_retries_unstructured_plain_conflict_errors(self):
         summary = SummaryStub()
         loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
         attempts = {"count": 0}
@@ -164,11 +164,53 @@ class LoaderRetryTests(unittest.TestCase):
                 raise Exception("409 Conflict")
             return "ok"
 
-        result = loader.execute_supabase(operation, "temporary plain conflict")
+        result = loader.execute_supabase(operation, "unstructured gateway conflict")
 
         self.assertEqual("ok", result)
         self.assertEqual(attempts["count"], 2)
         self.assertEqual(summary.counts["supabase_transient_retries"], 1)
+
+    def test_structured_integrity_attribute_overrides_plain_conflict_text(self):
+        class StructuredIntegrityConflict(Exception):
+            code = "23505"
+
+            def __str__(self):
+                return "409 Conflict"
+
+        summary = SummaryStub()
+        loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+        attempts = {"count": 0}
+
+        def operation():
+            attempts["count"] += 1
+            raise StructuredIntegrityConflict()
+
+        with self.assertRaisesRegex(StructuredIntegrityConflict, "409 Conflict"):
+            loader.execute_supabase(operation, "structured integrity conflict")
+
+        self.assertEqual(attempts["count"], 1)
+        self.assertNotIn("supabase_transient_retries", summary.counts)
+
+    def test_execute_supabase_retries_structured_concurrency_codes(self):
+        for code in ("40001", "40P01", "55P03"):
+            with self.subTest(code=code):
+                summary = SummaryStub()
+                loader = self.loader_module.SupabaseLoader("url", "key", summary=summary)
+                attempts = {"count": 0}
+
+                def operation():
+                    attempts["count"] += 1
+                    if attempts["count"] == 1:
+                        raise Exception(
+                            f"{{'code': '{code}', 'message': 'retry transaction'}}"
+                        )
+                    return "ok"
+
+                self.assertEqual(
+                    "ok", loader.execute_supabase(operation, "concurrency retry")
+                )
+                self.assertEqual(2, attempts["count"])
+                self.assertEqual(1, summary.counts["supabase_transient_retries"])
 
 
 if __name__ == "__main__":

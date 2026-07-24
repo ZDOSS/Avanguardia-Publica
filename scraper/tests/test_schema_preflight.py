@@ -87,6 +87,16 @@ class FakeLoader:
 
 
 class SchemaPreflightTests(unittest.TestCase):
+    def test_preflight_requires_the_production_enablement_migration(self):
+        self.assertEqual(
+            "0027_house_roll_call_production_enablement",
+            REQUIRED_MIGRATION_KEY,
+        )
+        self.assertEqual(
+            "0027_house_roll_call_production_enablement.sql",
+            REQUIRED_MIGRATION_FILE,
+        )
+
     def test_dry_run_skips_without_client(self):
         loader = FakeLoader(None)
 
@@ -223,6 +233,23 @@ class SchemaPreflightTests(unittest.TestCase):
             run_schema_preflight(loader)
 
         self.assertIn(REQUIRED_MIGRATION_KEY, str(raised.exception))
+
+    def test_predecessor_marker_cannot_satisfy_the_production_preflight(self):
+        client = FakeSupabase(
+            migration_markers={"0026_house_roll_call_provenance"}
+        )
+        loader = FakeLoader(client)
+
+        with self.assertRaises(SchemaPreflightError) as raised:
+            run_schema_preflight(loader)
+
+        self.assertIn(REQUIRED_MIGRATION_KEY, str(raised.exception))
+        marker_query = next(
+            check
+            for check in client.table_checks
+            if check[0] == "schema_migrations" and check[1] == "migration_key"
+        )
+        self.assertEqual(("schema_migrations", "migration_key", 1), marker_query)
 
     def test_uuid_v5_probe_failure_blocks_before_etl(self):
         loader = FakeLoader(

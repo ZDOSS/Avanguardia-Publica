@@ -319,15 +319,22 @@ The first Phase 4 source decision is
 runs, it approves the official House Clerk roll-call source and endpoint, links them to the
 verified `house-clerk` source system, and records the exact-ID, retention, attribution,
 health, and disable contract. `repo_fit = wired` refers only to the existing shadow
-extractor; authoritative vote writes remain disabled until a separate ingestion migration
-and PR advance scraper preflight. Migration
+extractor; at that migration, authoritative vote writes remained disabled. Migration
 `0026_house_roll_call_provenance.sql` adds private, source-record-keyed
 `legislative_roll_calls` and `person_roll_call_votes` tables plus the service-role-only
 `upsert_house_roll_call` RPC. One call writes one roll call and all exact-Bioguide member
 votes atomically; malformed identity keys or a conflicting prior official vote abort the
 whole call. The migration advances scraper preflight but records
 `'production_writes_enabled', false`, so storage readiness cannot turn ingestion on by
-itself.
+itself. Migration `0027_house_roll_call_production_enablement.sql` adds the monotonic
+wrapper, verifies the exact reviewed `0026` helper contract and zero reverse dependencies,
+commits a fail-closed same-OID public barrier, drains every pre-barrier client transaction,
+requires strict JSON-boolean gates and case-normalized Bioguide uniqueness, reduces service-role
+table/column access to read-only, and reserves the null-safe canonical House event-prefix
+namespace from unrelated profile-lifecycle RPCs.
+It advances scraper preflight and enables both reviewed database gates atomically. Exact
+retries compare stored parent, controlled metadata, and active child state in both directions;
+the separate runtime switch remains disabled by default.
 
 - source slug, name, agency, sub-agency, branch, category, source type, access level,
   auth type, credential provider, base URL, docs URL, formats, coverage, update cadence,
@@ -354,10 +361,11 @@ Use this intake order:
 
    The Senate XML source remains a bounded, read-only reconciliation shadow. The House
    Clerk extractor still publishes the same aggregate comparison metrics, but now retains
-   its one-fetch normalized snapshot for migration `0026`'s private atomic RPC. That House
-   path is disabled by default in both runtime configuration and the database and never
-   creates people or writes public/legacy vote rows. Both sources join exclusively through
-   stable roster IDs (Senate LIS IDs and House Bioguide IDs). Migration `0025` approved the
+   its one-fetch normalized snapshot for the guarded private atomic RPC. Migration `0027`
+   makes the database gate production-ready, while the House runtime path remains disabled
+   by default and never creates people or writes public/legacy vote rows. Both sources join
+   exclusively through stable roster IDs (Senate LIS IDs and House Bioguide IDs). Migration
+   `0025` approved the
    House source after five reviewed runs. Keep the Senate entry at `candidate` until its own
    observed coverage and conflict metrics support a separately reviewed decision.
 3. **Influence and organization graph after source records exist:** LDA.gov,
@@ -506,17 +514,32 @@ Every schema change in this plan must follow these rules:
 - End schema-changing migrations with `NOTIFY pgrst, 'reload schema';` when new PostgREST
   surfaces must be visible immediately.
 
-## Next PR
+## Immediate rollout
 
-Add a monotonic-observation guard to the House Clerk RPC in a separately reviewed forward
-migration so an older `fetched_at` cannot overwrite or retire a newer snapshot. Keep both
-write gates disabled until that hardening is applied and reviewed; then enable the database
-gate, opt the runtime switch in deliberately, and validate a bounded production ETL before
-expanding the window. Do not turn
-official facts into legacy `voting_records` or public rows directly, and do not mix the
-Senate source into the same PR. Keep Senate in read-only shadow mode until its coverage and
-mismatch review is complete. Broader candidate triage, including the FCC/GSA context pair
-seeded by `0024`, stays separate from this vote slice; historical identity-review queue
-cleanup is deferred to Phase 6. Do not ingest all 97 inventory rows as public facts, add
-unrelated source APIs, or expose a source-review UI until source review decisions are being
-recorded consistently.
+Migration `0027_house_roll_call_production_enablement.sql` is the cohesive House production
+rollout slice. It places a monotonic wrapper in front of the reviewed migration `0026` writer,
+verifies that helper's exact body/security/ACL/dependency contract, keeps it owner-only, reduces
+service-role table/column access to read-only, enforces case-normalized Bioguide uniqueness, and
+constrains the null-safe canonical House event-prefix namespace against generic profile-RPC
+collisions. It enables both strict JSON-boolean database gates in the same transaction.
+Same-timestamp success requires
+bidirectional stored-state and controlled-metadata equality.
+Scraper defaults remain disabled and scheduled workflows hard-disable House writes. Apply only
+migration `0027` with `ON_ERROR_STOP=1` and without external `--single-transaction`: its first
+checked-in transaction commits a fail-closed public barrier with both gates false and also closes
+direct service-role table/column mutations. Its second drains every client
+transaction that could have observed the old body, locks the House fact tables, and requires the
+reviewed zero-fact rollout baseline before installing the wrapper and atomically enabling the
+gates/marker. Then run the live schema
+preflight and select the manual workflow's `enabled` option for one bounded production ETL.
+Review the full `ETL_SUMMARY_JSON`, provenance counts, exact Bioguide ownership,
+retirement/reactivation, idempotent replay, and absence of legacy `voting_records` writes before
+a later reviewed workflow change enables scheduled House writes.
+
+Do not expand the bounded window or turn official facts into legacy/public rows during that
+validation. Keep the Senate source in read-only shadow mode until its coverage and mismatch
+review is complete. Broader candidate triage, including the FCC/GSA context pair seeded by
+`0024`, stays separate from this vote slice; historical identity-review queue cleanup is
+deferred to Phase 6. Do not ingest all 97 inventory rows as public facts, add unrelated source
+APIs, or expose a source-review UI until source review decisions are being recorded
+consistently.

@@ -85,17 +85,18 @@ The catalog source and endpoint remain `candidate` during this shadow phase. A l
 authoritative ingestion change must first review the observed metrics, record source
 provenance and retention/attribution decisions, and add a conflict-safe vote storage path.
 
-### House Clerk roll-call XML (approved; writes disabled)
+### House Clerk roll-call XML (approved; database-gated, runtime opt-in)
 
 The [Office of the Clerk's roll-call XML](https://clerk.house.gov/evs/) provides an
 official record for each House vote. The integration reads at most the 25 most recent
 current-session entries from the Clerk's public listing, matches a member only by the XML
 `name-id` Bioguide identifier already supplied by `congress-legislators`, and records
 aggregate coverage/comparison metrics in the ETL summary. The same fetch now retains an
-in-memory normalized snapshot and provenance digest for the private migration `0026` RPC,
-but that call requires an explicit runtime opt-in and a separate database write gate. It
-does **not** create people, write legacy `voting_records`, retain raw XML, or expose House
-Clerk facts in the public UI.
+in-memory normalized snapshot and provenance digest for the private House RPC. Migration
+`0027_house_roll_call_production_enablement.sql` enables the reviewed database gate only
+after installing a monotonic wrapper, while every scraper run still requires an explicit
+runtime opt-in. It does **not** create people, write legacy `voting_records`, retain raw XML,
+or expose House Clerk facts in the public UI.
 
 The Phase 4 source review observed five successful 25-roll-call shadow runs
 ([29673051187](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/29673051187),
@@ -132,17 +133,37 @@ this contract:
   the extractor to shadow-only operation without deleting provenance or identity mappings.
 
 Migration `0026_house_roll_call_provenance.sql` supplies the private storage and atomic
-service-role write contract for that future runtime path. It keeps normalized events and
-member votes in source-record-keyed tables rather than copying them into legacy public
+service-role write contract. It keeps normalized events and member votes in
+source-record-keyed tables rather than copying them into legacy public
 `voting_records`. Each roll call must resolve every member through one trusted, active
 Bioguide owner before the transaction commits, and an existing vote-cast conflict aborts
 the whole roll call. Bioguide comparison is case-normalized but still requires exactly one
 trusted owner. A later complete snapshot retires provenance for any omitted member vote
 without deleting its retained normalized fact. The RPC locks the catalog write-gate rows
-for the transaction, so a disable cannot race an in-flight commit. Raw XML remains
-unstored. `HOUSE_ROLL_CALL_WRITE_MODE` defaults to `disabled` in code, the example
-environment, and the nightly workflow. The database write gate remains disabled. A
-separately reviewed forward migration must first make observations monotonic so an older
-`fetched_at` cannot overwrite or retire rows from a newer snapshot. Only after that hardening
-may a rollout enable the database gate and opt the scraper in explicitly; either disabled gate
-preserves shadow-only operation and the last valid rows.
+for the transaction, so a disable cannot race an in-flight commit. Raw XML remains unstored.
+
+Migration `0027_house_roll_call_production_enablement.sql` preserves the migration `0026`
+writer as an owner-only helper and exposes a service-role wrapper that takes the same gate
+and per-roll-call locks before checking `fetched_at`. An older observation fails before the
+helper is reachable. An exact retry at the stored timestamp returns without mutation only
+when its official payload hash, source URL, exact JSONB argument fingerprint, mutable parent
+state and controlled metadata, trusted identity owners, and complete active member-vote set
+agree in both directions. Before cloning the writer, the migration verifies the exact reviewed
+`0026` body, owner, security mode, search path, return contract, effective execute grants, and
+zero reverse dependencies. It clones that body to an owner-only helper, replaces the same public
+function OID with a fail-closed barrier, closes direct service-role table/column mutations, and
+commits with both gates false. It then drains every client transaction that could have observed
+the old body, locks the House fact tables, and requires the reviewed zero-fact rollout baseline
+before final activation. It requires strict
+JSON-boolean gates and case-normalized Bioguide
+uniqueness, reduces service-role table/column access to read-only, and preserves only controlled
+security-definer mutation paths.
+A null-safe House event-prefix namespace
+constraint rejects malformed keys and collisions from the generic profile and retirement RPCs
+without reserving unrelated Clerk record families. The same transaction then enables both
+reviewed database gate rows.
+`HOUSE_ROLL_CALL_WRITE_MODE` nevertheless defaults to `disabled`
+in code, the example environment, and GitHub Actions. Manual runs may explicitly select
+`enabled` for bounded validation; scheduled runs force the disabled path regardless of
+repository variables. Disabling either the runtime control or database gates preserves
+shadow-only behavior and the last valid rows.

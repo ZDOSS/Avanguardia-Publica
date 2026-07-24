@@ -110,11 +110,18 @@ class HouseRollCallSourceReviewTests(unittest.TestCase):
             self.sql,
         )
 
-    def test_public_policy_matches_the_database_decision(self):
-        self.assertIn("House Clerk roll-call XML (approved; writes disabled)", self.policy)
+    def test_public_policy_preserves_the_review_decision_after_production_enablement(self):
+        self.assertIn(
+            "House Clerk roll-call XML (approved; database-gated, runtime opt-in)",
+            self.policy,
+        )
         self.assertIn("53,996", self.policy)
         self.assertIn("zero unmatched Bioguide IDs", self.policy)
         self.assertIn("does **not** enable production vote writes", self.policy)
+        self.assertIn(
+            "`HOUSE_ROLL_CALL_WRITE_MODE` nevertheless defaults to `disabled`",
+            self.policy,
+        )
         self.assertIn("Raw XML is not retained", self.policy)
         self.assertIn("Office of the Clerk, U.S. House of Representatives", self.policy)
 
