@@ -33,6 +33,7 @@ _GOVTRACK_VOTE_BASE = "https://www.govtrack.us/congress/votes"
 _GOVTRACK_VOTER_API = "https://www.govtrack.us/api/v2/vote_voter/"
 _TIMEOUT_SECONDS = 15
 _RETRY_BACKOFF_SECONDS = 0.5
+_GOVTRACK_RETRY_BACKOFF_SECONDS = (1.0, 2.0)
 _MAX_CONSECUTIVE_FAILURES = 3
 _RECENT_ROLL_CALL_LIMIT = 25
 _LIST_PAGE_SIZE = 10
@@ -514,8 +515,11 @@ def _fetch_parsed(
     *,
     health: SourceHealthTracker | None,
     state: _FetchState,
+    request_stage: str = "public_document",
+    request_key: str | None = None,
+    retry_backoffs: tuple[float, ...] = (_RETRY_BACKOFF_SECONDS,),
 ) -> _T | None:
-    """Fetch one public document with one retry and source-health accounting."""
+    """Fetch one public document with bounded retries and health accounting."""
     if state.breaker_open or (health and health.breaker_tripped):
         if health:
             health.record_skip("breaker_open")
@@ -527,7 +531,8 @@ def _fetch_parsed(
     failure_reason = "request_error"
     hard_failure = False
 
-    for attempt in range(2):
+    max_attempts = len(retry_backoffs) + 1
+    for attempt in range(max_attempts):
         try:
             response = requests.get(
                 url,
@@ -565,6 +570,15 @@ def _fetch_parsed(
                         health.record_success(time.monotonic() - started_at)
                     return parsed
         except requests.Timeout:
+            logger.warning(
+                "[House roll-call reconciliation] Timeout "
+                "stage=%s key=%s attempt=%s/%s url=%s",
+                request_stage,
+                request_key or "none",
+                attempt + 1,
+                max_attempts,
+                url,
+            )
             failure_reason = "timeout"
             retryable = True
         except requests.RequestException as exc:
@@ -574,8 +588,8 @@ def _fetch_parsed(
             failure_reason = "request_error"
             retryable = True
 
-        if retryable and attempt == 0 and not hard_failure:
-            time.sleep(_RETRY_BACKOFF_SECONDS)
+        if retryable and attempt < len(retry_backoffs) and not hard_failure:
+            time.sleep(retry_backoffs[attempt])
             continue
         break
 
@@ -623,6 +637,9 @@ def _fetch_govtrack_roll_call_votes(
         lambda document: _parse_govtrack_vote_id(document.text),
         health=health,
         state=state,
+        request_stage="govtrack_roll_page",
+        request_key=roll_call.reconciliation_key,
+        retry_backoffs=_GOVTRACK_RETRY_BACKOFF_SECONDS,
     )
     if vote_id is None:
         return {}
@@ -638,6 +655,9 @@ def _fetch_govtrack_roll_call_votes(
             ),
             health=health,
             state=state,
+            request_stage="govtrack_voter_page",
+            request_key=roll_call.reconciliation_key,
+            retry_backoffs=_GOVTRACK_RETRY_BACKOFF_SECONDS,
         )
         or {}
     )
