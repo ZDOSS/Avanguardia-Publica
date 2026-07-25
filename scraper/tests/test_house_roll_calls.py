@@ -294,6 +294,114 @@ class HouseRollCallShadowTests(unittest.TestCase):
         self.assertEqual(0, report.govtrack_vote_not_observed)
         self.assertEqual((), report.authoritative_write_block_reasons(health))
 
+    def test_govtrack_roll_page_timeouts_recover_on_bounded_third_attempt(self):
+        health = SourceHealthTracker("house_roll_call_shadow", min_attempts_for_rate=3)
+        govtrack_vote = {
+            "congress": 119,
+            "chamber": "house",
+            "session": "2026",
+            "number": 2,
+        }
+        govtrack_voters = {
+            "meta": {"limit": 600, "offset": 0, "total_count": 2},
+            "objects": [
+                {
+                    "person": {"bioguideid": "A000001"},
+                    "option": {"value": "Yea", "vote": 128911},
+                    "vote": govtrack_vote,
+                },
+                {
+                    "person": {"bioguideid": "B000002"},
+                    "option": {"value": "Nay", "vote": 128911},
+                    "vote": govtrack_vote,
+                },
+            ],
+        }
+
+        with patch(
+            "extractors.house_roll_calls.requests.get",
+            side_effect=[
+                _Response(text=_listing(2)),
+                _Response(text=_writable_roll_call_xml(2)),
+                house_roll_calls.requests.Timeout(),
+                house_roll_calls.requests.Timeout(),
+                _Response(text='<h1 data-vote-id="128911">Vote</h1>'),
+                _Response(text=json.dumps(govtrack_voters)),
+            ],
+        ) as mock_get, patch(
+            "extractors.house_roll_calls.time.sleep"
+        ) as mock_sleep, self.assertLogs(
+            "extractors.house_roll_calls", level="WARNING"
+        ) as captured_logs:
+            report = house_roll_calls.get_recent_house_roll_call_shadow(
+                {"A000001", "B000002"},
+                limit=1,
+                health=health,
+                today=date(2026, 7, 14),
+            )
+
+        self.assertEqual(6, mock_get.call_count)
+        self.assertEqual(
+            [1.0, 2.0],
+            [entry.args[0] for entry in mock_sleep.call_args_list],
+        )
+        self.assertEqual("healthy", health.status)
+        self.assertEqual(4, health.attempts)
+        self.assertEqual(4, health.successes)
+        self.assertEqual(2, report.govtrack_vote_cast_matches)
+        self.assertEqual(0, report.govtrack_vote_not_observed)
+        self.assertEqual((), report.authoritative_write_block_reasons(health))
+        joined_logs = "\n".join(captured_logs.output)
+        self.assertIn("stage=govtrack_roll_page", joined_logs)
+        self.assertIn("key=house:119:2026:2", joined_logs)
+        self.assertIn("attempt=1/3", joined_logs)
+        self.assertIn("attempt=2/3", joined_logs)
+
+    def test_govtrack_voter_timeouts_stop_after_three_and_block_write(self):
+        health = SourceHealthTracker("house_roll_call_shadow", min_attempts_for_rate=3)
+
+        with patch(
+            "extractors.house_roll_calls.requests.get",
+            side_effect=[
+                _Response(text=_listing(2)),
+                _Response(text=_writable_roll_call_xml(2)),
+                _Response(text='<h1 data-vote-id="128911">Vote</h1>'),
+                house_roll_calls.requests.Timeout(),
+                house_roll_calls.requests.Timeout(),
+                house_roll_calls.requests.Timeout(),
+            ],
+        ) as mock_get, patch(
+            "extractors.house_roll_calls.time.sleep"
+        ) as mock_sleep, self.assertLogs(
+            "extractors.house_roll_calls", level="WARNING"
+        ) as captured_logs:
+            report = house_roll_calls.get_recent_house_roll_call_shadow(
+                {"A000001", "B000002"},
+                limit=1,
+                health=health,
+                today=date(2026, 7, 14),
+            )
+
+        self.assertEqual(6, mock_get.call_count)
+        self.assertEqual(
+            [1.0, 2.0],
+            [entry.args[0] for entry in mock_sleep.call_args_list],
+        )
+        self.assertEqual(4, health.attempts)
+        self.assertEqual(3, health.successes)
+        self.assertEqual(1, health.failures)
+        self.assertEqual(1, health.failure_reasons["timeout"])
+        self.assertTrue(report.snapshot_complete)
+        self.assertEqual(0, report.govtrack_vote_cast_matches)
+        self.assertEqual(2, report.govtrack_vote_not_observed)
+        block_reasons = report.authoritative_write_block_reasons(health)
+        self.assertIn("reconciliation_not_observed", block_reasons)
+        self.assertIn("source_health_not_healthy", block_reasons)
+        joined_logs = "\n".join(captured_logs.output)
+        self.assertIn("stage=govtrack_voter_page", joined_logs)
+        self.assertIn("key=house:119:2026:2", joined_logs)
+        self.assertIn("attempt=3/3", joined_logs)
+
     def test_govtrack_voter_parser_rejects_noncanonical_pagination_metadata(self):
         voter = {
             "person": {"bioguideid": "A000001"},
