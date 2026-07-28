@@ -15,16 +15,6 @@ Primary references:
 - Supabase HTTPS proxy: https://supabase.com/docs/guides/self-hosting/self-hosted-proxy-https
 - Docker Engine on Ubuntu: https://docs.docker.com/engine/install/ubuntu/
 
-## Current Post-Migration Operations
-
-This document preserves the original migration procedure and its `/opt/avanguardia-supabase`
-staging paths. Do not replay it for routine production maintenance. The live deployment now
-runs from `/home/codex/avanguardia-supabase/supabase-project`, and the current Ubuntu
-workstation connects through the Tailscale-backed `vps-db-01` SSH alias. Follow
-[`ubuntu_workstation_and_vps_access.md`](ubuntu_workstation_and_vps_access.md) for the current
-access contract, verification fingerprints, Compose commands, and replacement-workstation
-procedure.
-
 ## Placeholders
 
 Replace these before running commands:

@@ -37,9 +37,7 @@ profile spokes now hydrate from the browser once the page exists. Read
 See [`spec.md`](spec.md) for the full product/technical spec,
 [`docs/canonical_data_and_analytics_plan.md`](docs/canonical_data_and_analytics_plan.md)
 for the active remaining roadmap, and [`AGENTS.md`](AGENTS.md) for architecture handoff
-notes. Maintainers using the current Ubuntu workstation should also read
-[`docs/ubuntu_workstation_and_vps_access.md`](docs/ubuntu_workstation_and_vps_access.md)
-before accessing the production VPS.
+notes.
 
 ---
 
