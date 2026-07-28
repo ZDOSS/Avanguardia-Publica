@@ -524,22 +524,22 @@ constrains the null-safe canonical House event-prefix namespace against generic 
 collisions. It enables both strict JSON-boolean database gates in the same transaction.
 Same-timestamp success requires
 bidirectional stored-state and controlled-metadata equality.
-Scraper defaults remain disabled and scheduled workflows hard-disable House writes. Apply only
-migration `0027` with `ON_ERROR_STOP=1` and without external `--single-transaction`: its first
-checked-in transaction commits a fail-closed public barrier with both gates false and also closes
-direct service-role table/column mutations. Its second drains every client
-transaction that could have observed the old body, locks the House fact tables, and requires the
-reviewed zero-fact rollout baseline before installing the wrapper and atomically enabling the
-gates/marker. Then run the live schema
-preflight and select the manual workflow's `enabled` option for one bounded production ETL.
-Review the full `ETL_SUMMARY_JSON`, provenance counts, exact Bioguide ownership,
-retirement/reactivation, idempotent replay, and absence of legacy `voting_records` writes before
-a later reviewed workflow change enables scheduled House writes.
 
-Do not expand the bounded window or turn official facts into legacy/public rows during that
-validation. Keep the Senate source in read-only shadow mode until its coverage and mismatch
-review is complete. Broader candidate triage, including the FCC/GSA context pair seeded by
-`0024`, stays separate from this vote slice; historical identity-review queue cleanup is
-deferred to Phase 6. Do not ingest all 97 inventory rows as public facts, add unrelated source
-APIs, or expose a source-review UI until source review decisions are being recorded
-consistently.
+The migration and bounded production validation are complete. The July 25, 2026 enabled canary
+passed schema preflight and atomically wrote 25 roll calls with 10,855 exact-Bioguide member
+votes. The post-canary audit confirmed the migration marker and gates, provenance and normalized
+row counts, exact trusted Bioguide ownership, valid retirement state, service-role direct-DML
+closure, an exact non-mutating replay, and no canonical House keys in legacy `voting_records`.
+
+The reviewed follow-up workflow enables the same bounded path for nightly `schedule` events.
+Manual dispatches retain their explicit `disabled`/`enabled` choice with a disabled default, code
+and example-environment defaults remain disabled, and unknown events fail closed. Continue to
+review the first scheduled enabled runs for complete reconciliation, healthy write metrics,
+expected provenance counts, and zero legacy/public House writes before expanding this slice.
+
+Do not expand the bounded window or turn official facts into legacy/public rows during this
+rollout. Keep the Senate source in read-only shadow mode until its coverage and mismatch review
+is complete. Broader candidate triage, including the FCC/GSA context pair seeded by `0024`,
+stays separate from this vote slice; historical identity-review queue cleanup is deferred to
+Phase 6. Do not ingest all 97 inventory rows as public facts, add unrelated source APIs, or
+expose a source-review UI until source review decisions are being recorded consistently.

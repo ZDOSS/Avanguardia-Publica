@@ -162,8 +162,9 @@ A null-safe House event-prefix namespace
 constraint rejects malformed keys and collisions from the generic profile and retirement RPCs
 without reserving unrelated Clerk record families. The same transaction then enables both
 reviewed database gate rows.
-`HOUSE_ROLL_CALL_WRITE_MODE` nevertheless defaults to `disabled`
-in code, the example environment, and GitHub Actions. Manual runs may explicitly select
-`enabled` for bounded validation; scheduled runs force the disabled path regardless of
-repository variables. Disabling either the runtime control or database gates preserves
+`HOUSE_ROLL_CALL_WRITE_MODE` nevertheless defaults to `disabled` in code and the example
+environment. After the successful bounded production canary and post-canary database audit, the
+GitHub Actions nightly schedule explicitly selects `enabled` for the same bounded path. Manual
+runs retain a required `disabled`/`enabled` choice whose default is `disabled`, and unrecognized
+events fail closed. Disabling either the runtime control or either database gate preserves
 shadow-only behavior and the last valid rows.

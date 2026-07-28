@@ -350,7 +350,7 @@ class HouseRollCallProductionEnablementMigrationTests(unittest.TestCase):
         self.assertNotIn("senate", self.sql.lower())
         self.assertTrue(self.sql.rstrip().endswith("COMMIT;"))
 
-    def test_tracked_policy_matches_database_enabled_runtime_opt_in_rollout(self):
+    def test_tracked_policy_matches_reviewed_scheduled_rollout(self):
         for document in (self.readme, self.roadmap, self.policy):
             self.assertIn(
                 "0027_house_roll_call_production_enablement.sql",
@@ -363,14 +363,15 @@ class HouseRollCallProductionEnablementMigrationTests(unittest.TestCase):
         self.assertIn("reviewed database gate rows", self.policy)
         self.assertIn("agree in both directions", self.policy)
         self.assertIn("table/column access to read-only", self.policy)
-        self.assertIn("bounded production ETL", self.roadmap)
+        self.assertIn("bounded production validation are complete", self.roadmap)
+        self.assertIn("exact non-mutating replay", self.roadmap)
+        self.assertIn("nightly `schedule` events", self.roadmap)
         self.assertIn("table/column access to read-only", self.roadmap)
         self.assertNotIn("quiesce", self.readme.lower())
         self.assertNotIn("quiesce", self.roadmap.lower())
-        for document in (self.readme, self.roadmap):
-            self.assertIn("fail-closed", document)
-            self.assertIn("without", document.lower())
-            self.assertIn("--single-transaction", document)
+        self.assertIn("fail-closed", self.readme)
+        self.assertIn("without", self.readme.lower())
+        self.assertIn("--single-transaction", self.readme)
 
 
 if __name__ == "__main__":

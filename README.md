@@ -182,11 +182,12 @@ table/column access to read-only, and preserves only controlled security-definer
 A null-safe House event-prefix namespace constraint
 also prevents the unrelated generic profile and retirement RPCs from colliding with House
 provenance. The migration then enables the reviewed source-catalog database gates atomically.
-Runtime writes
-still default to `disabled` in code, the example environment, and GitHub Actions. A manual
-workflow run can deliberately choose `enabled` for bounded validation; scheduled runs force the
-hard-disabled path regardless of repository variables. This path never writes legacy
-`voting_records`.
+Runtime writes still default to `disabled` in code and the example environment. After the
+successful bounded production canary and post-canary database audit, the GitHub Actions nightly
+schedule explicitly passes `enabled` for the same bounded write path. Manual workflow runs keep
+their required `disabled`/`enabled` choice with `disabled` as the default, and any unrecognized
+event fails closed. The database gates remain independently disableable. This path never writes
+legacy `voting_records`.
 
 Apply migration `0027` with `ON_ERROR_STOP=1` and without psql's external
 `--single-transaction` option. Its two checked-in transactions are the database-enforced cutover:
