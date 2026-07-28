@@ -90,7 +90,7 @@ class HouseRollCallRuntimeTests(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 house_roll_call_write_mode({"HOUSE_ROLL_CALL_WRITE_MODE": invalid})
 
-    def test_checked_in_runtime_configuration_supports_bounded_manual_opt_in(self):
+    def test_checked_in_runtime_configuration_enables_reviewed_schedule(self):
         workflow = (_REPO_ROOT / ".github" / "workflows" / "scraper.yml").read_text(
             encoding="utf-8"
         )
@@ -110,6 +110,7 @@ class HouseRollCallRuntimeTests(unittest.TestCase):
         self.assertIsNotNone(expression)
         self.assertEqual(
             expression.group(1),
+            "github.event_name == 'schedule' && 'enabled' || "
             "github.event_name == 'workflow_dispatch' "
             "&& inputs.house_roll_call_write_mode || 'disabled'",
         )
@@ -117,14 +118,17 @@ class HouseRollCallRuntimeTests(unittest.TestCase):
         self.assertIn("HOUSE_ROLL_CALL_WRITE_MODE=disabled", example_env)
 
         def resolve(event_name, manual_input, _repository_variable):
-            return (
-                manual_input if event_name == "workflow_dispatch" else None
-            ) or "disabled"
+            if event_name == "schedule":
+                return "enabled"
+            if event_name == "workflow_dispatch":
+                return manual_input or "disabled"
+            return "disabled"
 
         self.assertEqual(resolve("workflow_dispatch", "disabled", "enabled"), "disabled")
         self.assertEqual(resolve("workflow_dispatch", "enabled", "disabled"), "enabled")
-        self.assertEqual(resolve("schedule", None, "disabled"), "disabled")
-        self.assertEqual(resolve("schedule", None, "enabled"), "disabled")
+        self.assertEqual(resolve("schedule", None, "disabled"), "enabled")
+        self.assertEqual(resolve("schedule", None, "enabled"), "enabled")
+        self.assertEqual(resolve("push", None, "enabled"), "disabled")
 
     def test_disabled_mode_never_calls_the_loader(self):
         loader = _Loader()
