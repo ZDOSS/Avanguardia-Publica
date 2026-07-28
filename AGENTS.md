@@ -71,10 +71,31 @@ When contributing to this project, you must adhere strictly to these rules:
 2. **Data Integrity & Labeling:** You are permitted to use unconfirmed data sources (e.g. for politician headers) *only* if the frontend explicitly and visibly labels them as "unconfirmed".
 3. **Classification Data First:** The directory should prefer normalized `politicians.government_level`, `government_branch`, `office_type`, and `jurisdiction` values. The keyword classifier in `DirectoryClient.tsx` is now only a compatibility fallback for rows that have not been migrated/backfilled; if you edit it, State & Federal rules must still sit above generic Local rules to avoid substring capturing errors.
 4. **DCO Compliance:** Every single commit requires a Developer Certificate of Origin. You **must** append `--signoff` or `-s` to every `git commit` command (e.g., `git commit --signoff -m "message"`).
-5. **Codex PR review feedback:** When asked to check or fix PR review feedback, start with GitHub CLI from PowerShell: `gh pr view <number> --json title,body,comments,reviews,latestReviews,files,url,mergeStateStatus,changedFiles` and `gh pr checks <number>`. Greptile's actionable issues are usually embedded in the PR body. Do not use browser automation, the Greptile connector, or UI inspection unless `gh` cannot access the public PR or the user explicitly asks for that route.
-6. **Codex Windows Git workaround:** If normal sandboxed Git fails on `.git` lock files, use the documented Codex-owned worktree/clone flow such as `.codex-pr-<task>` for branch work instead of repeatedly retrying the locked main checkout. Git/GitHub CLI commands may still need the approved `git` or `gh` outside-sandbox command path for network/auth operations, but the repo workflow should stay centered on the Codex-owned worktree workaround.
-7. **Local agent artifacts:** Do not leave Codex/agent scratch files visible as unstaged changes. Add purely local scratch patterns to `.git/info/exclude` when they should stay local, or add narrow project-safe patterns to `.gitignore` only when they should apply for everyone. Never include private key material such as `.codex-local-gnupg/` in a commit.
-8. **Migrations are applied MANUALLY — there is no runner.** Nothing in CI applies
+5. **Codex PR review feedback:** When asked to check or fix PR review feedback, start with
+   GitHub CLI from the current Ubuntu repository shell:
+   `gh pr view <number> --json title,body,comments,reviews,latestReviews,files,url,mergeStateStatus,changedFiles`
+   and `gh pr checks <number>`. Greptile's actionable issues are usually embedded in the PR
+   body. Do not use browser automation, the Greptile connector, or UI inspection unless `gh`
+   cannot access the public PR or the user explicitly asks for that route.
+6. **Current Ubuntu Git workflow:** Normal Git writes are supported on this checkout; the
+   retired Windows `.git` ACL workaround is not the default workflow. For new work, fetch the
+   base and create the task branch directly from `origin/main` without synchronizing local
+   `main` unless the active goal authorizes that synchronization. If Git reports a lock,
+   identify any live Git process before doing anything else; do not repeatedly retry and do
+   not delete a lock merely because it exists. Use a task-specific Codex-owned worktree only
+   when the normal checkout is genuinely unavailable.
+7. **Current VPS access:** From the Ubuntu development workstation, use the Tailscale-backed
+   alias `ssh vps-db-01`. It resolves to the `codex` account and uses the dedicated local
+   identity `~/.ssh/vps-db-01_ed25519`; do not copy or use the retired Windows bootstrap
+   private key. The expected VPS ED25519 host fingerprint is
+   `SHA256:IDOrjHzun+kk2XFs0ujolzToI2XYQ6ypOMj6rbV5CcQ`, and the current workstation public
+   key fingerprint is `SHA256:O6SCG0+E4d+hDDvS1bWWaqe0Kne0gXth59IiD/Lu7Fk`. Keep all key
+   material outside the repository, never print private keys, and use `BatchMode=yes` for
+   non-interactive checks so an unexpected password fallback fails closed. The live Compose
+   project is `/home/codex/avanguardia-supabase/supabase-project`. See
+   `docs/ubuntu_workstation_and_vps_access.md` before changing access or operating the VPS.
+8. **Local agent artifacts:** Do not leave Codex/agent scratch files visible as unstaged changes. Add purely local scratch patterns to `.git/info/exclude` when they should stay local, or add narrow project-safe patterns to `.gitignore` only when they should apply for everyone. Never include private key material such as `.codex-local-gnupg/` in a commit.
+9. **Migrations are applied MANUALLY — there is no runner.** Nothing in CI applies
    `schema.sql` or `migrations/*.sql` to Supabase; `scraper.yml` only runs the ETL and
    `nextjs.yml` only builds. When you add a column/table/RPC in a migration, you (or the
    maintainer) must run it in the Supabase SQL editor, or the live DB silently drifts from
@@ -86,8 +107,8 @@ When contributing to this project, you must adhere strictly to these rules:
    migrations such as `0011`, `0015`, and `0016` preserve decisions whose meaning changes
    after later migrations. Add a new repair migration instead. See README → "Applying
    migrations".
-9. **Agent Configuration:** If you require additional capabilities to parse data, generate code, or analyze specific schemas, you must explicitly look up and add the appropriate agent skills or rules. We use non-frontier models for some tasks which need an extra push, so always configure the required skills before executing complex workflows.
-10. **Goal-scoped PR authority and `main` synchronization:** This is a limited permission the
+10. **Agent Configuration:** If you require additional capabilities to parse data, generate code, or analyze specific schemas, you must explicitly look up and add the appropriate agent skills or rules. We use non-frontier models for some tasks which need an extra push, so always configure the required skills before executing complex workflows.
+11. **Goal-scoped PR authority and `main` synchronization:** This is a limited permission the
     user may explicitly grant for an active user-set goal; it is never a general agent
     permission.
     - Before starting new work, check for open PRs. Keep exactly one PR open for that goal and
