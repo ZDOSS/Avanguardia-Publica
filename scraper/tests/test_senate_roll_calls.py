@@ -1,5 +1,6 @@
 import unittest
 from datetime import date
+import json
 from unittest.mock import patch
 
 from extractors import senate_roll_calls
@@ -40,6 +41,37 @@ def _roll_call_xml(vote_number: int, first_vote: str) -> str:
     <member><vote_cast>Not Voting</vote_cast></member>
   </members>
 </roll_call_vote>"""
+
+
+def _govtrack_voters(vote_number: int, vote_id: int = 128911) -> str:
+    vote = {
+        "congress": 119,
+        "chamber": "senate",
+        "session": "2026",
+        "number": vote_number,
+    }
+    return json.dumps(
+        {
+            "meta": {"limit": 600, "offset": 0, "total_count": 3},
+            "objects": [
+                {
+                    "person": {"bioguideid": "A000001"},
+                    "option": {"value": "Yea", "vote": vote_id},
+                    "vote": vote,
+                },
+                {
+                    "person": {"bioguideid": "B000002"},
+                    "option": {"value": "Nay", "vote": vote_id},
+                    "vote": vote,
+                },
+                {
+                    "person": {"bioguideid": "Z000001"},
+                    "option": {"value": "Present", "vote": vote_id},
+                    "vote": vote,
+                },
+            ],
+        }
+    )
 
 
 class _Response:
@@ -119,6 +151,99 @@ class SenateRollCallShadowTests(unittest.TestCase):
             1,
             report.counters()["senate_roll_call_shadow_unmatched_lis_ids"],
         )
+
+    def test_shadow_uses_complete_vote_centric_snapshot_and_historical_crosswalk(self):
+        menu = '<a href="vote_119_2_00002.htm">2</a>'
+        health = SourceHealthTracker(
+            "senate_roll_call_shadow", min_attempts_for_rate=3
+        )
+
+        with patch(
+            "extractors.senate_roll_calls.requests.get",
+            side_effect=[
+                _Response(text=_HISTORICAL_YAML),
+                _Response(text=menu),
+                _Response(text=_roll_call_xml(2, "Yea")),
+                _Response(text='<main data-vote-id="128911">Vote</main>'),
+                _Response(text=_govtrack_voters(2)),
+            ],
+        ) as mock_get:
+            report = senate_roll_calls.get_recent_senate_roll_call_shadow(
+                {"S001", "S002"},
+                bioguide_ids_by_lis_id={
+                    "S001": "A000001",
+                    "S002": "B000002",
+                },
+                limit=1,
+                health=health,
+                today=date(2026, 7, 13),
+            )
+
+        self.assertEqual(5, mock_get.call_count)
+        self.assertEqual(
+            "https://www.govtrack.us/congress/votes/119-2026/s2",
+            mock_get.call_args_list[3].args[0],
+        )
+        self.assertEqual(
+            "https://www.govtrack.us/api/v2/vote_voter/?vote=128911&limit=600",
+            mock_get.call_args_list[4].args[0],
+        )
+        self.assertEqual("healthy", health.status)
+        self.assertEqual(5, health.attempts)
+        self.assertEqual(5, health.successes)
+        self.assertEqual(1, report.roll_calls_fetched)
+        self.assertEqual(3, report.exact_lis_matches)
+        self.assertEqual(1, report.historical_lis_ids_loaded)
+        self.assertEqual(0, report.member_votes_missing_bioguide_crosswalk)
+        self.assertEqual(1, report.govtrack_roll_calls_reconciled)
+        self.assertEqual(0, report.govtrack_roll_calls_not_observed)
+        self.assertEqual(3, report.govtrack_vote_cast_matches)
+        self.assertEqual(0, report.govtrack_vote_cast_mismatches)
+        self.assertEqual(0, report.govtrack_vote_not_observed)
+
+    def test_shadow_reports_newer_official_vote_missing_from_govtrack_as_lag(self):
+        menu = '<a href="vote_119_2_00002.htm">2</a>'
+        health = SourceHealthTracker(
+            "senate_roll_call_shadow", min_attempts_for_rate=3
+        )
+
+        with patch(
+            "extractors.senate_roll_calls.requests.get",
+            side_effect=[
+                _Response(text=_HISTORICAL_YAML),
+                _Response(text=menu),
+                _Response(text=_roll_call_xml(2, "Yea")),
+                _Response(status_code=404),
+            ],
+        ):
+            report = senate_roll_calls.get_recent_senate_roll_call_shadow(
+                {"S001", "S002"},
+                bioguide_ids_by_lis_id={
+                    "S001": "A000001",
+                    "S002": "B000002",
+                },
+                limit=1,
+                health=health,
+                today=date(2026, 7, 13),
+            )
+
+        self.assertEqual("degraded", health.status)
+        self.assertEqual(4, health.attempts)
+        self.assertEqual(3, health.successes)
+        self.assertEqual(0, health.failures)
+        self.assertEqual(1, health.skips)
+        self.assertEqual(
+            1,
+            health.skip_reasons["govtrack_roll_call_not_available"],
+        )
+        self.assertEqual(0, report.govtrack_roll_calls_reconciled)
+        self.assertEqual(1, report.govtrack_roll_calls_not_observed)
+        self.assertEqual(3, report.govtrack_vote_not_observed)
+        self.assertEqual(
+            3,
+            report.govtrack_vote_not_observed_unavailable_roll_call,
+        )
+        self.assertEqual(0, report.govtrack_vote_not_observed_with_snapshot)
 
     def test_shadow_returns_early_without_lis_join_keys(self):
         health = SourceHealthTracker("senate_roll_call_shadow", min_attempts_for_rate=3)
@@ -286,6 +411,55 @@ class SenateRollCallShadowTests(unittest.TestCase):
             {"senate:119:2026:192": "Yea"},
             senate_roll_calls.govtrack_senate_vote_casts(records),
         )
+
+    def test_govtrack_voter_parser_rejects_incomplete_or_wrong_vote(self):
+        incomplete = json.loads(_govtrack_voters(2))
+        incomplete["meta"]["total_count"] = 2
+        with self.assertRaisesRegex(ValueError, "pagination"):
+            senate_roll_calls._parse_govtrack_voters(
+                json.dumps(incomplete),
+                expected_vote_id=128911,
+                expected_congress=119,
+                expected_year=2026,
+                expected_vote_number=2,
+            )
+
+        wrong_vote = json.loads(_govtrack_voters(2))
+        wrong_vote["objects"][0]["vote"]["chamber"] = "house"
+        with self.assertRaisesRegex(ValueError, "requested vote"):
+            senate_roll_calls._parse_govtrack_voters(
+                json.dumps(wrong_vote),
+                expected_vote_id=128911,
+                expected_congress=119,
+                expected_year=2026,
+                expected_vote_number=2,
+            )
+
+    def test_govtrack_voter_parser_preserves_nonstandard_senate_casts(self):
+        payload = json.loads(_govtrack_voters(2))
+        payload["objects"][0]["option"]["value"] = "Guilty"
+
+        parsed = senate_roll_calls._parse_govtrack_voters(
+            json.dumps(payload),
+            expected_vote_id=128911,
+            expected_congress=119,
+            expected_year=2026,
+            expected_vote_number=2,
+        )
+
+        self.assertEqual("Guilty", parsed["A000001"])
+
+    def test_govtrack_vote_page_requires_exactly_one_internal_vote_id(self):
+        self.assertEqual(
+            128911,
+            senate_roll_calls._parse_govtrack_vote_id(
+                '<main data-vote-id="128911">Vote</main>'
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            senate_roll_calls._parse_govtrack_vote_id(
+                '<i data-vote-id="1"></i><i data-vote-id="2"></i>'
+            )
 
     def test_roll_call_parser_rejects_a_response_for_the_wrong_vote(self):
         with self.assertRaises(ValueError):

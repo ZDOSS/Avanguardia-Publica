@@ -537,6 +537,19 @@ and example-environment defaults remain disabled, and unknown events fail closed
 review the first scheduled enabled runs for complete reconciliation, healthy write metrics,
 expected provenance counts, and zero legacy/public House writes before expanding this slice.
 
+The July 28, 2026 enabled validation run also provided the next Senate shadow review point:
+2,498 official member votes matched trusted LIS identities, 2,491 matched the bounded GovTrack
+comparison, seven were not observed, and none conflicted. An aggregate-only follow-up traced
+six gaps to one historical senator whom the identity roster recognized but the active-only
+GovTrack profile crawl never fetched; the seventh resolved on a later read, consistent with
+publication timing. The current read-only follow-up uses complete vote-centric GovTrack
+snapshots and the trusted active-plus-historical LIS-to-Bioguide crosswalk, while reporting a
+not-yet-published GovTrack event separately from member-level absence. Its first bounded live
+smoke reconciled all 2,398 member votes across the 24 GovTrack-published events with zero
+conflicts, missing crosswalks, or member-level gaps; the one unavailable newest event accounted
+for the remaining 100 official rows. Keep the Senate catalog entry at `candidate` until repeated
+runs of this corrected comparison support its own reviewed source decision.
+
 Do not expand the bounded window or turn official facts into legacy/public rows during this
 rollout. Keep the Senate source in read-only shadow mode until its coverage and mismatch review
 is complete. Broader candidate triage, including the FCC/GSA context pair seeded by `0024`,

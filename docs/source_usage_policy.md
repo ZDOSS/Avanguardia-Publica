@@ -78,8 +78,14 @@ The U.S. Senate publishes an [XML record for each roll call](https://www.senate.
 through the Senate Legislative Information System. The initial integration is deliberately read-only: it fetches at most
 the 25 most recent current-session roll calls, matches a member only by the stable
 `lis_member_id` crosswalk already supplied by `congress-legislators`, and records aggregate
-coverage/comparison metrics in the ETL summary. It does **not** create people, write vote
-rows, retain raw XML, or expose Senate XML facts in the public UI.
+coverage/comparison metrics in the ETL summary. GovTrack comparison is vote-centric: each
+available event supplies one complete voter snapshot, joined back to the official LIS member
+only through the same roster's trusted LIS-to-Bioguide crosswalk, including historical
+senators in the bounded window. A newer official event that GovTrack has not published yet is
+reported separately at roll-call and member-vote level instead of looking like a cast
+conflict. The path remains bounded to one historical roster, one menu, 25 official XML
+documents, and at most two GovTrack documents per selected roll call. It does **not** create
+people, write vote rows, retain raw XML, or expose Senate XML facts in the public UI.
 
 The catalog source and endpoint remain `candidate` during this shadow phase. A later
 authoritative ingestion change must first review the observed metrics, record source
