@@ -51,8 +51,9 @@ def build_source_health_trackers(summary: ETLRunSummary) -> dict:
         "govtrack": summary.source_tracker(
             "govtrack", min_attempts_for_rate=10, affects_run=False
         ),
-        # Read-only reconciliation against an official Senate source. It cannot
-        # mutate canonical data or voting_records, so a temporary source outage
+        # Read-only reconciliation against official Senate XML plus bounded,
+        # vote-centric GovTrack comparison snapshots. It cannot mutate canonical
+        # data or voting_records, so a temporary source outage or publication lag
         # remains observable without invalidating the ETL run.
         "senate_roll_call_shadow": summary.source_tracker(
             "senate_roll_call_shadow", min_attempts_for_rate=3, affects_run=False
