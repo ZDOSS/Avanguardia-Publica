@@ -22,6 +22,14 @@ on:
         options:
           - 'disabled'
           - 'enabled'
+      senate_roll_call_write_mode:
+        description: 'Official Senate roll-call writes for this bounded manual run'
+        required: true
+        type: choice
+        default: 'disabled'
+        options:
+          - 'disabled'
+          - 'enabled'
 
 permissions:
   contents: read
@@ -71,6 +79,9 @@ jobs:
           # successful production canary. Manual dispatches keep an explicit choice;
           # any other event fails closed.
           HOUSE_ROLL_CALL_WRITE_MODE: ${{ github.event_name == 'schedule' && 'enabled' || github.event_name == 'workflow_dispatch' && inputs.house_roll_call_write_mode || 'disabled' }}
+          # Senate writes remain manual-only until a separately reviewed canary and
+          # post-canary audit succeed. Schedule and unknown events are hard-disabled.
+          SENATE_ROLL_CALL_WRITE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.senate_roll_call_write_mode || 'disabled' }}
           # News API keys — all optional; aggregator falls back gracefully if absent
           CURRENTS_API_KEY: ${{ secrets.CURRENTS_API_KEY }}
           NEWSDATA_API_KEY: ${{ secrets.NEWSDATA_API_KEY }}

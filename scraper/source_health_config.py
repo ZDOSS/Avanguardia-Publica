@@ -51,12 +51,19 @@ def build_source_health_trackers(summary: ETLRunSummary) -> dict:
         "govtrack": summary.source_tracker(
             "govtrack", min_attempts_for_rate=10, affects_run=False
         ),
-        # Read-only reconciliation against official Senate XML plus bounded,
-        # vote-centric GovTrack comparison snapshots. It cannot mutate canonical
-        # data or voting_records, so a temporary source outage or publication lag
-        # remains observable without invalidating the ETL run.
+        # Health for the bounded Senate fetch plus vote-centric GovTrack comparison
+        # remains nonblocking in shadow-only mode. The separate write tracker below
+        # becomes blocking only when the dormant authoritative path is attempted.
         "senate_roll_call_shadow": summary.source_tracker(
             "senate_roll_call_shadow", min_attempts_for_rate=3, affects_run=False
+        ),
+        # Authoritative Senate writes are opt-in, but any attempted write failure
+        # invalidates the run rather than allowing a partial batch to look healthy.
+        "senate_roll_call_write": summary.source_tracker(
+            "senate_roll_call_write",
+            min_attempts_for_rate=1,
+            max_failure_rate=0.0,
+            affects_run=True,
         ),
         # Health for the bounded Clerk fetch plus vote-centric GovTrack comparison
         # remains nonblocking in shadow-only mode. The separate write tracker below

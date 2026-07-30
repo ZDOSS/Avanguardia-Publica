@@ -1,6 +1,6 @@
 ZERO_UUID = "00000000-0000-0000-0000-000000000000"
-REQUIRED_MIGRATION_KEY = "0029_senate_roll_call_provenance"
-REQUIRED_MIGRATION_FILE = "0029_senate_roll_call_provenance.sql"
+REQUIRED_MIGRATION_KEY = "0030_senate_roll_call_production_enablement"
+REQUIRED_MIGRATION_FILE = "0030_senate_roll_call_production_enablement.sql"
 
 REQUIRED_COLUMN_CHECKS = [
     (

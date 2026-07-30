@@ -151,6 +151,7 @@ financial disclosures are not yet covered.
 | `STATE_UNVERIFIED_ENRICHMENT_LIMIT` | scraper | no    | Bounded count of state profiles to enrich via LittleSis |
 | `STATE_UNVERIFIED_ENRICHMENT_OFFSET` | scraper | no   | Zero-based start offset for rotating state LittleSis batches |
 | `HOUSE_ROLL_CALL_WRITE_MODE`    | scraper  | no       | `disabled` by default; `enabled` opts into the separately DB-gated House RPC |
+| `SENATE_ROLL_CALL_WRITE_MODE`   | scraper  | no       | `disabled` by default; `enabled` opts a manual run into the separately DB-gated Senate RPC |
 | `CURRENTS_API_KEY`              | scraper  | no       | News tier 1                                          |
 | `NEWSDATA_API_KEY`              | scraper  | no       | News tier 2 (requires attribution)                   |
 | `THENEWSAPI_KEY`                | scraper  | no       | News tier 3 credential                               |
@@ -167,6 +168,24 @@ snapshot to call the private atomic House RPC only when listing, XML parsing, ex
 identity coverage, GovTrack reconciliation, and source health are all complete. Overlapping
 listing pages fail closed, and parsed vote categories must exactly match the Clerk XML's
 `totals-by-vote`.
+
+The official Senate roll-call extractor follows the same one-fetch rule. It hashes the raw
+official XML bytes, validates member rows against the XML `count` totals, resolves each LIS ID
+only through the trusted `congress-legislators` LIS-to-Bioguide crosswalk, and retains the
+normalized snapshot in memory. `SENATE_ROLL_CALL_WRITE_MODE=enabled` permits a manual workflow
+run to call the atomic Senate RPC only when the complete bounded listing, every official XML
+document, every exact identity, every GovTrack comparison snapshot, and source health are
+complete. Code, example-environment, manual-input, scheduled, and unknown-event defaults remain
+`disabled`; scheduled Senate writes require a later reviewed change after the manual canary.
+
+Migration `0030_senate_roll_call_production_enablement.sql` verifies migration `0029`'s exact
+public barrier, owner-only helper, constraint, ACL, dependency, identity-index, zero-fact, and
+service-role read-only contracts. It replaces the same public function OID with a thin guarded
+wrapper and enables both strict JSON-boolean database gates atomically. The helper still owns all
+payload, identity, monotonic-observation, complete-snapshot, and gate locking checks. A
+non-mutating preflight remains available independently of the gates. No transaction-drain phase
+is needed: the prior public Senate function was always a non-mutating barrier, could not call the
+helper, and both gates were false. This path never writes legacy `voting_records`.
 
 Migration `0027_house_roll_call_production_enablement.sql` wraps migration `0026`'s reviewed
 writer with a per-roll-call monotonic guard: an older `fetched_at` is rejected before the
@@ -293,10 +312,11 @@ only runs the ETL and `nextjs.yml` only builds.
   prevents half-applied data changes. Migration `0027` is the explicit exception: use
   `ON_ERROR_STOP=1` but omit `--single-transaction` so its committed cutover barrier can become
   visible before its second transaction drains old callers and atomically enables both gates.
-  Migrations `0028` and `0029` return to the normal single-transaction rule. `0028` is the
+  Migrations `0028`, `0029`, and `0030` use the normal single-transaction rule. `0028` is the
   private Senate source-review decision. `0029` installs the write-disabled Senate provenance
-  contract and advances scraper preflight, but its public RPC is a hard preflight-only barrier;
-  no Senate production write path is enabled.
+  contract and hard preflight-only barrier. `0030` verifies that exact disabled state, installs
+  the guarded wrapper, and enables only the database gates; Senate runtime and workflow defaults
+  remain disabled and the scheduled path is hard-disabled pending a reviewed manual canary.
 
 Do **not** replay the full historical migration directory against an upgraded database.
 Some migrations contain guarded data decisions and review-state transitions, not just

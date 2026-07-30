@@ -1,5 +1,6 @@
 import unittest
 from datetime import date
+import hashlib
 import json
 from unittest.mock import patch
 
@@ -26,6 +27,8 @@ _HISTORICAL_YAML = """
 
 
 def _roll_call_xml(vote_number: int, first_vote: str) -> str:
+    yeas = 1 if first_vote.lower() in {"aye", "yea", "yes"} else 0
+    nays = 1 + (1 if first_vote.lower() in {"nay", "no"} else 0)
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <roll_call_vote>
   <congress>119</congress>
@@ -34,6 +37,13 @@ def _roll_call_xml(vote_number: int, first_vote: str) -> str:
   <vote_number>{vote_number}</vote_number>
   <vote_date>June 24, 2026,  10:30 PM</vote_date>
   <vote_question_text>On the Motion to Proceed S.J.Res. {vote_number}</vote_question_text>
+  <vote_result>Motion Agreed to</vote_result>
+  <count>
+    <yeas>{yeas}</yeas>
+    <nays>{nays}</nays>
+    <present>1</present>
+    <absent>1</absent>
+  </count>
   <members>
     <member><lis_member_id>S001</lis_member_id><vote_cast>{first_vote}</vote_cast></member>
     <member><lis_member_id>S002</lis_member_id><vote_cast>Nay</vote_cast></member>
@@ -75,9 +85,10 @@ def _govtrack_voters(vote_number: int, vote_id: int = 128911) -> str:
 
 
 class _Response:
-    def __init__(self, status_code=200, text=""):
+    def __init__(self, status_code=200, text="", content=None):
         self.status_code = status_code
         self.text = text
+        self.content = text.encode("utf-8") if content is None else content
 
 
 class SenateRollCallShadowTests(unittest.TestCase):
@@ -103,6 +114,28 @@ class SenateRollCallShadowTests(unittest.TestCase):
             <a href="vote_118_2_00300.htm">prior congress</a>
         """
         self.assertEqual([2, 1], senate_roll_calls._parse_menu(menu, 119, 2))
+
+    def test_fetch_provenance_hashes_raw_response_bytes(self):
+        raw_content = b"\xffofficial-senate-bytes"
+        health = SourceHealthTracker("senate_roll_call_shadow")
+
+        with patch(
+            "extractors.senate_roll_calls.requests.get",
+            return_value=_Response(text="decoded replacement", content=raw_content),
+        ):
+            document = senate_roll_calls._fetch_parsed(
+                "https://example.test/official.xml",
+                lambda fetched: fetched,
+                health=health,
+                state=senate_roll_calls._FetchState(),
+            )
+
+        self.assertIsNotNone(document)
+        self.assertEqual(raw_content, document.content)
+        self.assertEqual(
+            hashlib.sha256(raw_content).hexdigest(),
+            document.payload_hash,
+        )
 
     def test_shadow_fetches_a_bounded_window_and_compares_only_exact_lis_ids(self):
         menu = """
@@ -200,6 +233,50 @@ class SenateRollCallShadowTests(unittest.TestCase):
         self.assertEqual(3, report.govtrack_vote_cast_matches)
         self.assertEqual(0, report.govtrack_vote_cast_mismatches)
         self.assertEqual(0, report.govtrack_vote_not_observed)
+        self.assertTrue(report.snapshot_complete)
+        self.assertEqual(1, len(report.roll_calls))
+        self.assertRegex(report.roll_calls[0].payload_hash or "", r"^[0-9a-f]{64}$")
+
+    def test_normalized_roll_call_builds_stable_lis_and_bioguide_payloads(self):
+        roll_call = senate_roll_calls.SenateRollCall(
+            congress=119,
+            session=2,
+            congress_year=2026,
+            vote_number=2,
+            vote_date="2026-07-14",
+            question="On Passage",
+            source_url=(
+                "https://www.senate.gov/legislative/LIS/roll_call_votes/"
+                "vote1192/vote_119_2_00002.xml"
+            ),
+            member_votes=(
+                senate_roll_calls.SenateMemberVote("S001", "Yea", "A000001"),
+                senate_roll_calls.SenateMemberVote("S002", "Nay", "B000002"),
+                senate_roll_calls.SenateMemberVote("S999", "Present", "Z000001"),
+            ),
+            vote_result="Motion Agreed to",
+            payload_hash="a" * 64,
+            fetched_at="2026-07-21T12:00:00+00:00",
+            official_member_vote_total=3,
+        )
+
+        roll_call_payload, member_votes = roll_call.rpc_payload()
+
+        self.assertEqual("senate:119:2026:2", roll_call_payload["source_record_key"])
+        self.assertEqual("Motion Agreed to", roll_call_payload["vote_result"])
+        self.assertRegex(roll_call_payload["payload_hash"], r"^[0-9a-f]{64}$")
+        self.assertEqual(
+            [
+                "senate:119:2026:2:S001",
+                "senate:119:2026:2:S002",
+                "senate:119:2026:2:S999",
+            ],
+            [member_vote["source_record_key"] for member_vote in member_votes],
+        )
+        self.assertEqual(
+            ["A000001", "B000002", "Z000001"],
+            [member_vote["bioguide_id"] for member_vote in member_votes],
+        )
 
     def test_shadow_reports_newer_official_vote_missing_from_govtrack_as_lag(self):
         menu = '<a href="vote_119_2_00002.htm">2</a>'
@@ -470,6 +547,50 @@ class SenateRollCallShadowTests(unittest.TestCase):
                 2,
                 1,
             )
+
+    def test_roll_call_parser_rejects_member_rows_that_disagree_with_totals(self):
+        xml = _roll_call_xml(2, "Yea").replace("<yeas>1</yeas>", "<yeas>2</yeas>")
+
+        with self.assertRaisesRegex(ValueError, "official vote totals"):
+            senate_roll_calls._parse_roll_call(
+                xml,
+                "https://example.test/vote_119_2_00002.xml",
+                119,
+                2,
+                2,
+            )
+
+    def test_write_block_reasons_cover_every_reconciliation_gap(self):
+        report = senate_roll_calls.SenateRollCallShadowReport(
+            roll_calls_listed=1,
+            roll_calls_fetched=1,
+            member_votes_seen=4,
+            member_votes_missing_lis_id=1,
+            member_votes_missing_vote_cast=1,
+            unmatched_lis_ids={"S999"},
+            member_votes_missing_bioguide_crosswalk=1,
+            govtrack_roll_calls_not_observed=1,
+            govtrack_vote_cast_mismatches=1,
+            govtrack_vote_not_observed=1,
+            listing_complete=True,
+        )
+        health = SourceHealthTracker("senate_roll_call_shadow")
+        health.record_attempt()
+        health.record_success()
+
+        self.assertEqual(
+            (
+                "incomplete_snapshot",
+                "missing_lis_ids",
+                "missing_vote_casts",
+                "unmatched_lis_ids",
+                "missing_bioguide_crosswalks",
+                "reconciliation_roll_calls_not_observed",
+                "reconciliation_mismatches",
+                "reconciliation_votes_not_observed",
+            ),
+            report.authoritative_write_block_reasons(health),
+        )
 
 
 if __name__ == "__main__":

@@ -172,7 +172,7 @@ class SenateRollCallSourceReviewTests(unittest.TestCase):
 
     def test_public_docs_record_the_bounded_approval_and_next_gate(self):
         self.assertIn(
-            "Senate roll-call XML (approved for bounded read-only shadow use)",
+            "Senate roll-call XML (approved; database-gated, manual runtime opt-in)",
             self.policy,
         )
         self.assertIn("4,996 exact LIS matches", self.policy)
@@ -185,7 +185,7 @@ class SenateRollCallSourceReviewTests(unittest.TestCase):
             self.roadmap,
         )
         self.assertIn(
-            "separate runtime payload and enablement review",
+            "`0030_senate_roll_call_production_enablement.sql`",
             self.roadmap,
         )
 

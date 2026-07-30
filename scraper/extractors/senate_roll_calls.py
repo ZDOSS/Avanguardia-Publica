@@ -1,18 +1,19 @@
-"""Bounded, read-only reconciliation against the official Senate roll-call XML feed.
+"""Bounded reconciliation and normalized snapshots from official Senate roll-call XML.
 
-This is deliberately a *shadow* source.  It fetches a small current-session window,
-matches vote records to the congressional roster exclusively through Senate LIS member
-IDs, crosses to GovTrack only through the roster's trusted Bioguide IDs, and reports
-aggregate alignment with complete vote-centric GovTrack voter snapshots.  It never
-creates people and never writes to ``voting_records``.  A later, separately reviewed
-source-provenance migration can use the observed results before making an official
-source authoritative.
+The extractor fetches a small current-session window, matches vote records to the
+congressional roster exclusively through Senate LIS member IDs, crosses to GovTrack only
+through the roster's trusted Bioguide IDs, and reports aggregate alignment with complete
+vote-centric GovTrack voter snapshots. It also retains the normalized official snapshot
+and a SHA-256 digest for a separately gated caller. It never creates people, writes
+``voting_records``, retains raw XML, or exposes Senate LIS facts in the public UI.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import date, datetime
+from collections import Counter
+from dataclasses import dataclass, field, replace
+from datetime import date, datetime, timezone
+import hashlib
 import json
 import logging
 import re
@@ -64,6 +65,7 @@ class SenateMemberVote:
 
     lis_member_id: str | None
     vote_cast: str | None
+    bioguide_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -76,16 +78,113 @@ class SenateRollCall:
     question: str | None
     source_url: str
     member_votes: tuple[SenateMemberVote, ...]
+    vote_result: str | None = None
+    payload_hash: str | None = None
+    fetched_at: str | None = None
+    official_member_vote_total: int | None = None
 
     @property
     def reconciliation_key(self) -> str:
         """Stable key shared with a Senate GovTrack vote URL when both exist."""
         return f"senate:{self.congress}:{self.congress_year}:{self.vote_number}"
 
+    def rpc_payload(self) -> tuple[dict, list[dict]]:
+        """Build the reviewed migration-0029 payload without retaining raw XML."""
+        required_values = (
+            self.vote_date,
+            self.question,
+            self.source_url,
+            self.payload_hash,
+            self.fetched_at,
+        )
+        if any(not value for value in required_values):
+            raise ValueError("Senate roll call is missing required write provenance")
+        if not re.fullmatch(r"[0-9a-f]{64}", self.payload_hash or ""):
+            raise ValueError("Senate roll call payload hash is not a SHA-256 digest")
+        if (
+            self.congress <= 0
+            or self.session not in (1, 2)
+            or not 1789 <= self.congress_year <= 2200
+            or self.vote_number <= 0
+        ):
+            raise ValueError("Senate roll call has an invalid event identity")
+        try:
+            parsed_vote_date = date.fromisoformat(self.vote_date or "")
+            parsed_fetched_at = datetime.fromisoformat(self.fetched_at or "")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Senate roll call has invalid provenance dates") from exc
+        if (
+            parsed_vote_date.year != self.congress_year
+            or parsed_fetched_at.tzinfo is None
+            or parsed_fetched_at.date() < parsed_vote_date
+        ):
+            raise ValueError("Senate roll call has inconsistent provenance dates")
+        if self.source_url != _roll_call_url(
+            self.congress,
+            self.session,
+            self.vote_number,
+        ):
+            raise ValueError("Senate roll call source URL does not match its event")
+        if self.official_member_vote_total != len(self.member_votes):
+            raise ValueError(
+                "Senate roll call member rows do not match the official vote total"
+            )
+        if not 1 <= len(self.member_votes) <= 200:
+            raise ValueError("Senate roll call must contain between 1 and 200 votes")
+
+        member_payloads = []
+        seen_lis_ids = set()
+        seen_bioguide_ids = set()
+        for member_vote in self.member_votes:
+            lis_member_id = _normalize_lis_id(member_vote.lis_member_id)
+            bioguide_id = _normalize_bioguide_id(member_vote.bioguide_id)
+            vote_cast = _canonical_vote_cast(member_vote.vote_cast)
+            if not lis_member_id or not re.fullmatch(r"S[0-9]{3}", lis_member_id):
+                raise ValueError("Senate roll call contains an invalid LIS member ID")
+            if not bioguide_id or not re.fullmatch(r"[A-Z][0-9]{6}", bioguide_id):
+                raise ValueError("Senate roll call contains an invalid Bioguide ID")
+            if lis_member_id in seen_lis_ids:
+                raise ValueError("Senate roll call contains duplicate LIS member IDs")
+            if bioguide_id in seen_bioguide_ids:
+                raise ValueError("Senate roll call contains duplicate Bioguide IDs")
+            if not vote_cast:
+                raise ValueError("Senate roll call contains an unsupported vote cast")
+            seen_lis_ids.add(lis_member_id)
+            seen_bioguide_ids.add(bioguide_id)
+            member_payloads.append(
+                {
+                    "source_record_key": (
+                        f"{self.reconciliation_key}:{lis_member_id}"
+                    ),
+                    "lis_member_id": lis_member_id,
+                    "bioguide_id": bioguide_id,
+                    "vote_cast": vote_cast,
+                }
+            )
+        if not member_payloads:
+            raise ValueError("Senate roll call contains no member votes")
+
+        roll_call_payload = {
+            "source_record_key": self.reconciliation_key,
+            "congress": self.congress,
+            "session": self.session,
+            "congress_year": self.congress_year,
+            "roll_call_number": self.vote_number,
+            "vote_date": self.vote_date,
+            "question": self.question,
+            "vote_result": self.vote_result,
+            "source_url": self.source_url,
+            "payload_hash": self.payload_hash,
+            "fetched_at": self.fetched_at,
+        }
+        return roll_call_payload, sorted(
+            member_payloads, key=lambda item: item["lis_member_id"]
+        )
+
 
 @dataclass
 class SenateRollCallShadowReport:
-    """Aggregate-only result of one bounded official-source reconciliation pass."""
+    """Bounded reconciliation result with normalized candidates and aggregate metrics."""
 
     roll_calls_listed: int = 0
     roll_calls_fetched: int = 0
@@ -103,6 +202,46 @@ class SenateRollCallShadowReport:
     govtrack_vote_not_observed: int = 0
     govtrack_vote_not_observed_unavailable_roll_call: int = 0
     govtrack_vote_not_observed_with_snapshot: int = 0
+    listing_complete: bool = False
+    roll_calls: list[SenateRollCall] = field(default_factory=list)
+
+    @property
+    def snapshot_complete(self) -> bool:
+        return (
+            self.listing_complete
+            and self.roll_calls_fetched == self.roll_calls_listed
+            and len(self.roll_calls) == self.roll_calls_fetched
+        )
+
+    def authoritative_write_block_reasons(
+        self, health: SourceHealthTracker | None = None
+    ) -> tuple[str, ...]:
+        """Aggregate-only reasons that prevent the bounded snapshot from being written."""
+        reasons = []
+        if not self.snapshot_complete:
+            reasons.append("incomplete_snapshot")
+        if self.member_votes_missing_lis_id:
+            reasons.append("missing_lis_ids")
+        if self.member_votes_missing_vote_cast:
+            reasons.append("missing_vote_casts")
+        if self.unmatched_lis_ids:
+            reasons.append("unmatched_lis_ids")
+        if self.member_votes_missing_bioguide_crosswalk:
+            reasons.append("missing_bioguide_crosswalks")
+        if self.govtrack_roll_calls_not_observed:
+            reasons.append("reconciliation_roll_calls_not_observed")
+        if self.govtrack_vote_cast_mismatches:
+            reasons.append("reconciliation_mismatches")
+        if self.govtrack_vote_not_observed:
+            reasons.append("reconciliation_votes_not_observed")
+        if health and health.status != "healthy":
+            reasons.append("source_health_not_healthy")
+        try:
+            for roll_call in self.roll_calls:
+                roll_call.rpc_payload()
+        except ValueError:
+            reasons.append("invalid_write_payload")
+        return tuple(reasons)
 
     def counters(self) -> dict[str, int]:
         """ETL summary counters; identifiers and raw vote data stay out of the summary."""
@@ -164,6 +303,14 @@ class SenateRollCallShadowReport:
 class _FetchState:
     consecutive_failures: int = 0
     breaker_open: bool = False
+
+
+@dataclass(frozen=True)
+class _FetchedDocument:
+    text: str
+    content: bytes
+    payload_hash: str
+    fetched_at: str
 
 
 def _clean(value: str | None) -> str | None:
@@ -419,11 +566,14 @@ def _parse_vote_date(value: str | None) -> str | None:
 
 
 def _parse_roll_call(
-    text: str,
+    text: str | bytes,
     source_url: str,
     expected_congress: int,
     expected_session: int,
     expected_vote_number: int,
+    *,
+    payload_hash: str | None = None,
+    fetched_at: str | None = None,
 ) -> SenateRollCall:
     root = ElementTree.fromstring(text)
 
@@ -446,6 +596,9 @@ def _parse_roll_call(
         expected_vote_number,
     ):
         raise ValueError("Senate roll-call XML did not match its requested vote URL")
+    expected_congress_year = 1787 + (2 * congress) + (session - 1)
+    if congress_year != expected_congress_year:
+        raise ValueError("Senate roll-call XML has an inconsistent Congress year")
 
     member_nodes = root.findall("./members/member")
     if not member_nodes:
@@ -457,21 +610,67 @@ def _parse_roll_call(
         )
         for member in member_nodes
     )
+
+    count_node = root.find("count")
+    if count_node is None:
+        raise ValueError("Senate roll-call XML missing official vote totals")
+    total_tags = {
+        "yea": "yeas",
+        "nay": "nays",
+        "present": "present",
+        "not_voting": "absent",
+    }
+    official_vote_totals = {}
+    for vote_cast, tag in total_tags.items():
+        raw_total = _clean(count_node.findtext(tag))
+        try:
+            total = int(raw_total or "0")
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Senate roll-call XML has an invalid {tag}") from exc
+        if total < 0:
+            raise ValueError(f"Senate roll-call XML has a negative {tag}")
+        official_vote_totals[vote_cast] = total
+
+    parsed_vote_totals = Counter()
+    for parsed_member_vote in member_votes:
+        canonical_vote_cast = _canonical_vote_cast(parsed_member_vote.vote_cast)
+        if canonical_vote_cast is None:
+            raise ValueError("Senate roll-call XML has an unsupported member vote cast")
+        parsed_vote_totals[canonical_vote_cast] += 1
+    if any(
+        parsed_vote_totals[vote_cast] != expected_total
+        for vote_cast, expected_total in official_vote_totals.items()
+    ):
+        raise ValueError("Senate roll-call member votes do not match official vote totals")
+
+    vote_date = _parse_vote_date(root.findtext("vote_date"))
+    if vote_date is None or int(vote_date[:4]) != congress_year:
+        raise ValueError("Senate roll-call XML has an invalid vote date")
+    question = _clean(root.findtext("vote_question_text")) or _clean(
+        root.findtext("question")
+    )
+    if question is None:
+        raise ValueError("Senate roll-call XML is missing its vote question")
+
     return SenateRollCall(
         congress=congress,
         session=session,
         congress_year=congress_year,
         vote_number=vote_number,
-        vote_date=_parse_vote_date(root.findtext("vote_date")),
-        question=_clean(root.findtext("vote_question_text")) or _clean(root.findtext("question")),
+        vote_date=vote_date,
+        question=question,
         source_url=source_url,
         member_votes=member_votes,
+        vote_result=_clean(root.findtext("vote_result")),
+        payload_hash=payload_hash,
+        fetched_at=fetched_at,
+        official_member_vote_total=sum(official_vote_totals.values()),
     )
 
 
 def _fetch_parsed(
     url: str,
-    parser: Callable[[str], _T],
+    parser: Callable[[_FetchedDocument], _T],
     *,
     health: SourceHealthTracker | None,
     state: _FetchState,
@@ -510,7 +709,16 @@ def _fetch_parsed(
                 retryable = status_code >= 500
             else:
                 try:
-                    parsed = parser(response.text)
+                    raw_content = getattr(response, "content", None)
+                    if not isinstance(raw_content, (bytes, bytearray)):
+                        raw_content = str(response.text).encode("utf-8")
+                    document = _FetchedDocument(
+                        text=response.text,
+                        content=bytes(raw_content),
+                        payload_hash=hashlib.sha256(bytes(raw_content)).hexdigest(),
+                        fetched_at=datetime.now(timezone.utc).isoformat(),
+                    )
+                    parsed = parser(document)
                 except (ElementTree.ParseError, ValueError, TypeError) as exc:
                     logger.warning(
                         "[Senate roll-call reconciliation] Could not parse %s: %s",
@@ -566,7 +774,7 @@ def _fetch_govtrack_roll_call_votes(
         _govtrack_roll_call_url(
             roll_call.congress, roll_call.congress_year, roll_call.vote_number
         ),
-        _parse_govtrack_vote_id,
+        lambda document: _parse_govtrack_vote_id(document.text),
         health=health,
         state=state,
         retry_backoffs=_GOVTRACK_RETRY_BACKOFF_SECONDS,
@@ -576,8 +784,8 @@ def _fetch_govtrack_roll_call_votes(
         return None
     return _fetch_parsed(
         _govtrack_voters_url(vote_id),
-        lambda text: _parse_govtrack_voters(
-            text,
+        lambda document: _parse_govtrack_voters(
+            document.text,
             expected_vote_id=vote_id,
             expected_congress=roll_call.congress,
             expected_year=roll_call.congress_year,
@@ -705,12 +913,13 @@ def get_recent_senate_roll_call_shadow(
     menu_url = _MENU_URL.format(congress=congress, session=session)
     vote_numbers = _fetch_parsed(
         menu_url,
-        lambda text: _parse_menu(text, congress, session),
+        lambda document: _parse_menu(document.text, congress, session),
         health=health,
         state=state,
     )
-    if not vote_numbers:
+    if vote_numbers is None:
         return report
+    report.listing_complete = True
 
     selected_vote_numbers = vote_numbers[:bounded_limit]
     report.roll_calls_listed = len(selected_vote_numbers)
@@ -718,12 +927,14 @@ def get_recent_senate_roll_call_shadow(
         source_url = _roll_call_url(congress, session, vote_number)
         roll_call = _fetch_parsed(
             source_url,
-            lambda text, source_url=source_url, vote_number=vote_number: _parse_roll_call(
-                text,
+            lambda document, source_url=source_url, vote_number=vote_number: _parse_roll_call(
+                document.content,
                 source_url,
                 congress,
                 session,
                 vote_number,
+                payload_hash=document.payload_hash,
+                fetched_at=document.fetched_at,
             ),
             health=health,
             state=state,
@@ -733,7 +944,20 @@ def get_recent_senate_roll_call_shadow(
                 break
             continue
 
+        roll_call = replace(
+            roll_call,
+            member_votes=tuple(
+                replace(
+                    member_vote,
+                    bioguide_id=combined_bioguide_ids_by_lis_id.get(
+                        _normalize_lis_id(member_vote.lis_member_id) or ""
+                    ),
+                )
+                for member_vote in roll_call.member_votes
+            ),
+        )
         report.roll_calls_fetched += 1
+        report.roll_calls.append(roll_call)
         vote_centric_govtrack_votes = None
         if normalized_govtrack_votes is None:
             vote_centric_govtrack_votes = _fetch_govtrack_roll_call_votes(

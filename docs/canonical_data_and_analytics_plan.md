@@ -350,6 +350,13 @@ profile, rejects stale or conflicting official observations, and compares exact 
 the complete active snapshot. It advances scraper preflight to `0029`, but both catalog gates
 remain strict JSON `false`, the scraper has no Senate write call, and
 production writes remain impossible.
+Migration `0030_senate_roll_call_production_enablement.sql` verifies that exact disabled
+barrier/helper/constraint/ACL/dependency contract and the zero-Senate-fact baseline, preserves
+service-role direct-table read-only access, replaces the same public function OID with a guarded
+wrapper, and enables both strict JSON-boolean database gates atomically. The extractor now
+retains raw-byte provenance and complete normalized snapshots for the guarded runtime path, but
+runtime defaults remain disabled and the workflow permits opt-in only on manual dispatch.
+Scheduled Senate writes remain hard-disabled pending a successful bounded canary and audit.
 
 - source slug, name, agency, sub-agency, branch, category, source type, access level,
   auth type, credential provider, base URL, docs URL, formats, coverage, update cadence,
@@ -374,13 +381,16 @@ Use this intake order:
    federal votes and add official bills, amendments, nominations, committees, public
    laws, Congressional Record, and bill text.
 
-   The Senate XML source remains a bounded, read-only reconciliation shadow. Migration
-   `0028` approves its catalog source and endpoint for that scope after two corrected
+   The Senate XML source always performs bounded reconciliation and remains shadow-only unless
+   an explicit manual runtime opt-in passes every write precondition. Migration `0028`
+   approves its catalog source and endpoint for the original read-only scope after two corrected
    production runs produced 4,996 exact LIS joins, 4,996 matching GovTrack casts, and no
    identity, publication-lag, source-health, or cast gaps. Approval does not create a
    Senate writer or enable production writes. Migration `0029` subsequently installs the
-   write-disabled Senate provenance contract and hard public barrier; it still adds no
-   runtime write call. The House Clerk extractor publishes the same aggregate comparison
+   write-disabled Senate provenance contract and hard public barrier. Migration `0030`
+   verifies and replaces that barrier with a guarded wrapper, enables the database gates,
+   and adds a manual-only runtime opt-in whose scheduled mode remains disabled pending a
+   canary. The House Clerk extractor publishes the same aggregate comparison
    metrics and retains its one-fetch normalized snapshot for the guarded private atomic
    RPC. Migration `0027` makes the House database gate production-ready, while the default
    manual/runtime path remains disabled and never creates people or writes public/legacy
@@ -565,14 +575,21 @@ bounded source approval and the future provenance contract. It intentionally lea
 extractor read-only, records Senate production writes as disabled, and leaves scraper preflight
 on `0027` at that review point.
 
-Migration `0029_senate_roll_call_provenance.sql` is the next write-disabled slice. It reserves
-the Senate keyspace in the shared private roll-call tables and installs a monotonic,
-conflict-safe owner helper, but exposes only a preflight-only public barrier and advances
-schema preflight. The next Senate decision is a separate runtime payload and enablement review:
-retain the bounded official snapshots in memory, prove the database crosswalk coverage and
-non-mutating replay in a canary, and only then consider replacing the barrier and enabling both
-database gates. Do not combine that decision with migration `0029`, expand the bounded window,
-or turn official facts into legacy/public rows.
+Migration `0029_senate_roll_call_provenance.sql` is applied in production. It reserves the
+Senate keyspace in the shared private roll-call tables and installs a monotonic, conflict-safe
+owner helper behind a preflight-only public barrier.
+
+Migration `0030_senate_roll_call_production_enablement.sql` is the current manual-canary slice.
+It retains and validates the official raw-byte provenance, XML totals, complete normalized
+snapshots, exact LIS/Bioguide identities, and complete GovTrack comparisons before a write can
+be attempted. The migration verifies the exact `0029` helper and barrier state, replaces the
+barrier with a thin guarded wrapper, and atomically enables both database gates. Runtime and
+manual-input defaults remain disabled; schedule and unknown events are hard-disabled. After
+merge, apply `0030`, run one explicitly enabled bounded manual canary, audit exact replay,
+provenance, normalized rows, identity coverage, retirement state, service-role DML closure,
+and zero canonical Senate keys in legacy `voting_records`. Only then consider a separate
+scheduled-enable change. Do not expand the bounded window or turn official facts into
+legacy/public rows in this slice.
 
 Broader candidate triage, including the FCC/GSA context pair seeded by `0024`, stays separate
 from this vote slice; historical identity-review queue cleanup is deferred to Phase 6. Do not

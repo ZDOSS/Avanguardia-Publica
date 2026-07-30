@@ -24,6 +24,7 @@ from extractors.openstates_votes import get_state_voting_records
 from extractors.federal import get_federal_exec_judicial
 from extractors.financial_disclosures import get_house_disclosure_index, lookup_disclosures
 from house_roll_call_runtime import house_roll_call_write_mode, write_house_roll_calls
+from senate_roll_call_runtime import senate_roll_call_write_mode, write_senate_roll_calls
 from unverified_enrichment import state_unverified_enrichment_config, should_enrich_state_profile
 
 logging.basicConfig(
@@ -55,6 +56,7 @@ def main(argv=None):
     summary = ETLRunSummary()
     try:
         house_write_mode = house_roll_call_write_mode(os.environ)
+        senate_write_mode = senate_roll_call_write_mode(os.environ)
     except ValueError as e:
         summary.error("configuration", e)
         summary.print(success=False)
@@ -327,11 +329,13 @@ def main(argv=None):
                 tracker.record_failure("join_key_coverage_below_90_percent")
                 tracker.trip_breaker("join_key_coverage_below_90_percent")
 
-    # Official Senate roll-call XML is a bounded, read-only shadow feed. It uses
-    # the exact LIS-to-Bioguide crosswalk above plus the trusted historical roster
-    # to compare each official roll call with one complete GovTrack voter snapshot.
-    # It intentionally does not write a second vote source into voting_records
-    # before the provenance/conflict-key rollout.
+    # Official Senate roll-call XML is fetched once for bounded reconciliation. It
+    # uses the exact LIS-to-Bioguide crosswalk above plus the trusted historical
+    # roster to compare each official roll call with one complete GovTrack voter
+    # snapshot. The normalized snapshot may also flow through migration 0029's
+    # private atomic helper, but only when the explicit runtime switch is enabled
+    # and every upstream, identity, reconciliation, and source-health precondition
+    # is healthy. This path never writes the legacy voting_records table.
     print("\n=== Senate roll-call XML shadow reconciliation ===")
     try:
         senate_shadow_report = get_recent_senate_roll_call_shadow(
@@ -342,14 +346,46 @@ def main(argv=None):
         for counter, amount in senate_shadow_report.counters().items():
             summary.increment(counter, amount)
         print(f"  {senate_shadow_report.description()}")
+
+        try:
+            senate_roll_calls_written = write_senate_roll_calls(
+                loader,
+                senate_shadow_report,
+                source_health["senate_roll_call_shadow"],
+                source_health["senate_roll_call_write"],
+                mode=senate_write_mode,
+            )
+        except Exception as e:
+            # The runtime helper has already failed the blocking write tracker.
+            # Keep processing other sources so the final ETL summary remains useful.
+            print(f"  [!] Authoritative Senate roll-call write failed: {e}")
+        else:
+            write_health = source_health["senate_roll_call_write"]
+            if senate_write_mode == "disabled":
+                print("  Authoritative Senate writes disabled by runtime configuration.")
+            elif write_health.status == "failed":
+                reasons = ", ".join(sorted(write_health.skip_reasons)) or "unknown"
+                print(f"  [!] Authoritative Senate writes blocked: {reasons}")
+            else:
+                print(
+                    "  Authoritative Senate roll calls written: "
+                    f"{senate_roll_calls_written}"
+                )
     except Exception as e:
-        # This source is explicitly non-blocking: preserve the health signal but
-        # never turn a healthy canonical-data run into a failure for shadow-only
-        # reconciliation work.
+        # The shadow source remains nonblocking while writes are disabled. Once writes
+        # are opted in, an unavailable snapshot also blocks authoritative writes.
         print(f"  [!] Senate roll-call shadow unavailable: {e}")
         shadow_health = source_health["senate_roll_call_shadow"]
         shadow_health.record_attempt()
         shadow_health.record_failure("unexpected_error")
+        write_health = source_health["senate_roll_call_write"]
+        if senate_write_mode == "disabled":
+            write_health.record_skip("runtime_mode_disabled")
+        else:
+            write_health.record_attempt()
+            write_health.record_skip("upstream_snapshot_unavailable")
+            write_health.trip_breaker("write_preconditions_not_met")
+            write_health.record_failure("write_preconditions_not_met")
 
     # Official House Clerk roll-call XML is fetched once for bounded reconciliation.
     # Each selected roll call obtains its own complete GovTrack voter snapshot instead
