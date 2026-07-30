@@ -293,6 +293,9 @@ only runs the ETL and `nextjs.yml` only builds.
   prevents half-applied data changes. Migration `0027` is the explicit exception: use
   `ON_ERROR_STOP=1` but omit `--single-transaction` so its committed cutover barrier can become
   visible before its second transaction drains old callers and atomically enables both gates.
+  Migration `0028` returns to the normal single-transaction rule. It is a private Senate
+  source-review decision only, so scraper preflight intentionally remains on `0027` and no
+  Senate production write path is enabled.
 
 Do **not** replay the full historical migration directory against an upgraded database.
 Some migrations contain guarded data decisions and review-state transitions, not just

@@ -335,6 +335,13 @@ namespace from unrelated profile-lifecycle RPCs.
 It advances scraper preflight and enables both reviewed database gates atomically. Exact
 retries compare stored parent, controlled metadata, and active child state in both directions;
 the separate runtime switch remains disabled by default.
+Migration `0028_senate_roll_call_source_review.sql` records the separate Senate source
+decision after two corrected production reconciliations. It approves the official source
+and endpoint only for the existing bounded read-only shadow, reserves `senate-lis` as the
+source-record namespace, links the current trusted `congress-legislators` LIS-to-Bioguide
+identifier path, and records retention, attribution, health, and disable requirements.
+It adds no vote tables or writer, leaves Senate production writes false, and deliberately
+does not advance scraper preflight beyond `0027`.
 
 - source slug, name, agency, sub-agency, branch, category, source type, access level,
   auth type, credential provider, base URL, docs URL, formats, coverage, update cadence,
@@ -359,15 +366,17 @@ Use this intake order:
    federal votes and add official bills, amendments, nominations, committees, public
    laws, Congressional Record, and bill text.
 
-   The Senate XML source remains a bounded, read-only reconciliation shadow. The House
-   Clerk extractor still publishes the same aggregate comparison metrics, but now retains
-   its one-fetch normalized snapshot for the guarded private atomic RPC. Migration `0027`
-   makes the database gate production-ready, while the House runtime path remains disabled
-   by default and never creates people or writes public/legacy vote rows. Both sources join
-   exclusively through stable roster IDs (Senate LIS IDs and House Bioguide IDs). Migration
-   `0025` approved the
-   House source after five reviewed runs. Keep the Senate entry at `candidate` until its own
-   observed coverage and conflict metrics support a separately reviewed decision.
+   The Senate XML source remains a bounded, read-only reconciliation shadow. Migration
+   `0028` approves its catalog source and endpoint for that scope after two corrected
+   production runs produced 4,996 exact LIS joins, 4,996 matching GovTrack casts, and no
+   identity, publication-lag, source-health, or cast gaps. Approval does not create a
+   Senate writer or enable production writes. The House Clerk extractor still publishes
+   the same aggregate comparison metrics and retains its one-fetch normalized snapshot for
+   the guarded private atomic RPC. Migration `0027` makes the House database gate
+   production-ready, while the default manual/runtime path remains disabled and never
+   creates people or writes public/legacy vote rows. Both sources join exclusively through
+   stable roster IDs (Senate LIS-to-Bioguide crosswalks and House Bioguide IDs). Migration
+   `0025` approved the House source after five reviewed runs.
 3. **Influence and organization graph after source records exist:** LDA.gov,
    USAspending, SAM.gov entity management, SAM.gov contract awards, and SAM.gov
    opportunities. These should wait for organization identity and source-record tables;
@@ -537,22 +546,18 @@ and example-environment defaults remain disabled, and unknown events fail closed
 review the first scheduled enabled runs for complete reconciliation, healthy write metrics,
 expected provenance counts, and zero legacy/public House writes before expanding this slice.
 
-The July 28, 2026 enabled validation run also provided the next Senate shadow review point:
-2,498 official member votes matched trusted LIS identities, 2,491 matched the bounded GovTrack
-comparison, seven were not observed, and none conflicted. An aggregate-only follow-up traced
-six gaps to one historical senator whom the identity roster recognized but the active-only
-GovTrack profile crawl never fetched; the seventh resolved on a later read, consistent with
-publication timing. The current read-only follow-up uses complete vote-centric GovTrack
-snapshots and the trusted active-plus-historical LIS-to-Bioguide crosswalk, while reporting a
-not-yet-published GovTrack event separately from member-level absence. Its first bounded live
-smoke reconciled all 2,398 member votes across the 24 GovTrack-published events with zero
-conflicts, missing crosswalks, or member-level gaps; the one unavailable newest event accounted
-for the remaining 100 official rows. Keep the Senate catalog entry at `candidate` until repeated
-runs of this corrected comparison support its own reviewed source decision.
+The corrected Senate follow-up now has two complete production observations: manual run
+`30418108958` and scheduled run `30420913210`. Together they reconciled 50 official roll calls,
+4,996 exact LIS identities, and 4,996 GovTrack vote casts with zero unmatched IDs, missing
+Bioguide crosswalks, unavailable comparison events, member-level gaps, cast conflicts, source
+failures, or skips. Migration `0028_senate_roll_call_source_review.sql` records the resulting
+bounded source approval and the future provenance contract. It intentionally leaves the
+extractor read-only, records Senate production writes as disabled, and leaves scraper preflight
+on `0027`.
 
-Do not expand the bounded window or turn official facts into legacy/public rows during this
-rollout. Keep the Senate source in read-only shadow mode until its coverage and mismatch review
-is complete. Broader candidate triage, including the FCC/GSA context pair seeded by `0024`,
-stays separate from this vote slice; historical identity-review queue cleanup is deferred to
-Phase 6. Do not ingest all 97 inventory rows as public facts, add unrelated source APIs, or
-expose a source-review UI until source review decisions are being recorded consistently.
+The next Senate slice requires a separate Senate provenance and conflict-safe ingestion review.
+Do not enable it as part of the source decision, expand the bounded window, or turn official
+facts into legacy/public rows. Broader candidate triage, including the FCC/GSA context pair
+seeded by `0024`, stays separate from this vote slice; historical identity-review queue cleanup
+is deferred to Phase 6. Do not ingest all 97 inventory rows as public facts, add unrelated source
+APIs, or expose a source-review UI until source review decisions are being recorded consistently.
