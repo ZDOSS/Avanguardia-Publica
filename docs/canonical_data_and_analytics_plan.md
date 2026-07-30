@@ -342,6 +342,14 @@ source-record namespace, links the current trusted `congress-legislators` LIS-to
 identifier path, and records retention, attribution, health, and disable requirements.
 It adds no vote tables or writer, leaves Senate production writes false, and deliberately
 does not advance scraper preflight beyond `0027`.
+Migration `0029_senate_roll_call_provenance.sql` reuses the shared private legislative fact
+tables, reserves the canonical Senate source-record namespace, and installs an owner-only
+atomic helper behind a hard public preflight barrier. The helper verifies every LIS/Bioguide
+pair against one trusted active Bioguide owner and the stored `congress-legislators` source
+profile, rejects stale or conflicting official observations, and compares exact replays with
+the complete active snapshot. It advances scraper preflight to `0029`, but both catalog gates
+remain strict JSON `false`, the scraper has no Senate write call, and
+production writes remain impossible.
 
 - source slug, name, agency, sub-agency, branch, category, source type, access level,
   auth type, credential provider, base URL, docs URL, formats, coverage, update cadence,
@@ -370,13 +378,15 @@ Use this intake order:
    `0028` approves its catalog source and endpoint for that scope after two corrected
    production runs produced 4,996 exact LIS joins, 4,996 matching GovTrack casts, and no
    identity, publication-lag, source-health, or cast gaps. Approval does not create a
-   Senate writer or enable production writes. The House Clerk extractor still publishes
-   the same aggregate comparison metrics and retains its one-fetch normalized snapshot for
-   the guarded private atomic RPC. Migration `0027` makes the House database gate
-   production-ready, while the default manual/runtime path remains disabled and never
-   creates people or writes public/legacy vote rows. Both sources join exclusively through
-   stable roster IDs (Senate LIS-to-Bioguide crosswalks and House Bioguide IDs). Migration
-   `0025` approved the House source after five reviewed runs.
+   Senate writer or enable production writes. Migration `0029` subsequently installs the
+   write-disabled Senate provenance contract and hard public barrier; it still adds no
+   runtime write call. The House Clerk extractor publishes the same aggregate comparison
+   metrics and retains its one-fetch normalized snapshot for the guarded private atomic
+   RPC. Migration `0027` makes the House database gate production-ready, while the default
+   manual/runtime path remains disabled and never creates people or writes public/legacy
+   vote rows. Both sources join exclusively through stable roster IDs (Senate
+   LIS-to-Bioguide crosswalks and House Bioguide IDs). Migration `0025` approved the House
+   source after five reviewed runs.
 3. **Influence and organization graph after source records exist:** LDA.gov,
    USAspending, SAM.gov entity management, SAM.gov contract awards, and SAM.gov
    opportunities. These should wait for organization identity and source-record tables;
@@ -553,11 +563,18 @@ Bioguide crosswalks, unavailable comparison events, member-level gaps, cast conf
 failures, or skips. Migration `0028_senate_roll_call_source_review.sql` records the resulting
 bounded source approval and the future provenance contract. It intentionally leaves the
 extractor read-only, records Senate production writes as disabled, and leaves scraper preflight
-on `0027`.
+on `0027` at that review point.
 
-The next Senate slice requires a separate Senate provenance and conflict-safe ingestion review.
-Do not enable it as part of the source decision, expand the bounded window, or turn official
-facts into legacy/public rows. Broader candidate triage, including the FCC/GSA context pair
-seeded by `0024`, stays separate from this vote slice; historical identity-review queue cleanup
-is deferred to Phase 6. Do not ingest all 97 inventory rows as public facts, add unrelated source
-APIs, or expose a source-review UI until source review decisions are being recorded consistently.
+Migration `0029_senate_roll_call_provenance.sql` is the next write-disabled slice. It reserves
+the Senate keyspace in the shared private roll-call tables and installs a monotonic,
+conflict-safe owner helper, but exposes only a preflight-only public barrier and advances
+schema preflight. The next Senate decision is a separate runtime payload and enablement review:
+retain the bounded official snapshots in memory, prove the database crosswalk coverage and
+non-mutating replay in a canary, and only then consider replacing the barrier and enabling both
+database gates. Do not combine that decision with migration `0029`, expand the bounded window,
+or turn official facts into legacy/public rows.
+
+Broader candidate triage, including the FCC/GSA context pair seeded by `0024`, stays separate
+from this vote slice; historical identity-review queue cleanup is deferred to Phase 6. Do not
+ingest all 97 inventory rows as public facts, add unrelated source APIs, or expose a
+source-review UI until source review decisions are being recorded consistently.

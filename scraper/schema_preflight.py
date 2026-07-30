@@ -1,6 +1,6 @@
 ZERO_UUID = "00000000-0000-0000-0000-000000000000"
-REQUIRED_MIGRATION_KEY = "0027_house_roll_call_production_enablement"
-REQUIRED_MIGRATION_FILE = "0027_house_roll_call_production_enablement.sql"
+REQUIRED_MIGRATION_KEY = "0029_senate_roll_call_provenance"
+REQUIRED_MIGRATION_FILE = "0029_senate_roll_call_provenance.sql"
 
 REQUIRED_COLUMN_CHECKS = [
     (
@@ -131,6 +131,14 @@ REQUIRED_RPC_CHECKS = [
             "p_member_votes": [],
         },
         "upsert_house_roll_call(jsonb, jsonb)",
+    ),
+    (
+        "upsert_senate_roll_call",
+        {
+            "p_roll_call": {"preflight": True},
+            "p_member_votes": [],
+        },
+        "upsert_senate_roll_call(jsonb, jsonb)",
     ),
     (
         "preflight_canonical_uuid_v5",
