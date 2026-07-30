@@ -185,7 +185,7 @@ class SenateRollCallSourceReviewTests(unittest.TestCase):
             self.roadmap,
         )
         self.assertIn(
-            "separate Senate provenance and conflict-safe ingestion review",
+            "separate runtime payload and enablement review",
             self.roadmap,
         )
 

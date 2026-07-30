@@ -87,13 +87,13 @@ class FakeLoader:
 
 
 class SchemaPreflightTests(unittest.TestCase):
-    def test_preflight_requires_the_production_enablement_migration(self):
+    def test_preflight_requires_the_senate_provenance_migration(self):
         self.assertEqual(
-            "0027_house_roll_call_production_enablement",
+            "0029_senate_roll_call_provenance",
             REQUIRED_MIGRATION_KEY,
         )
         self.assertEqual(
-            "0027_house_roll_call_production_enablement.sql",
+            "0029_senate_roll_call_provenance.sql",
             REQUIRED_MIGRATION_FILE,
         )
 
@@ -187,10 +187,18 @@ class SchemaPreflightTests(unittest.TestCase):
         )
         self.assertEqual({"preflight": True}, house_roll_call_check["p_roll_call"])
         self.assertEqual([], house_roll_call_check["p_member_votes"])
+        senate_roll_call_check = next(
+            args
+            for rpc_name, args, _signature in REQUIRED_RPC_CHECKS
+            if rpc_name == "upsert_senate_roll_call"
+        )
+        self.assertEqual({"preflight": True}, senate_roll_call_check["p_roll_call"])
+        self.assertEqual([], senate_roll_call_check["p_member_votes"])
         for rpc_name in (
             "retire_source_profile_record",
             "upsert_source_profile_identity",
             "upsert_house_roll_call",
+            "upsert_senate_roll_call",
             "sync_legacy_profile_identity",
             "get_canonical_person_legacy_ids",
             "get_canonical_contact_info",
@@ -234,9 +242,9 @@ class SchemaPreflightTests(unittest.TestCase):
 
         self.assertIn(REQUIRED_MIGRATION_KEY, str(raised.exception))
 
-    def test_predecessor_marker_cannot_satisfy_the_production_preflight(self):
+    def test_predecessor_marker_cannot_satisfy_the_senate_preflight(self):
         client = FakeSupabase(
-            migration_markers={"0026_house_roll_call_provenance"}
+            migration_markers={"0028_senate_roll_call_source_review"}
         )
         loader = FakeLoader(client)
 

@@ -105,8 +105,10 @@ endpoint `approved` and reserves `senate-lis` as the official source-record name
 `wired` repo-fit means only that the bounded read-only extractor exists. It
 does **not** enable Senate production writes, add a vote writer, or advance scraper
 schema preflight.
-A separate Senate provenance and conflict-safe ingestion review must precede any write path.
-That future path must honor this contract:
+A separate Senate provenance and conflict-safe ingestion review must precede any production
+write path. Migration `0029` supplies the disabled database half of that review; runtime
+wiring and enablement remain separate. The database contract and any future runtime path
+must honor these rules:
 
 - Join the official XML `lis_member_id` through the trusted active-plus-historical
   `congress-legislators` LIS-to-Bioguide crosswalk, then require one exact trusted Bioguide
@@ -126,6 +128,23 @@ That future path must honor this contract:
 - Keep future authoritative writes behind explicit runtime and database disable controls.
   Disabling the shadow fetch or a later writer must not delete review evidence, provenance,
   or identity mappings.
+
+Migration `0029_senate_roll_call_provenance.sql` installs that private storage contract
+without enabling ingestion. It reuses the source-record-keyed `legislative_roll_calls` and
+`person_roll_call_votes` tables, reserves the canonical Senate event/member-vote namespace,
+and installs an owner-only atomic helper. Before any fact mutation, the helper requires one
+trusted active Bioguide owner and verifies the supplied LIS-to-Bioguide pair against the
+stored `congress-legislators` source record, its source-native profile, and canonical redirect.
+It never resolves through a name, party, state, or office field.
+
+The helper rejects stale observations, treats an exact same-timestamp replay as non-mutating
+only when the complete normalized parent and active member-vote state still agree, preserves
+the last valid vote on an official cast conflict, and retires omitted member provenance
+without deleting retained facts. Raw XML remains unstored. The
+public Senate RPC remains a hard preflight-only barrier and cannot call the owner-only
+helper; both catalog write gates remain strict JSON `false`. Migration `0029` advances schema
+preflight so deployment drift is caught before the ETL starts, but a separate reviewed
+runtime/enablement migration is still required before any Senate production write can occur.
 
 ### House Clerk roll-call XML (approved; database-gated, runtime opt-in)
 
