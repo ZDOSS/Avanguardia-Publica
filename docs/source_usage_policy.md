@@ -72,11 +72,11 @@ An extractor is not production-ready until tests prove that it:
 6. has a documented retention and attribution decision; and
 7. has a rollback or disable path that does not delete historical identity mappings.
 
-### Senate roll-call XML (approved for bounded read-only shadow use)
+### Senate roll-call XML (approved; database-gated, manual runtime opt-in)
 
 The U.S. Senate publishes an [XML record for each roll call](https://www.senate.gov/legislative/LIS/roll_call_votes/)
-through the Senate Legislative Information System. The integration is deliberately read-only:
-it fetches at most the 25 most recent current-session roll calls, matches a member only by the
+through the Senate Legislative Information System. The integration fetches at most the 25 most
+recent current-session roll calls, matches a member only by the
 stable `lis_member_id` crosswalk supplied by `congress-legislators`, and records aggregate
 coverage/comparison metrics in the ETL summary. GovTrack comparison is vote-centric: each
 available event supplies one complete voter snapshot, joined back to the official LIS member
@@ -84,8 +84,10 @@ only through the same roster's trusted LIS-to-Bioguide crosswalk, including hist
 in the bounded window. A newer official event that GovTrack has not published yet is reported
 separately at roll-call and member-vote level instead of looking like a cast conflict. The path
 remains bounded to one active roster, one historical roster, one menu, 25 official XML
-documents, and at most two GovTrack documents per selected roll call. It does **not** create
-people, write vote rows, retain raw XML, or expose Senate XML facts in the public UI.
+documents, and at most two GovTrack documents per selected roll call. The same official fetch
+retains an in-memory normalized snapshot and raw-byte SHA-256 for the separately gated writer.
+It does **not** create people, retain raw XML, write legacy `voting_records`, or expose Senate
+XML facts in the public UI.
 
 The corrected comparison ran successfully in both a
 [manual production run](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/30418108958)
@@ -105,10 +107,9 @@ endpoint `approved` and reserves `senate-lis` as the official source-record name
 `wired` repo-fit means only that the bounded read-only extractor exists. It
 does **not** enable Senate production writes, add a vote writer, or advance scraper
 schema preflight.
-A separate Senate provenance and conflict-safe ingestion review must precede any production
-write path. Migration `0029` supplies the disabled database half of that review; runtime
-wiring and enablement remain separate. The database contract and any future runtime path
-must honor these rules:
+Migration `0029` supplied the disabled provenance and conflict-safe database contract.
+Migration `0030` supplies the separately reviewed manual-only runtime and database enablement
+boundary. Both layers must honor these rules:
 
 - Join the official XML `lis_member_id` through the trusted active-plus-historical
   `congress-legislators` LIS-to-Bioguide crosswalk, then require one exact trusted Bioguide
@@ -140,11 +141,24 @@ It never resolves through a name, party, state, or office field.
 The helper rejects stale observations, treats an exact same-timestamp replay as non-mutating
 only when the complete normalized parent and active member-vote state still agree, preserves
 the last valid vote on an official cast conflict, and retires omitted member provenance
-without deleting retained facts. Raw XML remains unstored. The
-public Senate RPC remains a hard preflight-only barrier and cannot call the owner-only
-helper; both catalog write gates remain strict JSON `false`. Migration `0029` advances schema
-preflight so deployment drift is caught before the ETL starts, but a separate reviewed
-runtime/enablement migration is still required before any Senate production write can occur.
+without deleting retained facts. Raw XML remains unstored. At the `0029` boundary, the
+public Senate RPC remains a hard preflight-only barrier that cannot call the owner-only helper,
+and both catalog write gates are strict JSON `false`; `0030` verifies that exact starting state
+before changing it. Migration `0029` also advances schema preflight so deployment drift is
+caught before the ETL starts.
+
+Migration `0030_senate_roll_call_production_enablement.sql` verifies that exact disabled
+barrier/helper body, owner, security, return, ACL, reverse-dependency, constraint, normalized
+Bioguide index, zero-fact, and service-role read-only state. It preserves the public function
+OID, replaces only its barrier body with a guarded wrapper, and enables both strict JSON-boolean
+database gates in the same transaction. No old-writer drain is required because the prior
+public body was never mutating, could not call the helper, and had two false gates. The wrapper
+keeps preflight non-mutating and delegates write-shaped payload, exact identity, monotonic,
+complete-snapshot, and gate-lock validation to the reviewed owner-only `0029` helper.
+`SENATE_ROLL_CALL_WRITE_MODE` remains `disabled` by default, and only manual workflow
+dispatches may explicitly select `enabled`. Scheduled and unknown events are hard-disabled
+until a successful manual canary and post-canary database audit are reviewed. Disabling the
+runtime control or either database gate preserves shadow-only behavior and the last valid rows.
 
 ### House Clerk roll-call XML (approved; database-gated, runtime opt-in)
 
