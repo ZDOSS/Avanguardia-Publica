@@ -72,24 +72,60 @@ An extractor is not production-ready until tests prove that it:
 6. has a documented retention and attribution decision; and
 7. has a rollback or disable path that does not delete historical identity mappings.
 
-### Senate roll-call XML (shadow candidate)
+### Senate roll-call XML (approved for bounded read-only shadow use)
 
 The U.S. Senate publishes an [XML record for each roll call](https://www.senate.gov/legislative/LIS/roll_call_votes/)
-through the Senate Legislative Information System. The initial integration is deliberately read-only: it fetches at most
-the 25 most recent current-session roll calls, matches a member only by the stable
-`lis_member_id` crosswalk already supplied by `congress-legislators`, and records aggregate
+through the Senate Legislative Information System. The integration is deliberately read-only:
+it fetches at most the 25 most recent current-session roll calls, matches a member only by the
+stable `lis_member_id` crosswalk supplied by `congress-legislators`, and records aggregate
 coverage/comparison metrics in the ETL summary. GovTrack comparison is vote-centric: each
 available event supplies one complete voter snapshot, joined back to the official LIS member
-only through the same roster's trusted LIS-to-Bioguide crosswalk, including historical
-senators in the bounded window. A newer official event that GovTrack has not published yet is
-reported separately at roll-call and member-vote level instead of looking like a cast
-conflict. The path remains bounded to one historical roster, one menu, 25 official XML
+only through the same roster's trusted LIS-to-Bioguide crosswalk, including historical senators
+in the bounded window. A newer official event that GovTrack has not published yet is reported
+separately at roll-call and member-vote level instead of looking like a cast conflict. The path
+remains bounded to one active roster, one historical roster, one menu, 25 official XML
 documents, and at most two GovTrack documents per selected roll call. It does **not** create
 people, write vote rows, retain raw XML, or expose Senate XML facts in the public UI.
 
-The catalog source and endpoint remain `candidate` during this shadow phase. A later
-authoritative ingestion change must first review the observed metrics, record source
-provenance and retention/attribution decisions, and add a conflict-safe vote storage path.
+The corrected comparison ran successfully in both a
+[manual production run](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/30418108958)
+and the immediately following
+[scheduled production run](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/30420913210)
+from the same merged code. Across 50 roll calls, they produced 4,996 official member-vote
+observations, 4,996 exact LIS matches, zero unmatched LIS IDs, and zero missing
+LIS-to-Bioguide crosswalks. All 50 GovTrack event snapshots were available and all 4,996
+vote casts agreed, with zero member-level absences or cast conflicts. The bounded Senate
+requests succeeded 154 of 154 times, with no failures or skips. Earlier shadow observations
+also produced 17,486 exact LIS identity matches and zero cast conflicts; their missing
+GovTrack observations were traced to the former active-profile comparison design and
+publication timing rather than official-source identity failures.
+
+Migration `0028_senate_roll_call_source_review.sql` therefore marks the catalog source and
+endpoint `approved` and reserves `senate-lis` as the official source-record namespace. Its
+`wired` repo-fit means only that the bounded read-only extractor exists. It
+does **not** enable Senate production writes, add a vote writer, or advance scraper
+schema preflight.
+A separate Senate provenance and conflict-safe ingestion review must precede any write path.
+That future path must honor this contract:
+
+- Join the official XML `lis_member_id` through the trusted active-plus-historical
+  `congress-legislators` LIS-to-Bioguide crosswalk, then require one exact trusted Bioguide
+  owner. Names and office text are not identity keys.
+- Use the extractor's stable source-key shape: Congress, calendar year, roll-call number,
+  and, for a member vote, the normalized LIS member ID.
+- Retain normalized roll-call/member-vote facts, source record ID, fetched URL and time, and
+  payload hash. Raw XML is not retained.
+- Attribute displayed facts to the
+  [United States Senate](https://www.senate.gov/legislative/votes_new.htm) and preserve the
+  source link. The Senate's
+  [rights policy](https://www.senate.gov/general/privacy.htm) says site information is public
+  and may be distributed or copied unless otherwise specified, with appropriate credit.
+- Report attempts, successes, failures, skips, and publication lag separately. Any future
+  write path must fail closed when the bounded source or exact identity coverage is degraded
+  and retain its last valid normalized rows.
+- Keep future authoritative writes behind explicit runtime and database disable controls.
+  Disabling the shadow fetch or a later writer must not delete review evidence, provenance,
+  or identity mappings.
 
 ### House Clerk roll-call XML (approved; database-gated, runtime opt-in)
 
