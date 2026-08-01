@@ -172,12 +172,12 @@ class SenateRollCallSourceReviewTests(unittest.TestCase):
 
     def test_public_docs_record_the_bounded_approval_and_next_gate(self):
         self.assertIn(
-            "Senate roll-call XML (approved; database-gated, manual runtime opt-in)",
+            "Senate roll-call XML (approved; database-gated, bounded scheduled writes)",
             self.policy,
         )
         self.assertIn("4,996 exact LIS matches", self.policy)
         self.assertIn("154 of 154", self.policy)
-        self.assertIn("does **not** enable Senate production writes", self.policy)
+        self.assertIn("did **not** enable Senate production writes", self.policy)
         self.assertIn("Raw XML is not retained", self.policy)
         self.assertIn("United States Senate", self.policy)
         self.assertIn(
