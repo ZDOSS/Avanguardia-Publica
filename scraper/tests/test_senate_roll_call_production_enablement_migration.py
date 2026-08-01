@@ -261,20 +261,22 @@ class SenateRollCallProductionEnablementMigrationTests(unittest.TestCase):
         self.assertIn("'preexisting_mutating_public_writer', false", marker_sql)
         self.assertIn("NOTIFY pgrst, 'reload schema';", marker_sql)
 
-    def test_docs_record_manual_canary_before_any_scheduled_enablement(self):
+    def test_docs_record_reviewed_canary_before_scheduled_enablement(self):
         for document in (self.readme, self.roadmap, self.policy):
             self.assertIn(
                 "0030_senate_roll_call_production_enablement.sql",
                 document,
             )
             self.assertIn("manual", document.lower())
-            self.assertIn("scheduled", document.lower())
+            self.assertIn("schedule", document.lower())
             self.assertIn("disabled", document.lower())
             self.assertIn("voting_records", document)
+            self.assertIn("30593722846", document)
+            self.assertIn("2,498", document)
 
         self.assertIn("No transaction-drain phase", self.readme)
         self.assertIn("No old-writer drain", self.policy)
-        self.assertIn("Only then consider a separate", self.roadmap)
+        self.assertIn("exact non-mutating replay", self.roadmap)
 
 
 if __name__ == "__main__":

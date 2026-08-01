@@ -121,12 +121,14 @@ When contributing to this project, you must adhere strictly to these rules:
 
 ## 🚀 Next Steps & Outstanding Work
 - The active remaining roadmap is `docs/canonical_data_and_analytics_plan.md`. Phases 1 and
-  2 are implemented; migration `0022` adds the first production Phase 3/4 slice: pre-write
-  deterministic identity enforcement, atomic source-profile writes, source records, and
-  person office terms.
+  2 are implemented; migrations `0022` through `0030` establish deterministic identity,
+  atomic source-profile writes, provenance, person office terms, and private normalized House
+  and Senate roll-call facts. Both official vote paths remain bounded, identifier-only, and
+  isolated from legacy `voting_records`.
 - Monitor and resolve quarantined identity candidates instead of weakening the pre-write
   boundary. A person can have federal, state, and local roles over time; those roles must
   not become separate canonical people or be flattened into one office field.
-- Add official legislative sources in small reviewed slices only after `0022` is applied and
-  the new source-health/migration checks are stable in production. Keep analytics and broad
-  source expansion downstream of trustworthy provenance.
+- Review the first scheduled Senate write runs for complete reconciliation, healthy write
+  metrics, exact provenance/identity coverage, and zero legacy vote keys. Add the next official
+  legislative source only in another small reviewed slice after those checks are stable. Keep
+  analytics and broad source expansion downstream of trustworthy provenance.

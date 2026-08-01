@@ -72,7 +72,7 @@ An extractor is not production-ready until tests prove that it:
 6. has a documented retention and attribution decision; and
 7. has a rollback or disable path that does not delete historical identity mappings.
 
-### Senate roll-call XML (approved; database-gated, manual runtime opt-in)
+### Senate roll-call XML (approved; database-gated, bounded scheduled writes)
 
 The U.S. Senate publishes an [XML record for each roll call](https://www.senate.gov/legislative/LIS/roll_call_votes/)
 through the Senate Legislative Information System. The integration fetches at most the 25 most
@@ -103,13 +103,13 @@ GovTrack observations were traced to the former active-profile comparison design
 publication timing rather than official-source identity failures.
 
 Migration `0028_senate_roll_call_source_review.sql` therefore marks the catalog source and
-endpoint `approved` and reserves `senate-lis` as the official source-record namespace. Its
-`wired` repo-fit means only that the bounded read-only extractor exists. It
-does **not** enable Senate production writes, add a vote writer, or advance scraper
-schema preflight.
+endpoint `approved` and reserves `senate-lis` as the official source-record namespace. At that
+review boundary, its `wired` repo-fit meant only that the bounded read-only extractor existed;
+it did **not** enable Senate production writes, add a vote writer, or advance scraper schema
+preflight.
 Migration `0029` supplied the disabled provenance and conflict-safe database contract.
-Migration `0030` supplies the separately reviewed manual-only runtime and database enablement
-boundary. Both layers must honor these rules:
+Migration `0030` supplies the separately reviewed runtime and database enablement boundary.
+The later scheduled opt-in does not weaken either layer; all writes must honor these rules:
 
 - Join the official XML `lis_member_id` through the trusted active-plus-historical
   `congress-legislators` LIS-to-Bioguide crosswalk, then require one exact trusted Bioguide
@@ -123,11 +123,11 @@ boundary. Both layers must honor these rules:
   source link. The Senate's
   [rights policy](https://www.senate.gov/general/privacy.htm) says site information is public
   and may be distributed or copied unless otherwise specified, with appropriate credit.
-- Report attempts, successes, failures, skips, and publication lag separately. Any future
-  write path must fail closed when the bounded source or exact identity coverage is degraded
-  and retain its last valid normalized rows.
-- Keep future authoritative writes behind explicit runtime and database disable controls.
-  Disabling the shadow fetch or a later writer must not delete review evidence, provenance,
+- Report attempts, successes, failures, skips, and publication lag separately. The
+  authoritative write path must fail closed when the bounded source or exact identity coverage
+  is degraded and retain its last valid normalized rows.
+- Keep authoritative writes behind explicit runtime and database disable controls. Disabling
+  the shadow fetch or writer must not delete review evidence, provenance,
   or identity mappings.
 
 Migration `0029_senate_roll_call_provenance.sql` installs that private storage contract
@@ -155,10 +155,19 @@ database gates in the same transaction. No old-writer drain is required because 
 public body was never mutating, could not call the helper, and had two false gates. The wrapper
 keeps preflight non-mutating and delegates write-shaped payload, exact identity, monotonic,
 complete-snapshot, and gate-lock validation to the reviewed owner-only `0029` helper.
-`SENATE_ROLL_CALL_WRITE_MODE` remains `disabled` by default, and only manual workflow
-dispatches may explicitly select `enabled`. Scheduled and unknown events are hard-disabled
-until a successful manual canary and post-canary database audit are reviewed. Disabling the
-runtime control or either database gate preserves shadow-only behavior and the last valid rows.
+The enabled manual [production canary](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/30593722846)
+passed schema preflight and wrote 25 roll calls with 2,498 exact-LIS member votes. All 25
+GovTrack snapshots and all 2,498 casts agreed, and both Senate health trackers recorded zero
+failures or skips. The post-canary database audit found zero provenance, normalized-parent,
+normalized-member, identity, retirement, service-role direct-DML, or legacy `voting_records`
+errors. Its service-role exact replay returned the complete member count and changed neither
+full row images nor transaction IDs.
+
+`SENATE_ROLL_CALL_WRITE_MODE` remains `disabled` by default in code, the example environment,
+and the manual workflow input. The reviewed nightly `schedule` explicitly selects `enabled` for
+the same bounded path; manual dispatches retain their explicit choice and unknown events fail
+closed. Disabling the runtime control or either database gate preserves shadow-only behavior
+and the last valid rows.
 
 ### House Clerk roll-call XML (approved; database-gated, runtime opt-in)
 

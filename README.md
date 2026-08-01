@@ -151,7 +151,7 @@ financial disclosures are not yet covered.
 | `STATE_UNVERIFIED_ENRICHMENT_LIMIT` | scraper | no    | Bounded count of state profiles to enrich via LittleSis |
 | `STATE_UNVERIFIED_ENRICHMENT_OFFSET` | scraper | no   | Zero-based start offset for rotating state LittleSis batches |
 | `HOUSE_ROLL_CALL_WRITE_MODE`    | scraper  | no       | `disabled` by default; `enabled` opts into the separately DB-gated House RPC |
-| `SENATE_ROLL_CALL_WRITE_MODE`   | scraper  | no       | `disabled` by default; `enabled` opts a manual run into the separately DB-gated Senate RPC |
+| `SENATE_ROLL_CALL_WRITE_MODE`   | scraper  | no       | `disabled` by default; reviewed nightly workflow schedules explicitly select `enabled` for the DB-gated Senate RPC |
 | `CURRENTS_API_KEY`              | scraper  | no       | News tier 1                                          |
 | `NEWSDATA_API_KEY`              | scraper  | no       | News tier 2 (requires attribution)                   |
 | `THENEWSAPI_KEY`                | scraper  | no       | News tier 3 credential                               |
@@ -172,11 +172,11 @@ listing pages fail closed, and parsed vote categories must exactly match the Cle
 The official Senate roll-call extractor follows the same one-fetch rule. It hashes the raw
 official XML bytes, validates member rows against the XML `count` totals, resolves each LIS ID
 only through the trusted `congress-legislators` LIS-to-Bioguide crosswalk, and retains the
-normalized snapshot in memory. `SENATE_ROLL_CALL_WRITE_MODE=enabled` permits a manual workflow
-run to call the atomic Senate RPC only when the complete bounded listing, every official XML
-document, every exact identity, every GovTrack comparison snapshot, and source health are
-complete. Code, example-environment, manual-input, scheduled, and unknown-event defaults remain
-`disabled`; scheduled Senate writes require a later reviewed change after the manual canary.
+normalized snapshot in memory. `SENATE_ROLL_CALL_WRITE_MODE=enabled` permits a run to call the
+atomic Senate RPC only when the complete bounded listing, every official XML document, every
+exact identity, every GovTrack comparison snapshot, and source health are complete. Code,
+example-environment, and manual-input defaults remain `disabled`. After the reviewed canary and
+audit, the nightly `schedule` explicitly selects `enabled`; unknown events still fail closed.
 
 Migration `0030_senate_roll_call_production_enablement.sql` verifies migration `0029`'s exact
 public barrier, owner-only helper, constraint, ACL, dependency, identity-index, zero-fact, and
@@ -186,6 +186,14 @@ payload, identity, monotonic-observation, complete-snapshot, and gate locking ch
 non-mutating preflight remains available independently of the gates. No transaction-drain phase
 is needed: the prior public Senate function was always a non-mutating barrier, could not call the
 helper, and both gates were false. This path never writes legacy `voting_records`.
+
+The enabled manual [production canary](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/30593722846)
+passed schema preflight and wrote 25 roll calls with 2,498 exact-LIS member votes. All 25
+GovTrack comparison snapshots and all 2,498 casts agreed, and the Senate fetch and write
+trackers had no failures or skips. The post-canary database audit confirmed exact provenance
+and normalized counts, trusted LIS/Bioguide ownership, valid retirement state, service-role
+table/column DML closure, zero canonical Senate keys in legacy `voting_records`, and an exact
+same-timestamp replay that left full stored row images and transaction IDs unchanged.
 
 Migration `0027_house_roll_call_production_enablement.sql` wraps migration `0026`'s reviewed
 writer with a per-roll-call monotonic guard: an older `fetched_at` is rejected before the
@@ -315,8 +323,9 @@ only runs the ETL and `nextjs.yml` only builds.
   Migrations `0028`, `0029`, and `0030` use the normal single-transaction rule. `0028` is the
   private Senate source-review decision. `0029` installs the write-disabled Senate provenance
   contract and hard preflight-only barrier. `0030` verifies that exact disabled state, installs
-  the guarded wrapper, and enables only the database gates; Senate runtime and workflow defaults
-  remain disabled and the scheduled path is hard-disabled pending a reviewed manual canary.
+  the guarded wrapper, and enables the database gates. Runtime and manual-input defaults remain
+  disabled; after the reviewed manual canary and audit, the nightly workflow schedule explicitly
+  opts into the same bounded path while unknown events fail closed.
 
 Do **not** replay the full historical migration directory against an upgraded database.
 Some migrations contain guarded data decisions and review-state transitions, not just
