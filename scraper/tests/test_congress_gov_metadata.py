@@ -118,6 +118,19 @@ class CongressGovMeasureReferenceTests(unittest.TestCase):
                     congress_gov.parse_measure_reference(label, congress=119)
                 )
 
+    def test_rejects_malformed_measure_type_tokens(self):
+        for label in (
+            "H123R 5",
+            "H/R 5",
+            "H-R 5",
+            "H_R 5",
+            "S@Amdt. 3937",
+        ):
+            with self.subTest(label=label):
+                self.assertIsNone(
+                    congress_gov.parse_measure_reference(label, congress=119)
+                )
+
     def test_measure_identity_rejects_boolean_or_non_integer_numbers(self):
         for congress, number in ((True, 1), (119, True), (119.0, 1), (119, 1.0)):
             with self.subTest(congress=congress, number=number), self.assertRaises(

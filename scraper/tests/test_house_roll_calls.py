@@ -271,6 +271,22 @@ class HouseRollCallShadowTests(unittest.TestCase):
             [reference.source_record_key for reference in roll_call.measure_refs],
         )
 
+    def test_malformed_house_measure_labels_are_not_normalized_to_bills(self):
+        for label in ("H123R 5", "H/R 5", "H-R 5"):
+            with self.subTest(label=label):
+                xml = _writable_roll_call_xml(207).replace("H R 8884", label)
+
+                roll_call = house_roll_calls._parse_roll_call(
+                    xml,
+                    "https://clerk.house.gov/evs/2026/roll207.xml",
+                    119,
+                    2,
+                    2026,
+                    207,
+                )
+
+                self.assertEqual((), roll_call.measure_refs)
+
     def test_shadow_fetches_vote_centric_govtrack_snapshot_without_profile_map(self):
         health = SourceHealthTracker("house_roll_call_shadow", min_attempts_for_rate=3)
         govtrack_vote = {

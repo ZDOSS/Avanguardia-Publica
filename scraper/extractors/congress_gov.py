@@ -95,7 +95,9 @@ def _clean(value) -> str | None:
 
 
 def _compact_measure_type(value) -> str | None:
-    compact = re.sub(r"[^a-z]", "", str(value or "").lower())
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z.\s]+", value):
+        return None
+    compact = re.sub(r"[.\s]", "", value.lower())
     return _TYPE_ALIASES.get(compact)
 
 
