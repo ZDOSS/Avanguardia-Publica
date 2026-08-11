@@ -87,13 +87,13 @@ class FakeLoader:
 
 
 class SchemaPreflightTests(unittest.TestCase):
-    def test_preflight_requires_the_official_vote_query_repair_migration(self):
+    def test_preflight_requires_the_official_vote_deduplication_repair_migration(self):
         self.assertEqual(
-            "0032_official_voting_records_query_repair",
+            "0033_official_voting_records_deduplication_repair",
             REQUIRED_MIGRATION_KEY,
         )
         self.assertEqual(
-            "0032_official_voting_records_query_repair.sql",
+            "0033_official_voting_records_deduplication_repair.sql",
             REQUIRED_MIGRATION_FILE,
         )
 

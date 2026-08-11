@@ -122,19 +122,21 @@ When contributing to this project, you must adhere strictly to these rules:
 ## 🚀 Next Steps & Outstanding Work
 - The active remaining roadmap is `docs/canonical_data_and_analytics_plan.md`. Phases 1 and
   2 are implemented and the scraper identity resolver in Phase 3 is complete. Migrations
-  `0022` through `0032` establish deterministic identity, atomic source-profile writes,
+  `0022` through `0033` establish deterministic identity, atomic source-profile writes,
   provenance, person office terms, and private normalized House and Senate roll-call facts.
   Both official vote paths remain bounded, identifier-only, and
   isolated from legacy `voting_records`; the versioned `0031` read RPC combines presentation-safe
   official facts with legacy state/historical coverage without opening the private tables, and
-  `0032` repairs that RPC's query plan while preserving its result contract.
+  `0032` repairs that RPC's query plan while preserving its result contract. `0033` keeps
+  ambiguous same-day GovTrack signature collisions visible unless exactly one official roll call
+  matches.
 - Monitor and resolve quarantined identity candidates instead of weakening the pre-write
   boundary. A person can have federal, state, and local roles over time; those roles must
   not become separate canonical people or be flattened into one office field.
 - The first ten scheduled Senate write workflows completed successfully through August 10,
   2026, and the first five detailed run audits had complete reconciliation, healthy writes,
-  exact provenance/identity coverage, and zero legacy vote keys. After migrations `0031` and
-  `0032` are applied and the live Voting Record tab is validated on representative House and Senate
+  exact provenance/identity coverage, and zero legacy vote keys. After migrations `0031` through
+  `0033` are applied and the live Voting Record tab is validated on representative House and Senate
   profiles, the next medium slice is Congress.gov bill/amendment metadata enrichment. Tell the
   maintainer when that extractor is ready for its manually provisioned API key; no new key is
   needed for the official-vote read surface.

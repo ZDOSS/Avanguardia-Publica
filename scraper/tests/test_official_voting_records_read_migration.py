@@ -34,6 +34,25 @@ class OfficialVotingRecordsReadMigrationTests(unittest.TestCase):
             repair_function_start:repair_function_end
         ]
 
+        deduplication_repair_path = (
+            Path(__file__).resolve().parents[2]
+            / "migrations"
+            / "0033_official_voting_records_deduplication_repair.sql"
+        )
+        cls.deduplication_repair_sql = deduplication_repair_path.read_text(
+            encoding="utf-8"
+        )
+        deduplication_function_start = cls.deduplication_repair_sql.index(
+            "CREATE OR REPLACE FUNCTION public.get_canonical_voting_records_v2"
+        )
+        deduplication_function_end = cls.deduplication_repair_sql.index(
+            "$function$;",
+            deduplication_function_start,
+        )
+        cls.deduplication_function_sql = cls.deduplication_repair_sql[
+            deduplication_function_start:deduplication_function_end
+        ]
+
     def test_requires_the_completed_senate_rollout(self):
         self.assertIn(
             "'0030_senate_roll_call_production_enablement'",
@@ -189,6 +208,99 @@ class OfficialVotingRecordsReadMigrationTests(unittest.TestCase):
         self.assertIn("'scraper_preflight_required', true", self.repair_sql)
         self.assertIn("NOTIFY pgrst, 'reload schema';", self.repair_sql)
         self.assertTrue(self.repair_sql.rstrip().endswith("COMMIT;"))
+
+    def test_deduplication_repair_requires_the_exact_applied_0032_contract(self):
+        self.assertIn(
+            "'0032_official_voting_records_query_repair'",
+            self.deduplication_repair_sql,
+        )
+        self.assertIn("migration_version = 32", self.deduplication_repair_sql)
+        self.assertIn(
+            "v_body_md5 IS DISTINCT FROM '7ae68c60106645c0182c669fa1ce13aa'",
+            self.deduplication_repair_sql,
+        )
+        self.assertIn(
+            "v_language IS DISTINCT FROM 'plpgsql'",
+            self.deduplication_repair_sql,
+        )
+        self.assertIn(
+            "v_security_definer IS DISTINCT FROM true",
+            self.deduplication_repair_sql,
+        )
+        self.assertIn(
+            "ARRAY['search_path=\"\"']::text[]",
+            self.deduplication_repair_sql,
+        )
+
+    def test_deduplication_repair_retains_ambiguous_govtrack_signatures(self):
+        for preserved_contract in (
+            "person_vote.person_id = v_person_id",
+            "person_vote_source.record_status = 'active'",
+            "person_vote_source.verified_lane = 'verified'",
+            "source_system.source_kind = 'government'",
+            "source_system.trust_level = 'official'",
+            "catalog_source.status = 'approved'",
+            "catalog_source.repo_fit = 'wired'",
+            "roll_call_source.source_system_key = 'house-clerk'",
+            "roll_call_source.source_system_key = 'senate-lis'",
+            "legacy_vote.person_id = v_person_id",
+            "legacy_vote.politician_id = ANY(v_legacy_politician_ids)",
+        ):
+            self.assertIn(preserved_contract, self.deduplication_function_sql)
+
+        self.assertIn(
+            "unambiguous_official_signatures AS (",
+            self.deduplication_function_sql,
+        )
+        self.assertIn(
+            "HAVING count(DISTINCT official_vote.roll_call_id) = 1",
+            self.deduplication_function_sql,
+        )
+        self.assertIn(
+            "official_vote.roll_call_id = legacy_vote.roll_call_id",
+            self.deduplication_function_sql,
+        )
+        self.assertIn(
+            "OR legacy_vote.roll_call_id NOT LIKE 'govtrack:%'",
+            self.deduplication_function_sql,
+        )
+        self.assertIn(
+            "OR NOT EXISTS (\n                  SELECT 1\n"
+            "                  FROM unambiguous_official_signatures",
+            self.deduplication_function_sql,
+        )
+        self.assertNotIn(
+            "official_vote.roll_call_id = legacy_vote.roll_call_id\n"
+            "                  OR legacy_vote.roll_call_id LIKE 'govtrack:%'",
+            self.deduplication_function_sql,
+        )
+
+    def test_deduplication_repair_preserves_security_and_records_marker(self):
+        self.assertNotIn(
+            "GRANT SELECT ON TABLE public.legislative_roll_calls",
+            self.deduplication_repair_sql,
+        )
+        self.assertIn(
+            "REVOKE EXECUTE ON FUNCTION public.get_canonical_voting_records_v2",
+            self.deduplication_repair_sql,
+        )
+        self.assertIn(
+            ") TO anon, authenticated;",
+            self.deduplication_repair_sql,
+        )
+        self.assertIn(
+            "'0033_official_voting_records_deduplication_repair',\n    33,",
+            self.deduplication_repair_sql,
+        )
+        self.assertIn(
+            "'scraper_preflight_required', true",
+            self.deduplication_repair_sql,
+        )
+        self.assertIn(
+            "NOTIFY pgrst, 'reload schema';",
+            self.deduplication_repair_sql,
+        )
+        self.assertTrue(self.deduplication_repair_sql.rstrip().endswith("COMMIT;"))
 
 
 if __name__ == "__main__":

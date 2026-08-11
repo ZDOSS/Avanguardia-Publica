@@ -1,6 +1,6 @@
 ZERO_UUID = "00000000-0000-0000-0000-000000000000"
-REQUIRED_MIGRATION_KEY = "0032_official_voting_records_query_repair"
-REQUIRED_MIGRATION_FILE = "0032_official_voting_records_query_repair.sql"
+REQUIRED_MIGRATION_KEY = "0033_official_voting_records_deduplication_repair"
+REQUIRED_MIGRATION_FILE = "0033_official_voting_records_deduplication_repair.sql"
 
 REQUIRED_COLUMN_CHECKS = [
     (
