@@ -22,6 +22,7 @@ from xml.etree import ElementTree
 
 import requests
 
+from extractors.congress_gov import CongressGovMeasureRef, parse_measure_reference
 from source_health import SourceHealthTracker
 
 
@@ -79,6 +80,8 @@ class HouseRollCall:
     payload_hash: str | None = None
     fetched_at: str | None = None
     official_member_vote_total: int | None = None
+    measure_refs: tuple[CongressGovMeasureRef, ...] = ()
+    measure_reference_issues: tuple[str, ...] = ()
 
     @property
     def reconciliation_key(self) -> str:
@@ -506,7 +509,31 @@ def _parse_roll_call(
         payload_hash=payload_hash,
         fetched_at=fetched_at,
         official_member_vote_total=sum(official_vote_totals.values()),
+        measure_refs=_house_measure_references(metadata, congress),
     )
+
+
+def _house_measure_references(
+    metadata: ElementTree.Element,
+    congress: int,
+) -> tuple[CongressGovMeasureRef, ...]:
+    """Keep only explicit Congress.gov-style identities from Clerk metadata.
+
+    House ``amendment-num`` values can be Rules Committee/procedural numbers and
+    are not necessarily Congress.gov ``H.Amdt.`` identities.  They are therefore
+    never combined with a guessed type.  An amendment is retained only if an XML
+    text field itself contains a complete recognized identifier.
+    """
+
+    references = []
+    for value in (
+        metadata.findtext("legis-num"),
+        metadata.findtext("amendment-author"),
+    ):
+        reference = parse_measure_reference(value, congress=congress)
+        if reference and reference not in references:
+            references.append(reference)
+    return tuple(references)
 
 
 def _fetch_parsed(

@@ -24,6 +24,7 @@ from xml.etree import ElementTree
 import requests
 import yaml
 
+from extractors.congress_gov import CongressGovMeasureRef, parse_measure_reference
 from source_health import SourceHealthTracker
 
 
@@ -82,6 +83,8 @@ class SenateRollCall:
     payload_hash: str | None = None
     fetched_at: str | None = None
     official_member_vote_total: int | None = None
+    measure_refs: tuple[CongressGovMeasureRef, ...] = ()
+    measure_reference_issues: tuple[str, ...] = ()
 
     @property
     def reconciliation_key(self) -> str:
@@ -652,6 +655,10 @@ def _parse_roll_call(
     if question is None:
         raise ValueError("Senate roll-call XML is missing its vote question")
 
+    measure_refs, measure_reference_issues = _senate_measure_references(
+        root,
+        congress,
+    )
     return SenateRollCall(
         congress=congress,
         session=session,
@@ -665,7 +672,60 @@ def _parse_roll_call(
         payload_hash=payload_hash,
         fetched_at=fetched_at,
         official_member_vote_total=sum(official_vote_totals.values()),
+        measure_refs=measure_refs,
+        measure_reference_issues=measure_reference_issues,
     )
+
+
+def _senate_measure_references(
+    root: ElementTree.Element,
+    congress: int,
+) -> tuple[tuple[CongressGovMeasureRef, ...], tuple[str, ...]]:
+    """Read only structured, complete bill/amendment identities from LIS XML."""
+
+    candidates: list[tuple[str | None, int]] = []
+    issues = []
+    document = root.find("document")
+    if document is not None:
+        document_type = _clean(document.findtext("document_type"))
+        document_number = _clean(document.findtext("document_number"))
+        document_congress_text = _clean(document.findtext("document_congress"))
+        document_congress = congress
+        document_identity_allowed = True
+        if document_congress_text:
+            try:
+                document_congress = int(document_congress_text)
+            except ValueError:
+                issues.append("invalid_document_congress")
+                document_identity_allowed = False
+        if document_identity_allowed and document_type and document_number:
+            candidates.append(
+                (f"{document_type} {document_number}", document_congress)
+            )
+
+    amendment = root.find("amendment")
+    if amendment is not None:
+        # Bound each roll call to its primary amendment and underlying bill.
+        # Intermediate amendment-to-amendment identities remain available in the
+        # Congress.gov detail response and must not turn the 50-roll-call window
+        # into an unbounded relationship crawl.
+        for tag in (
+            "amendment_number",
+            "amendment_to_document_number",
+        ):
+            candidates.append((_clean(amendment.findtext(tag)), congress))
+
+    references = []
+    for value, reference_congress in candidates:
+        reference = parse_measure_reference(value, congress=reference_congress)
+        if reference is None:
+            continue
+        if reference.congress != congress:
+            issues.append("measure_congress_mismatch")
+            continue
+        if reference not in references:
+            references.append(reference)
+    return tuple(references), tuple(sorted(set(issues)))
 
 
 def _fetch_parsed(

@@ -148,6 +148,7 @@ financial disclosures are not yet covered.
 | `SUPABASE_KEY`                  | scraper  | yes      | Service-role key (writes)                            |
 | `FEC_API_KEY`                   | scraper  | no       | data.gov key for campaign-donor enrichment           |
 | `OPENSTATES_API_KEY`            | scraper  | no       | OpenStates key for state roll-call votes             |
+| `CONGRESS_GOV_API_KEY`          | scraper  | no       | data.gov key for bounded Congress.gov metadata shadow |
 | `STATE_UNVERIFIED_ENRICHMENT_LIMIT` | scraper | no    | Bounded count of state profiles to enrich via LittleSis |
 | `STATE_UNVERIFIED_ENRICHMENT_OFFSET` | scraper | no   | Zero-based start offset for rotating state LittleSis batches |
 | `HOUSE_ROLL_CALL_WRITE_MODE`    | scraper  | no       | `disabled` by default; `enabled` opts into the separately DB-gated House RPC |
@@ -342,14 +343,16 @@ only runs the ETL and `nextjs.yml` only builds.
   prevents half-applied data changes. Migration `0027` is the explicit exception: use
   `ON_ERROR_STOP=1` but omit `--single-transaction` so its committed cutover barrier can become
   visible before its second transaction drains old callers and atomically enables both gates.
-  Migrations `0028` through `0033` use the normal single-transaction rule. `0028` is the private
+  Migrations `0028` through `0034` use the normal single-transaction rule. `0028` is the private
   Senate source-review decision. `0029` installs the write-disabled Senate provenance
   contract and hard preflight-only barrier. `0030` verifies that exact disabled state, installs
   the guarded wrapper, and enables the database gates. `0031` installs the narrow public,
   person-aware official-vote read RPC without granting direct access to the private fact tables.
   `0032` preserves that API while repairing the query plan so indexed person predicates are
   applied before legacy vote normalization. `0033` keeps that plan while retaining ambiguous
-  GovTrack signature collisions unless exactly one official roll call matches.
+  GovTrack signature collisions unless exactly one official roll call matches. `0034` corrects
+  the Congress.gov API catalog coordinates and records the bounded metadata-shadow contract;
+  it adds no writer and deliberately leaves scraper preflight on `0033`.
   Runtime and manual-input defaults remain disabled; after the reviewed manual canary and audit,
   the nightly workflow schedule explicitly
   opts into the same bounded path while unknown events fail closed.

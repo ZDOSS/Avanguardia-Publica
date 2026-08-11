@@ -19,6 +19,7 @@ from extractors.fec import get_campaign_donors
 from extractors.govtrack import get_voting_records
 from extractors.senate_roll_calls import get_recent_senate_roll_call_shadow
 from extractors.house_roll_calls import get_recent_house_roll_call_shadow
+from extractors.congress_gov import get_roll_call_measure_metadata_shadow
 from extractors.openstates import get_state_politicians
 from extractors.openstates_votes import get_state_voting_records
 from extractors.federal import get_federal_exec_judicial
@@ -329,6 +330,9 @@ def main(argv=None):
                 tracker.record_failure("join_key_coverage_below_90_percent")
                 tracker.trip_breaker("join_key_coverage_below_90_percent")
 
+    senate_shadow_report = None
+    house_shadow_report = None
+
     # Official Senate roll-call XML is fetched once for bounded reconciliation. It
     # uses the exact LIS-to-Bioguide crosswalk above plus the trusted historical
     # roster to compare each official roll call with one complete GovTrack voter
@@ -443,6 +447,48 @@ def main(argv=None):
             write_health.record_skip("upstream_snapshot_unavailable")
             write_health.trip_breaker("write_preconditions_not_met")
             write_health.record_failure("write_preconditions_not_met")
+
+    # Congress.gov receives only exact bill/amendment identifiers already present
+    # in the two bounded official roll-call snapshots above. The first rollout is
+    # intentionally shadow-only: normalized metadata stays in memory and only
+    # aggregate reconciliation metrics enter the ETL summary. A separate reviewed
+    # slice must establish provenance storage and enable any database writes.
+    congress_gov_api_key = str(os.environ.get("CONGRESS_GOV_API_KEY") or "").strip()
+    if not congress_gov_api_key or congress_gov_api_key.upper() == "DEMO_KEY":
+        summary.skip(
+            "Congress.gov metadata",
+            "CONGRESS_GOV_API_KEY not set (or DEMO_KEY)",
+        )
+        source_health["congress_gov_metadata_shadow"].record_skip(
+            "api_key_not_configured"
+        )
+        print(
+            "Note: CONGRESS_GOV_API_KEY not set (or DEMO_KEY) — skipping "
+            "bounded Congress.gov metadata reconciliation."
+        )
+    else:
+        official_roll_calls = [
+            roll_call
+            for report in (senate_shadow_report, house_shadow_report)
+            if report is not None
+            for roll_call in report.roll_calls
+        ]
+        print("\n=== Congress.gov bill/amendment metadata shadow ===")
+        try:
+            congress_gov_report = get_roll_call_measure_metadata_shadow(
+                official_roll_calls,
+                api_key=congress_gov_api_key,
+                health=source_health["congress_gov_metadata_shadow"],
+            )
+            for counter, amount in congress_gov_report.counters().items():
+                summary.increment(counter, amount)
+            print(f"  {congress_gov_report.description()}")
+        except Exception as e:
+            print(f"  [!] Congress.gov metadata shadow unavailable: {e}")
+            congress_gov_health = source_health["congress_gov_metadata_shadow"]
+            if not congress_gov_health.breaker_tripped:
+                congress_gov_health.record_attempt()
+                congress_gov_health.record_failure("unexpected_error")
 
     # 3. State legislators + governors (OpenStates). Hub + official contact by default.
     # Optional LittleSis enrichment is bounded and writes only to unverified spokes
