@@ -87,13 +87,13 @@ class FakeLoader:
 
 
 class SchemaPreflightTests(unittest.TestCase):
-    def test_preflight_requires_the_senate_production_enablement_migration(self):
+    def test_preflight_requires_the_official_vote_read_surface_migration(self):
         self.assertEqual(
-            "0030_senate_roll_call_production_enablement",
+            "0031_official_voting_records_read_surface",
             REQUIRED_MIGRATION_KEY,
         )
         self.assertEqual(
-            "0030_senate_roll_call_production_enablement.sql",
+            "0031_official_voting_records_read_surface.sql",
             REQUIRED_MIGRATION_FILE,
         )
 
@@ -205,6 +205,7 @@ class SchemaPreflightTests(unittest.TestCase):
             "get_canonical_financial_disclosures",
             "get_canonical_campaign_donors",
             "get_canonical_voting_records",
+            "get_canonical_voting_records_v2",
             "get_canonical_media_mentions",
             "get_canonical_person_office_terms",
         ):
@@ -242,9 +243,9 @@ class SchemaPreflightTests(unittest.TestCase):
 
         self.assertIn(REQUIRED_MIGRATION_KEY, str(raised.exception))
 
-    def test_predecessor_marker_cannot_satisfy_the_senate_preflight(self):
+    def test_predecessor_marker_cannot_satisfy_the_current_preflight(self):
         client = FakeSupabase(
-            migration_markers={"0029_senate_roll_call_provenance"}
+            migration_markers={"0030_senate_roll_call_production_enablement"}
         )
         loader = FakeLoader(client)
 

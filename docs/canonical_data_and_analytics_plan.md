@@ -358,6 +358,12 @@ retains raw-byte provenance and complete normalized snapshots for the guarded ru
 runtime and manual-input defaults remain disabled. After the successful bounded canary and
 post-canary audit, the reviewed workflow follow-up explicitly enables the same bounded path for
 nightly schedule events while unknown events continue to fail closed.
+Migration `0031_official_voting_records_read_surface.sql` turns the completed House and Senate
+fact foundation into a bounded public profile feature. Its versioned, person-aware RPC reads only
+active verified facts from the two approved source contracts, returns limited presentation-safe
+provenance, preserves legacy state and historical vote coverage, and narrowly suppresses exact
+GovTrack duplicates. Direct access to the normalized fact and source-record tables remains closed
+to public roles.
 
 - source slug, name, agency, sub-agency, branch, category, source type, access level,
   auth type, credential provider, base URL, docs URL, formats, coverage, update cadence,
@@ -599,8 +605,16 @@ The reviewed follow-up workflow now enables the same bounded path for nightly `s
 events. Code, example-environment, and manual-input defaults remain disabled, manual dispatches
 retain an explicit choice, and unknown events fail closed. Review the first scheduled enabled
 runs for the same reconciliation, identity, provenance, write-health, and legacy-isolation
-invariants before expanding this source. Do not expand the bounded window or turn official
-facts into legacy/public rows in this slice.
+invariants before expanding this source. Ten consecutive scheduled workflows on the reviewed
+merge commit completed successfully from August 1 through August 10, 2026; the first five were
+also inspected for exact reconciliation and write metrics with no mismatches, failures, or skips.
+That satisfies the initial scheduled-observation gate without expanding the bounded window.
+
+The next cohesive slice is migration `0031_official_voting_records_read_surface.sql` and its live
+Voting Record client integration. It exposes only active verified normalized House/Senate facts
+through a narrow canonical-person RPC, labels and links official records, retains state/historical
+legacy coverage, and keeps every private provenance table closed to browser roles. It does not add
+a source, extractor, credential, or writer.
 
 Broader candidate triage, including the FCC/GSA context pair seeded by `0024`, stays separate
 from this vote slice; historical identity-review queue cleanup is deferred to Phase 6. Do not

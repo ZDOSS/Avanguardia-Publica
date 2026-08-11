@@ -121,14 +121,19 @@ When contributing to this project, you must adhere strictly to these rules:
 
 ## 🚀 Next Steps & Outstanding Work
 - The active remaining roadmap is `docs/canonical_data_and_analytics_plan.md`. Phases 1 and
-  2 are implemented; migrations `0022` through `0030` establish deterministic identity,
+  2 are implemented and the scraper identity resolver in Phase 3 is complete. Migrations
+  `0022` through `0031` establish deterministic identity,
   atomic source-profile writes, provenance, person office terms, and private normalized House
   and Senate roll-call facts. Both official vote paths remain bounded, identifier-only, and
-  isolated from legacy `voting_records`.
+  isolated from legacy `voting_records`; the versioned `0031` read RPC combines presentation-safe
+  official facts with legacy state/historical coverage without opening the private tables.
 - Monitor and resolve quarantined identity candidates instead of weakening the pre-write
   boundary. A person can have federal, state, and local roles over time; those roles must
   not become separate canonical people or be flattened into one office field.
-- Review the first scheduled Senate write runs for complete reconciliation, healthy write
-  metrics, exact provenance/identity coverage, and zero legacy vote keys. Add the next official
-  legislative source only in another small reviewed slice after those checks are stable. Keep
-  analytics and broad source expansion downstream of trustworthy provenance.
+- The first ten scheduled Senate write workflows completed successfully through August 10,
+  2026, and the first five detailed run audits had complete reconciliation, healthy writes,
+  exact provenance/identity coverage, and zero legacy vote keys. After migration `0031` is
+  applied and the live Voting Record tab is validated on representative House and Senate
+  profiles, the next medium slice is Congress.gov bill/amendment metadata enrichment. Tell the
+  maintainer when that extractor is ready for its manually provisioned API key; no new key is
+  needed for the `0031` read surface.

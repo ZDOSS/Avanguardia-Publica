@@ -1,0 +1,117 @@
+import unittest
+from pathlib import Path
+
+
+class OfficialVotingRecordsReadMigrationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        migration_path = (
+            Path(__file__).resolve().parents[2]
+            / "migrations"
+            / "0031_official_voting_records_read_surface.sql"
+        )
+        cls.sql = migration_path.read_text(encoding="utf-8")
+        function_start = cls.sql.index(
+            "CREATE FUNCTION public.get_canonical_voting_records_v2"
+        )
+        function_end = cls.sql.index("$function$;", function_start)
+        cls.function_sql = cls.sql[function_start:function_end]
+
+    def test_requires_the_completed_senate_rollout(self):
+        self.assertIn(
+            "'0030_senate_roll_call_production_enablement'",
+            self.sql,
+        )
+        self.assertIn("migration_version = 30", self.sql)
+        self.assertIn(
+            "migration 0030_senate_roll_call_production_enablement must be applied first",
+            self.sql,
+        )
+
+    def test_read_rpc_is_person_aware_and_security_definer(self):
+        self.assertIn("LANGUAGE sql", self.function_sql)
+        self.assertIn("STABLE", self.function_sql)
+        self.assertIn("SECURITY DEFINER", self.function_sql)
+        self.assertIn("SET search_path = ''", self.function_sql)
+        self.assertIn(
+            "public.get_canonical_person_legacy_ids(p_id)",
+            self.function_sql,
+        )
+        self.assertIn("person.status = 'active'", self.function_sql)
+
+    def test_exposes_only_active_verified_reviewed_official_facts(self):
+        for contract in (
+            "person_vote_source.record_status = 'active'",
+            "roll_call_source.record_status = 'active'",
+            "person_vote_source.retired_at IS NULL",
+            "roll_call_source.retired_at IS NULL",
+            "person_vote_source.verified_lane = 'verified'",
+            "roll_call_source.verified_lane = 'verified'",
+            "source_system.source_kind = 'government'",
+            "source_system.trust_level = 'official'",
+            "source_system.verified = true",
+            "catalog_source.status = 'approved'",
+            "catalog_source.repo_fit = 'wired'",
+            "catalog_endpoint.status = 'approved'",
+        ):
+            self.assertIn(contract, self.function_sql)
+
+        for private_field in ("raw_payload_ref", "payload_hash", "metadata"):
+            self.assertNotIn(private_field, self.function_sql)
+
+    def test_scopes_official_rows_to_the_two_reviewed_vote_sources(self):
+        for contract in (
+            "roll_call.chamber = 'house'",
+            "roll_call_source.source_system_key = 'house-clerk'",
+            "'house-clerk-roll-call-xml'",
+            "roll_call_source.source_endpoint_slug = 'evs-roll-call-feed'",
+            "roll_call.chamber = 'senate'",
+            "roll_call_source.source_system_key = 'senate-lis'",
+            "roll_call_source.source_catalog_slug = 'senate-roll-call-xml'",
+            "roll_call_source.source_endpoint_slug = 'lis-roll-call-feed'",
+        ):
+            self.assertIn(contract, self.function_sql)
+
+    def test_keeps_legacy_coverage_and_narrowly_deduplicates_govtrack(self):
+        self.assertIn("FROM public.voting_records AS legacy_vote", self.function_sql)
+        self.assertIn("'legacy'::text AS record_origin", self.function_sql)
+        self.assertIn("legacy_vote.roll_call_id LIKE 'govtrack:%'", self.function_sql)
+        self.assertIn("official_vote.vote_date = legacy_vote.vote_date", self.function_sql)
+        self.assertIn(
+            "official_vote.roll_call_id = legacy_vote.roll_call_id",
+            self.function_sql,
+        )
+        self.assertIn("btrim(official_vote.bill_name)", self.function_sql)
+        self.assertIn("btrim(legacy_vote.bill_name)", self.function_sql)
+        self.assertNotIn("legacy_vote.jurisdiction IS NULL", self.function_sql)
+
+    def test_keeps_private_tables_private_and_grants_only_the_rpc(self):
+        self.assertNotIn(
+            "GRANT SELECT ON TABLE public.legislative_roll_calls",
+            self.sql,
+        )
+        self.assertNotIn(
+            "GRANT SELECT ON TABLE public.person_roll_call_votes",
+            self.sql,
+        )
+        self.assertIn(
+            "REVOKE EXECUTE ON FUNCTION public.get_canonical_voting_records_v2",
+            self.sql,
+        )
+        self.assertIn(
+            ") TO anon, authenticated;",
+            self.sql,
+        )
+
+    def test_records_forward_only_marker_and_reloads_postgrest(self):
+        self.assertIn(
+            "'0031_official_voting_records_read_surface',\n    31,",
+            self.sql,
+        )
+        self.assertIn("'scraper_preflight_required', true", self.sql)
+        self.assertIn("NOTIFY pgrst, 'reload schema';", self.sql)
+        self.assertTrue(self.sql.rstrip().endswith("COMMIT;"))
+
+
+if __name__ == "__main__":
+    unittest.main()
