@@ -24,6 +24,7 @@ def _roll_call_xml(vote_number: int, first_vote: str) -> str:
     <congress>119</congress>
     <session>2nd</session>
     <rollcall-num>{vote_number}</rollcall-num>
+    <legis-num>H R 8884</legis-num>
     <action-date>14-Jul-2026</action-date>
     <vote-question>On Passage</vote-question>
     <vote-totals>
@@ -52,6 +53,7 @@ def _writable_roll_call_xml(vote_number: int) -> str:
     <congress>119</congress>
     <session>2nd</session>
     <rollcall-num>{vote_number}</rollcall-num>
+    <legis-num>H R 8884</legis-num>
     <action-date>14-Jul-2026</action-date>
     <vote-question>On Passage</vote-question>
     <vote-result>Passed</vote-result>
@@ -210,6 +212,13 @@ class HouseRollCallShadowTests(unittest.TestCase):
         self.assertTrue(report.snapshot_complete)
         self.assertEqual((), report.authoritative_write_block_reasons(health))
         self.assertEqual(1, len(report.roll_calls))
+        self.assertEqual(
+            ["bill:119:hr:8884"],
+            [
+                reference.source_record_key
+                for reference in report.roll_calls[0].measure_refs
+            ],
+        )
 
         roll_call_payload, member_votes = report.roll_calls[0].rpc_payload()
         self.assertEqual("house:119:2026:2", roll_call_payload["source_record_key"])
@@ -236,6 +245,30 @@ class HouseRollCallShadowTests(unittest.TestCase):
                 },
             ],
             member_votes,
+        )
+
+    def test_house_amendment_procedural_number_is_not_guessed_as_hamdt(self):
+        xml = _writable_roll_call_xml(206).replace(
+            "<vote-question>On Passage</vote-question>",
+            """
+            <vote-question>On Agreeing to the Amendment</vote-question>
+            <amendment-num>12</amendment-num>
+            <amendment-author>Greene of Georgia Part A Amendment No. 113</amendment-author>
+            """,
+        )
+
+        roll_call = house_roll_calls._parse_roll_call(
+            xml,
+            "https://clerk.house.gov/evs/2026/roll206.xml",
+            119,
+            2,
+            2026,
+            206,
+        )
+
+        self.assertEqual(
+            ["bill:119:hr:8884"],
+            [reference.source_record_key for reference in roll_call.measure_refs],
         )
 
     def test_shadow_fetches_vote_centric_govtrack_snapshot_without_profile_map(self):

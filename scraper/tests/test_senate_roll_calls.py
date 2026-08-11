@@ -38,6 +38,11 @@ def _roll_call_xml(vote_number: int, first_vote: str) -> str:
   <vote_date>June 24, 2026,  10:30 PM</vote_date>
   <vote_question_text>On the Motion to Proceed S.J.Res. {vote_number}</vote_question_text>
   <vote_result>Motion Agreed to</vote_result>
+  <document>
+    <document_congress>119</document_congress>
+    <document_type>S.J.Res.</document_type>
+    <document_number>{vote_number}</document_number>
+  </document>
   <count>
     <yeas>{yeas}</yeas>
     <nays>{nays}</nays>
@@ -236,6 +241,71 @@ class SenateRollCallShadowTests(unittest.TestCase):
         self.assertTrue(report.snapshot_complete)
         self.assertEqual(1, len(report.roll_calls))
         self.assertRegex(report.roll_calls[0].payload_hash or "", r"^[0-9a-f]{64}$")
+        self.assertEqual(
+            ["bill:119:sjres:2"],
+            [
+                reference.source_record_key
+                for reference in report.roll_calls[0].measure_refs
+            ],
+        )
+
+    def test_structured_amendment_and_underlying_bill_refs_are_both_retained(self):
+        xml = _roll_call_xml(2, "Yea").replace(
+            """<document>
+    <document_congress>119</document_congress>
+    <document_type>S.J.Res.</document_type>
+    <document_number>2</document_number>
+  </document>""",
+            """<document>
+    <document_congress>119</document_congress>
+    <document_type>S.Amdt.</document_type>
+    <document_number/>
+  </document>
+  <amendment>
+    <amendment_number>S.Amdt. 3937</amendment_number>
+    <amendment_to_document_number>H.R. 5371</amendment_to_document_number>
+    <amendment_purpose>In the nature of a substitute.</amendment_purpose>
+  </amendment>""",
+        )
+
+        roll_call = senate_roll_calls._parse_roll_call(
+            xml,
+            (
+                "https://www.senate.gov/legislative/LIS/roll_call_votes/"
+                "vote1192/vote_119_2_00002.xml"
+            ),
+            119,
+            2,
+            2,
+        )
+
+        self.assertEqual(
+            ["amendment:119:samdt:3937", "bill:119:hr:5371"],
+            [reference.source_record_key for reference in roll_call.measure_refs],
+        )
+
+    def test_invalid_optional_measure_congress_does_not_block_official_vote(self):
+        xml = _roll_call_xml(2, "Yea").replace(
+            "<document_congress>119</document_congress>",
+            "<document_congress>not-a-congress</document_congress>",
+        )
+
+        roll_call = senate_roll_calls._parse_roll_call(
+            xml,
+            (
+                "https://www.senate.gov/legislative/LIS/roll_call_votes/"
+                "vote1192/vote_119_2_00002.xml"
+            ),
+            119,
+            2,
+            2,
+        )
+
+        self.assertEqual((), roll_call.measure_refs)
+        self.assertEqual(
+            ("invalid_document_congress",),
+            roll_call.measure_reference_issues,
+        )
 
     def test_normalized_roll_call_builds_stable_lis_and_bioguide_payloads(self):
         roll_call = senate_roll_calls.SenateRollCall(

@@ -417,6 +417,16 @@ Use this intake order:
    vote rows. Both sources join exclusively through stable roster IDs (Senate
    LIS-to-Bioguide crosswalks and House Bioguide IDs). Migration `0025` approved the House
    source after five reviewed runs.
+
+   The next bounded Congress.gov slice is now implemented as a detail-only shadow. House and
+   Senate XML parsers retain only explicit Congress.gov-style bill/amendment identities from
+   those same 25-vote windows; the extractor deduplicates them, caps the run at 100 detail
+   calls, validates the response identity, and emits aggregate health/coverage without writing
+   facts. Ambiguous House procedural amendment numbers are skipped instead of guessed.
+   Migration `0034_congress_gov_metadata_shadow_contract.sql` corrects the catalog endpoint and
+   records the API, rights, retention, health, credential, and disable contract while leaving
+   source approval pending production-key observations. The maintainer must provision the
+   `CONGRESS_GOV_API_KEY` GitHub Actions secret before those observations can begin.
 3. **Influence and organization graph after source records exist:** LDA.gov,
    USAspending, SAM.gov entity management, SAM.gov contract awards, and SAM.gov
    opportunities. These should wait for organization identity and source-record tables;
@@ -628,6 +638,15 @@ Voting Record client integration. It exposes only active verified normalized Hou
 through a narrow canonical-person RPC, labels and links
 official records, retains state/historical legacy coverage, and keeps every private provenance
 table closed to browser roles. It adds no source, extractor, credential, or writer.
+
+The active follow-up slice adds bounded Congress.gov bill/amendment metadata reconciliation.
+It consumes only exact measure identifiers from the existing official-vote windows, calls no
+collection endpoint, validates returned identities, and keeps all normalized results in memory.
+Migration `0034_congress_gov_metadata_shadow_contract.sql` records the candidate source contract
+without advancing scraper preflight or enabling storage. After merge, apply `0034`, provision the
+repository secret `CONGRESS_GOV_API_KEY`, and inspect a small number of scheduled/manual shadow summaries.
+If coverage and source health are clean, the next medium slice is private source-record-backed
+metadata storage and exact roll-call-to-measure links; public presentation remains a later gate.
 
 Broader candidate triage, including the FCC/GSA context pair seeded by `0024`, stays separate
 from this vote slice; historical identity-review queue cleanup is deferred to Phase 6. Do not

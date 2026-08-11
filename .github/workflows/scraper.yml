@@ -72,6 +72,9 @@ jobs:
           FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
           # State roll-call votes via OpenStates API (optional; skipped if absent)
           OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
+          # Bounded bill/amendment detail lookups from exact official roll-call IDs
+          # (optional shadow; skipped if absent)
+          CONGRESS_GOV_API_KEY: ${{ secrets.CONGRESS_GOV_API_KEY }}
           # Bounded state LittleSis enrichment (unverified; optional)
           STATE_UNVERIFIED_ENRICHMENT_LIMIT: ${{ github.event.inputs.state_unverified_enrichment_limit || vars.STATE_UNVERIFIED_ENRICHMENT_LIMIT }}
           STATE_UNVERIFIED_ENRICHMENT_OFFSET: ${{ github.event.inputs.state_unverified_enrichment_offset || vars.STATE_UNVERIFIED_ENRICHMENT_OFFSET }}

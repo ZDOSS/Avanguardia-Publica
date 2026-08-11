@@ -79,6 +79,13 @@ def build_source_health_trackers(summary: ETLRunSummary) -> dict:
             max_failure_rate=0.0,
             affects_run=True,
         ),
+        # Congress.gov metadata is an optional, bounded detail-only shadow. It
+        # cannot invalidate otherwise healthy canonical roster or vote writes.
+        "congress_gov_metadata_shadow": summary.source_tracker(
+            "congress_gov_metadata_shadow",
+            min_attempts_for_rate=3,
+            affects_run=False,
+        ),
         # The private worklist is operational observability, not a roster or
         # profile write path. Its unavailability must remain visible but cannot
         # invalidate a healthy canonical-data run.

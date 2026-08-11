@@ -72,6 +72,37 @@ An extractor is not production-ready until tests prove that it:
 6. has a documented retention and attribution decision; and
 7. has a rollback or disable path that does not delete historical identity mappings.
 
+### Congress.gov bill/amendment metadata (candidate; bounded shadow only)
+
+The [Congress.gov API v3](https://github.com/LibraryOfCongress/api.congress.gov/) is an
+official Library of Congress source for machine-readable legislative data. Congress.gov's
+[offsite-use guidance](https://www.congress.gov/help/using-data-offsite) explicitly provides
+the API so the public can retrieve and reuse that data. API access uses a free api.data.gov
+key and currently publishes a 5,000-request-per-hour limit.
+
+The initial integration does not crawl bill or amendment collections. It receives only exact
+measure identifiers already present in the 25 most recent House and 25 most recent Senate
+official roll-call snapshots, deduplicates them, and calls at most 100 versioned detail
+endpoints per run. Each response must repeat the requested Congress, measure type, and number.
+Names, titles, question text, and other fuzzy fields never create the join. In particular, a
+House procedural `amendment-num` is not treated as a Congress.gov `H.Amdt.` number unless the
+official XML supplies that complete identifier; the underlying bill may still be looked up.
+
+This first slice normalizes presentation-safe titles, purposes/descriptions, chamber and date
+fields, latest action, official link, and amended-measure identity in memory. It computes a
+raw-byte SHA-256 for future provenance review but retains neither raw JSON nor normalized facts
+in the database. The nonblocking source reports attempts, successes, failures, skips, coverage,
+and breaker state; it retries a server failure once and stops on authentication, quota, or
+identity conflicts. Removing `CONGRESS_GOV_API_KEY` disables the path without affecting the
+official vote writers or their retained facts. Shared `DEMO_KEY` use is refused by the scheduled
+pipeline.
+
+Migration `0034_congress_gov_metadata_shadow_contract.sql` corrects the seeded API base to
+`https://api.congress.gov/v3/`, reserves the official `congress-gov` source namespace, and
+records this detail-only contract. It deliberately leaves the catalog source and endpoint as
+`candidate`/`needs_review`: successful production-key shadow observations and a separate
+provenance/storage review are required before approval or any database write.
+
 ### Senate roll-call XML (approved; database-gated, bounded scheduled writes)
 
 The U.S. Senate publishes an [XML record for each roll call](https://www.senate.gov/legislative/LIS/roll_call_votes/)
