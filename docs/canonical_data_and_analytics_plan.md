@@ -364,6 +364,12 @@ active verified facts from the two approved source contracts, returns limited pr
 provenance, preserves legacy state and historical vote coverage, and narrowly suppresses exact
 GovTrack duplicates. Direct access to the normalized fact and source-record tables remains closed
 to public roles.
+Migration `0032_official_voting_records_query_repair.sql` preserves the 0031 API and result
+contract while repairing the live query plan discovered during rollout. The replacement resolves
+one canonical person first, constrains the existing indexed person/profile branches, and applies
+vote-cast normalization only to that small row set. Exact ordered result comparisons passed for
+representative House and Senate profiles, while measured calls improved from roughly 1.5–8
+seconds to 17–46 milliseconds.
 
 - source slug, name, agency, sub-agency, branch, category, source type, access level,
   auth type, credential provider, base URL, docs URL, formats, coverage, update cadence,
@@ -610,11 +616,11 @@ merge commit completed successfully from August 1 through August 10, 2026; the f
 also inspected for exact reconciliation and write metrics with no mismatches, failures, or skips.
 That satisfies the initial scheduled-observation gate without expanding the bounded window.
 
-The next cohesive slice is migration `0031_official_voting_records_read_surface.sql` and its live
-Voting Record client integration. It exposes only active verified normalized House/Senate facts
-through a narrow canonical-person RPC, labels and links official records, retains state/historical
-legacy coverage, and keeps every private provenance table closed to browser roles. It does not add
-a source, extractor, credential, or writer.
+The completed profile slice comprises migration `0031_official_voting_records_read_surface.sql`,
+its `0032` query-plan repair, and the live Voting Record client integration. It exposes only active
+verified normalized House/Senate facts through a narrow canonical-person RPC, labels and links
+official records, retains state/historical legacy coverage, and keeps every private provenance
+table closed to browser roles. It adds no source, extractor, credential, or writer.
 
 Broader candidate triage, including the FCC/GSA context pair seeded by `0024`, stays separate
 from this vote slice; historical identity-review queue cleanup is deferred to Phase 6. Do not

@@ -87,13 +87,13 @@ class FakeLoader:
 
 
 class SchemaPreflightTests(unittest.TestCase):
-    def test_preflight_requires_the_official_vote_read_surface_migration(self):
+    def test_preflight_requires_the_official_vote_query_repair_migration(self):
         self.assertEqual(
-            "0031_official_voting_records_read_surface",
+            "0032_official_voting_records_query_repair",
             REQUIRED_MIGRATION_KEY,
         )
         self.assertEqual(
-            "0031_official_voting_records_read_surface.sql",
+            "0032_official_voting_records_query_repair.sql",
             REQUIRED_MIGRATION_FILE,
         )
 
@@ -245,7 +245,7 @@ class SchemaPreflightTests(unittest.TestCase):
 
     def test_predecessor_marker_cannot_satisfy_the_current_preflight(self):
         client = FakeSupabase(
-            migration_markers={"0030_senate_roll_call_production_enablement"}
+            migration_markers={"0031_official_voting_records_read_surface"}
         )
         loader = FakeLoader(client)
 

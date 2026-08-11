@@ -195,6 +195,13 @@ historical `voting_records` coverage and suppresses a legacy GovTrack row only w
 same-person/date/question/cast duplicate of an official fact. The live Voting Record tab labels
 official rows and links directly to the source record.
 
+Migration `0032_official_voting_records_query_repair.sql` preserves that RPC contract while
+repairing its production query plan. It resolves one canonical person before reading facts,
+constrains the existing indexed person/profile branches before normalizing vote labels, and
+pushes vote filters into those branches. Exact before/after result comparisons passed for
+representative House and Senate profiles; live calls dropped from roughly 1.5–8 seconds to
+17–46 milliseconds during rollout validation.
+
 The enabled manual [production canary](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/30593722846)
 passed schema preflight and wrote 25 roll calls with 2,498 exact-LIS member votes. All 25
 GovTrack comparison snapshots and all 2,498 casts agreed, and the Senate fetch and write
@@ -329,12 +336,13 @@ only runs the ETL and `nextjs.yml` only builds.
   prevents half-applied data changes. Migration `0027` is the explicit exception: use
   `ON_ERROR_STOP=1` but omit `--single-transaction` so its committed cutover barrier can become
   visible before its second transaction drains old callers and atomically enables both gates.
-  Migrations `0028`, `0029`, `0030`, and `0031` use the normal single-transaction rule.
-  `0028` is the
-  private Senate source-review decision. `0029` installs the write-disabled Senate provenance
+  Migrations `0028` through `0032` use the normal single-transaction rule. `0028` is the private
+  Senate source-review decision. `0029` installs the write-disabled Senate provenance
   contract and hard preflight-only barrier. `0030` verifies that exact disabled state, installs
   the guarded wrapper, and enables the database gates. `0031` installs the narrow public,
   person-aware official-vote read RPC without granting direct access to the private fact tables.
+  `0032` preserves that API while repairing the query plan so indexed person predicates are
+  applied before legacy vote normalization.
   Runtime and manual-input defaults remain disabled; after the reviewed manual canary and audit,
   the nightly workflow schedule explicitly
   opts into the same bounded path while unknown events fail closed.

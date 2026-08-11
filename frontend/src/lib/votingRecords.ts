@@ -47,8 +47,8 @@ export async function fetchVotingRecords(
     }
   }
 
-  // Local-development compatibility for a database that has not applied migration
-  // 0031 yet. Production fails closed above so an unapplied public read contract
+  // Local-development compatibility for a database that has not applied the
+  // official-vote read migrations yet. Production fails closed above so drift
   // cannot silently hide official facts.
   let canonicalEmptyResult: PageResult<VotingRecord> | null = null;
 

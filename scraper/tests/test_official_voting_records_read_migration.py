@@ -17,6 +17,23 @@ class OfficialVotingRecordsReadMigrationTests(unittest.TestCase):
         function_end = cls.sql.index("$function$;", function_start)
         cls.function_sql = cls.sql[function_start:function_end]
 
+        repair_path = (
+            Path(__file__).resolve().parents[2]
+            / "migrations"
+            / "0032_official_voting_records_query_repair.sql"
+        )
+        cls.repair_sql = repair_path.read_text(encoding="utf-8")
+        repair_function_start = cls.repair_sql.index(
+            "CREATE OR REPLACE FUNCTION public.get_canonical_voting_records_v2"
+        )
+        repair_function_end = cls.repair_sql.index(
+            "$function$;",
+            repair_function_start,
+        )
+        cls.repair_function_sql = cls.repair_sql[
+            repair_function_start:repair_function_end
+        ]
+
     def test_requires_the_completed_senate_rollout(self):
         self.assertIn(
             "'0030_senate_roll_call_production_enablement'",
@@ -111,6 +128,67 @@ class OfficialVotingRecordsReadMigrationTests(unittest.TestCase):
         self.assertIn("'scraper_preflight_required', true", self.sql)
         self.assertIn("NOTIFY pgrst, 'reload schema';", self.sql)
         self.assertTrue(self.sql.rstrip().endswith("COMMIT;"))
+
+    def test_query_repair_requires_the_exact_applied_0031_contract(self):
+        self.assertIn("'0031_official_voting_records_read_surface'", self.repair_sql)
+        self.assertIn("migration_version = 31", self.repair_sql)
+        self.assertIn(
+            "v_body_md5 IS DISTINCT FROM '67534a64b5bca1a74fbdbe7b511ff928'",
+            self.repair_sql,
+        )
+        self.assertIn("v_language IS DISTINCT FROM 'sql'", self.repair_sql)
+        self.assertIn("v_security_definer IS DISTINCT FROM true", self.repair_sql)
+        self.assertIn("v_volatility IS DISTINCT FROM 's'", self.repair_sql)
+        self.assertIn("ARRAY['search_path=\"\"']::text[]", self.repair_sql)
+
+    def test_query_repair_resolves_one_person_before_fact_queries(self):
+        self.assertIn("LANGUAGE plpgsql", self.repair_function_sql)
+        self.assertIn("SECURITY DEFINER", self.repair_function_sql)
+        self.assertIn("SET search_path = ''", self.repair_function_sql)
+        resolver = self.repair_function_sql.index(
+            "FROM public.get_canonical_person_legacy_ids(p_id) AS resolved"
+        )
+        return_query = self.repair_function_sql.index("RETURN QUERY", resolver)
+        self.assertLess(resolver, return_query)
+        self.assertIn("count(DISTINCT resolved.person_id)", self.repair_function_sql)
+        self.assertIn("IF v_person_count <> 1", self.repair_function_sql)
+
+    def test_query_repair_constrains_indexed_branches_before_normalizing(self):
+        self.assertIn(
+            "person_vote.person_id = v_person_id",
+            self.repair_function_sql,
+        )
+        self.assertIn(
+            "legacy_vote.person_id = v_person_id",
+            self.repair_function_sql,
+        )
+        self.assertIn(
+            "legacy_vote.politician_id = ANY(v_legacy_politician_ids)",
+            self.repair_function_sql,
+        )
+        self.assertGreaterEqual(
+            self.repair_function_sql.count("END = v_vote_cast_key"),
+            2,
+        )
+        self.assertNotIn("CROSS JOIN params", self.repair_function_sql)
+
+    def test_query_repair_preserves_security_and_forward_only_history(self):
+        self.assertNotIn(
+            "GRANT SELECT ON TABLE public.legislative_roll_calls",
+            self.repair_sql,
+        )
+        self.assertIn(
+            "REVOKE EXECUTE ON FUNCTION public.get_canonical_voting_records_v2",
+            self.repair_sql,
+        )
+        self.assertIn(") TO anon, authenticated;", self.repair_sql)
+        self.assertIn(
+            "'0032_official_voting_records_query_repair',\n    32,",
+            self.repair_sql,
+        )
+        self.assertIn("'scraper_preflight_required', true", self.repair_sql)
+        self.assertIn("NOTIFY pgrst, 'reload schema';", self.repair_sql)
+        self.assertTrue(self.repair_sql.rstrip().endswith("COMMIT;"))
 
 
 if __name__ == "__main__":
