@@ -358,6 +358,24 @@ retains raw-byte provenance and complete normalized snapshots for the guarded ru
 runtime and manual-input defaults remain disabled. After the successful bounded canary and
 post-canary audit, the reviewed workflow follow-up explicitly enables the same bounded path for
 nightly schedule events while unknown events continue to fail closed.
+Migration `0031_official_voting_records_read_surface.sql` turns the completed House and Senate
+fact foundation into a bounded public profile feature. Its versioned, person-aware RPC reads only
+active verified facts from the two approved source contracts, returns limited presentation-safe
+provenance, preserves legacy state and historical vote coverage, and narrowly suppresses exact
+GovTrack duplicates. Direct access to the normalized fact and source-record tables remains closed
+to public roles.
+Migration `0032_official_voting_records_query_repair.sql` preserves the 0031 API and result
+contract while repairing the live query plan discovered during rollout. The replacement resolves
+one canonical person first, constrains the existing indexed person/profile branches, and applies
+vote-cast normalization only to that small row set. Exact ordered result comparisons passed for
+representative House and Senate profiles, while measured calls improved from roughly 1.5–8
+seconds to 17–46 milliseconds.
+Migration `0033_official_voting_records_deduplication_repair.sql` is the forward-only review
+repair for the GovTrack compatibility rule. Exact roll-call mappings remain authoritative, but
+the date/question/cast fallback suppresses a GovTrack row only when the signature selects one
+distinct official roll call. If multiple same-day official calls share that signature, the
+possibly distinct legacy row remains visible. Rollback compilation, a focused collision control,
+representative before/after output comparison, ACL checks, and live public-RPC checks passed.
 
 - source slug, name, agency, sub-agency, branch, category, source type, access level,
   auth type, credential provider, base URL, docs URL, formats, coverage, update cadence,
@@ -599,8 +617,17 @@ The reviewed follow-up workflow now enables the same bounded path for nightly `s
 events. Code, example-environment, and manual-input defaults remain disabled, manual dispatches
 retain an explicit choice, and unknown events fail closed. Review the first scheduled enabled
 runs for the same reconciliation, identity, provenance, write-health, and legacy-isolation
-invariants before expanding this source. Do not expand the bounded window or turn official
-facts into legacy/public rows in this slice.
+invariants before expanding this source. Ten consecutive scheduled workflows on the reviewed
+merge commit completed successfully from August 1 through August 10, 2026; the first five were
+also inspected for exact reconciliation and write metrics with no mismatches, failures, or skips.
+That satisfies the initial scheduled-observation gate without expanding the bounded window.
+
+The completed profile slice comprises migration `0031_official_voting_records_read_surface.sql`,
+its `0032` query-plan repair, its `0033` ambiguity-safe GovTrack deduplication repair, and the live
+Voting Record client integration. It exposes only active verified normalized House/Senate facts
+through a narrow canonical-person RPC, labels and links
+official records, retains state/historical legacy coverage, and keeps every private provenance
+table closed to browser roles. It adds no source, extractor, credential, or writer.
 
 Broader candidate triage, including the FCC/GSA context pair seeded by `0024`, stays separate
 from this vote slice; historical identity-review queue cleanup is deferred to Phase 6. Do not

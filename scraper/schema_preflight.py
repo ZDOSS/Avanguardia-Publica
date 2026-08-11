@@ -1,6 +1,6 @@
 ZERO_UUID = "00000000-0000-0000-0000-000000000000"
-REQUIRED_MIGRATION_KEY = "0030_senate_roll_call_production_enablement"
-REQUIRED_MIGRATION_FILE = "0030_senate_roll_call_production_enablement.sql"
+REQUIRED_MIGRATION_KEY = "0033_official_voting_records_deduplication_repair"
+REQUIRED_MIGRATION_FILE = "0033_official_voting_records_deduplication_repair.sql"
 
 REQUIRED_COLUMN_CHECKS = [
     (
@@ -192,6 +192,16 @@ REQUIRED_RPC_CHECKS = [
             "vote_cast_filter": None,
         },
         "get_canonical_voting_records(uuid, integer, integer, text)",
+    ),
+    (
+        "get_canonical_voting_records_v2",
+        {
+            "p_id": ZERO_UUID,
+            "result_limit": 1,
+            "result_offset": 0,
+            "vote_cast_filter": None,
+        },
+        "get_canonical_voting_records_v2(uuid, integer, integer, text)",
     ),
     (
         "get_canonical_media_mentions",

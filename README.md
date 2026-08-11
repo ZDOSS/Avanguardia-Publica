@@ -187,6 +187,27 @@ non-mutating preflight remains available independently of the gates. No transact
 is needed: the prior public Senate function was always a non-mutating barrier, could not call the
 helper, and both gates were false. This path never writes legacy `voting_records`.
 
+Migration `0031_official_voting_records_read_surface.sql` adds the first public read surface
+over those normalized facts. Its person-aware `get_canonical_voting_records_v2` RPC exposes only
+active, verified House Clerk and Senate LIS votes from approved source contracts; the underlying
+provenance tables, payload hashes, and metadata remain private. The RPC keeps existing state and
+historical `voting_records` coverage alongside the normalized facts. The live Voting Record tab
+labels official rows and links directly to the source record.
+
+Migration `0032_official_voting_records_query_repair.sql` preserves that RPC contract while
+repairing its production query plan. It resolves one canonical person before reading facts,
+constrains the existing indexed person/profile branches before normalizing vote labels, and
+pushes vote filters into those branches. Exact before/after result comparisons passed for
+representative House and Senate profiles; live calls dropped from roughly 1.5–8 seconds to
+17–46 milliseconds during rollout validation.
+
+Migration `0033_official_voting_records_deduplication_repair.sql` narrows the legacy GovTrack
+fallback after a review found that two same-day official roll calls could share the same
+normalized question and member cast. Exact roll-call-key matches still deduplicate. A
+date/question/cast fallback now deduplicates only when it identifies one distinct official roll
+call; ambiguous signatures retain the legacy row. The forward repair preserves the RPC signature,
+security boundary, indexed query plan, and public presentation contract.
+
 The enabled manual [production canary](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/30593722846)
 passed schema preflight and wrote 25 roll calls with 2,498 exact-LIS member votes. All 25
 GovTrack comparison snapshots and all 2,498 casts agreed, and the Senate fetch and write
@@ -241,7 +262,8 @@ Both pipelines run from GitHub Actions:
   secrets (embedded in the client bundle; the anon key is public by design, protected by
   Supabase RLS). The home/search, `/directory`, `/profile?id=<uuid>`, and profile spoke
   views read Supabase **live in the browser**, including contact, financial disclosures,
-  campaign donors, voting records, media mentions, and connections. The legacy pretty
+  campaign donors, official federal and legacy voting records, media mentions, and
+  connections. The legacy pretty
   `/[politician_id]` route availability is still tied to static generation, so brand-new
   rows should be linked through `/profile?id=<uuid>` until a deploy creates the SEO route.
   The deploy is wired to re-run automatically after a *successful* nightly ETL via a
@@ -320,11 +342,16 @@ only runs the ETL and `nextjs.yml` only builds.
   prevents half-applied data changes. Migration `0027` is the explicit exception: use
   `ON_ERROR_STOP=1` but omit `--single-transaction` so its committed cutover barrier can become
   visible before its second transaction drains old callers and atomically enables both gates.
-  Migrations `0028`, `0029`, and `0030` use the normal single-transaction rule. `0028` is the
-  private Senate source-review decision. `0029` installs the write-disabled Senate provenance
+  Migrations `0028` through `0033` use the normal single-transaction rule. `0028` is the private
+  Senate source-review decision. `0029` installs the write-disabled Senate provenance
   contract and hard preflight-only barrier. `0030` verifies that exact disabled state, installs
-  the guarded wrapper, and enables the database gates. Runtime and manual-input defaults remain
-  disabled; after the reviewed manual canary and audit, the nightly workflow schedule explicitly
+  the guarded wrapper, and enables the database gates. `0031` installs the narrow public,
+  person-aware official-vote read RPC without granting direct access to the private fact tables.
+  `0032` preserves that API while repairing the query plan so indexed person predicates are
+  applied before legacy vote normalization. `0033` keeps that plan while retaining ambiguous
+  GovTrack signature collisions unless exactly one official roll call matches.
+  Runtime and manual-input defaults remain disabled; after the reviewed manual canary and audit,
+  the nightly workflow schedule explicitly
   opts into the same bounded path while unknown events fail closed.
 
 Do **not** replay the full historical migration directory against an upgraded database.

@@ -10,6 +10,7 @@ const CANONICAL_POLITICIAN_RPC_NAMES = [
   'get_canonical_financial_disclosures',
   'get_canonical_campaign_donors',
   'get_canonical_voting_records',
+  'get_canonical_voting_records_v2',
   'get_canonical_media_mentions',
   'get_canonical_person_office_terms',
 ];
