@@ -3,9 +3,9 @@ news_aggregator.py
 
 Multi-tier news ingestion system with circuit-breaker failover.
 Provider priority (production):
-  1. Currents API        (~1,000 req/day free)
-  2. NewsData.io         (~200 req/day free — requires attribution)
-  3. TheNewsAPI          (~100 req/day free; explicit production approval required)
+  1. Currents API        (account quota; local run cap)
+  2. NewsData.io         (account credits; requires attribution)
+  3. TheNewsAPI          (account quota; explicit production approval required)
   4. GDELT URL discovery (unmetered open-data fallback)
 
 NewsAPI.org is ONLY used in development/local environments (not production). We store
@@ -18,6 +18,9 @@ import io
 import zipfile
 import time
 import logging
+import re
+from urllib.parse import urlparse
+
 import requests
 
 from source_health import SourceHealthTracker
@@ -25,14 +28,18 @@ from source_health import SourceHealthTracker
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# In-memory rate-limit counters (reset on each scraper run)
-# For a persistent counter across runs, swap these dicts for a Redis/file cache.
+# In-memory request accounting (reset with the scraper process).  These are local
+# safety caps, not assertions about the account's upstream plan.  Provider-returned
+# quota headers are recorded separately so ETL_SUMMARY_JSON can distinguish the two.
 # ---------------------------------------------------------------------------
 _counters: dict[str, int] = {
     "currents": 0,
     "newsdata": 0,
     "thenewsapi": 0,
     "newsapi": 0,
+}
+_suppressed_counters: dict[str, int] = {
+    provider: 0 for provider in _counters
 }
 
 RATE_LIMITS: dict[str, int] = {
@@ -42,27 +49,144 @@ RATE_LIMITS: dict[str, int] = {
     "newsapi":     100,  # dev only
 }
 
+_breaker_reasons: dict[str, str | None] = {
+    provider: None for provider in RATE_LIMITS
+}
+_quota_observations: dict[str, dict[str, int | None]] = {
+    provider: {
+        "upstream_limit": None,
+        "upstream_remaining": None,
+        "upstream_reset": None,
+        "retry_after_seconds": None,
+    }
+    for provider in RATE_LIMITS
+}
+
+_QUOTA_HEADER_NAMES = {
+    "upstream_limit": (
+        "x-ratelimit-limit",
+        "x-rate-limit-limit",
+        "ratelimit-limit",
+        "x-ratelimit-requests-limit",
+    ),
+    "upstream_remaining": (
+        "x-ratelimit-remaining",
+        "x-rate-limit-remaining",
+        "ratelimit-remaining",
+        "x-ratelimit-requests-remaining",
+    ),
+    "upstream_reset": (
+        "x-ratelimit-reset",
+        "x-rate-limit-reset",
+        "ratelimit-reset",
+        "x-ratelimit-requests-reset",
+    ),
+    "retry_after_seconds": ("retry-after",),
+}
+
 # Shared request timeout
 _TIMEOUT = 10
 
 
 def _within_limit(provider: str) -> bool:
-    return _counters[provider] < RATE_LIMITS[provider]
+    return _effective_breaker_reason(provider) is None
 
 
 def _bump(provider: str) -> None:
     _counters[provider] += 1
 
 
-def get_provider_status() -> dict[str, dict]:
-    return {
-        provider: {
-            "requests": _counters[provider],
-            "limit": limit,
-            "breaker_tripped": _counters[provider] >= limit,
-        }
-        for provider, limit in RATE_LIMITS.items()
+def _trip_provider_breaker(provider: str, reason: str) -> None:
+    if _breaker_reasons[provider] is None:
+        _breaker_reasons[provider] = reason or "circuit_breaker"
+
+
+def _effective_breaker_reason(provider: str) -> str | None:
+    if _breaker_reasons[provider] is not None:
+        return _breaker_reasons[provider]
+    if _quota_observations[provider]["upstream_remaining"] == 0:
+        return "upstream_quota_exhausted"
+    if _counters[provider] >= RATE_LIMITS[provider]:
+        return "local_request_cap_reached"
+    return None
+
+
+def _record_provider_skip(
+    provider: str,
+    label: str,
+    health: SourceHealthTracker | None,
+) -> None:
+    reason = _effective_breaker_reason(provider) or "provider_unavailable"
+    first_suppressed_request = _suppressed_counters[provider] == 0
+    _suppressed_counters[provider] += 1
+    if first_suppressed_request:
+        logger.warning("[%s] Provider unavailable (%s), skipping.", label, reason)
+    if health:
+        health.record_skip(reason)
+
+
+def _nonnegative_header_integer(value) -> int | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    if not re.fullmatch(r"[0-9]+", normalized):
+        return None
+    return int(normalized)
+
+
+def _observe_quota_headers(provider: str, response) -> None:
+    """Retain only numeric, whitelisted quota headers from one response."""
+
+    headers = getattr(response, "headers", None) or {}
+    normalized_headers = {
+        str(name).strip().lower().replace("_", "-"): value
+        for name, value in headers.items()
     }
+    observation = _quota_observations[provider]
+    for field, candidates in _QUOTA_HEADER_NAMES.items():
+        for name in candidates:
+            parsed = _nonnegative_header_integer(normalized_headers.get(name))
+            if parsed is not None:
+                observation[field] = parsed
+                break
+
+
+def reset_provider_status() -> None:
+    """Reset per-process request, breaker, and quota observations."""
+
+    for provider in RATE_LIMITS:
+        _counters[provider] = 0
+        _suppressed_counters[provider] = 0
+        _breaker_reasons[provider] = None
+        for field in _quota_observations[provider]:
+            _quota_observations[provider][field] = None
+
+
+def get_provider_status() -> dict[str, dict]:
+    status = {}
+    for provider, local_cap in RATE_LIMITS.items():
+        breaker_reason = _effective_breaker_reason(provider)
+        upstream_remaining = _quota_observations[provider]["upstream_remaining"]
+        status[provider] = {
+            "requests": _counters[provider],
+            "requests_suppressed": _suppressed_counters[provider],
+            "request_demand": _counters[provider] + _suppressed_counters[provider],
+            "local_request_cap": local_cap,
+            "local_requests_remaining": max(0, local_cap - _counters[provider]),
+            "breaker_tripped": breaker_reason is not None,
+            "breaker_reason": breaker_reason,
+            "quota_exhausted": (
+                breaker_reason
+                in {
+                    "http_429",
+                    "local_request_cap_reached",
+                    "upstream_quota_exhausted",
+                }
+                or upstream_remaining == 0
+            ),
+            **_quota_observations[provider],
+        }
+    return status
 
 
 # ---------------------------------------------------------------------------
@@ -75,9 +199,7 @@ def _fetch_currents(
     if not api_key:
         return []
     if not _within_limit("currents"):
-        logger.warning("[Currents] Daily request limit reached, skipping.")
-        if health:
-            health.record_skip("request_budget_exhausted")
+        _record_provider_skip("currents", "Currents", health)
         return []
 
     url = "https://api.currentsapi.services/v1/search"
@@ -90,16 +212,18 @@ def _fetch_currents(
         health.record_attempt()
     started_at = time.monotonic()
     try:
-        resp = requests.get(url, params=params, timeout=_TIMEOUT)
         _bump("currents")
+        resp = requests.get(url, params=params, timeout=_TIMEOUT)
+        _observe_quota_headers("currents", resp)
         if not resp.ok:
+            reason = f"http_{resp.status_code}"
             logger.warning("[Currents] HTTP %s — rotating to next provider.", resp.status_code)
             if health:
                 health.record_failure(
-                    f"http_{resp.status_code}", time.monotonic() - started_at
+                    reason, time.monotonic() - started_at
                 )
-                health.trip_breaker(f"http_{resp.status_code}")
-            _counters["currents"] = RATE_LIMITS["currents"]  # trip the breaker
+                health.trip_breaker(reason)
+            _trip_provider_breaker("currents", reason)
             return []
         articles = resp.json().get("news", [])
         if health:
@@ -120,11 +244,11 @@ def _fetch_currents(
         return results
     except Exception as exc:
         logger.error("[Currents] Error for %s: %s", full_name, exc)
+        reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
         if health:
-            reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
             health.record_failure(reason, time.monotonic() - started_at)
             health.trip_breaker(reason)
-        _counters["currents"] = RATE_LIMITS["currents"]  # trip the breaker
+        _trip_provider_breaker("currents", reason)
         return []
 
 
@@ -143,9 +267,7 @@ def _fetch_newsapi(
     if not api_key:
         return []
     if not _within_limit("newsapi"):
-        logger.warning("[NewsAPI] Daily request limit reached, skipping.")
-        if health:
-            health.record_skip("request_budget_exhausted")
+        _record_provider_skip("newsapi", "NewsAPI", health)
         return []
 
     url = "https://newsapi.org/v2/everything"
@@ -159,16 +281,18 @@ def _fetch_newsapi(
         health.record_attempt()
     started_at = time.monotonic()
     try:
-        resp = requests.get(url, params=params, timeout=_TIMEOUT)
         _bump("newsapi")
+        resp = requests.get(url, params=params, timeout=_TIMEOUT)
+        _observe_quota_headers("newsapi", resp)
         if not resp.ok:
+            reason = f"http_{resp.status_code}"
             logger.warning("[NewsAPI] HTTP %s — rotating.", resp.status_code)
             if health:
                 health.record_failure(
-                    f"http_{resp.status_code}", time.monotonic() - started_at
+                    reason, time.monotonic() - started_at
                 )
-                health.trip_breaker(f"http_{resp.status_code}")
-            _counters["newsapi"] = RATE_LIMITS["newsapi"]
+                health.trip_breaker(reason)
+            _trip_provider_breaker("newsapi", reason)
             return []
         articles = resp.json().get("articles", [])
         if health:
@@ -189,11 +313,11 @@ def _fetch_newsapi(
         return results
     except Exception as exc:
         logger.error("[NewsAPI] Error for %s: %s", full_name, exc)
+        reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
         if health:
-            reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
             health.record_failure(reason, time.monotonic() - started_at)
             health.trip_breaker(reason)
-        _counters["newsapi"] = RATE_LIMITS["newsapi"]
+        _trip_provider_breaker("newsapi", reason)
         return []
 
 
@@ -208,9 +332,7 @@ def _fetch_newsdata(
     if not api_key:
         return []
     if not _within_limit("newsdata"):
-        logger.warning("[NewsData] Daily request limit reached, skipping.")
-        if health:
-            health.record_skip("request_budget_exhausted")
+        _record_provider_skip("newsdata", "NewsData", health)
         return []
 
     url = "https://newsdata.io/api/1/news"
@@ -223,16 +345,18 @@ def _fetch_newsdata(
         health.record_attempt()
     started_at = time.monotonic()
     try:
-        resp = requests.get(url, params=params, timeout=_TIMEOUT)
         _bump("newsdata")
+        resp = requests.get(url, params=params, timeout=_TIMEOUT)
+        _observe_quota_headers("newsdata", resp)
         if not resp.ok:
+            reason = f"http_{resp.status_code}"
             logger.warning("[NewsData] HTTP %s — rotating.", resp.status_code)
             if health:
                 health.record_failure(
-                    f"http_{resp.status_code}", time.monotonic() - started_at
+                    reason, time.monotonic() - started_at
                 )
-                health.trip_breaker(f"http_{resp.status_code}")
-            _counters["newsdata"] = RATE_LIMITS["newsdata"]
+                health.trip_breaker(reason)
+            _trip_provider_breaker("newsdata", reason)
             return []
         articles = resp.json().get("results", [])
         if health:
@@ -263,11 +387,11 @@ def _fetch_newsdata(
         return results
     except Exception as exc:
         logger.error("[NewsData] Error for %s: %s", full_name, exc)
+        reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
         if health:
-            reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
             health.record_failure(reason, time.monotonic() - started_at)
             health.trip_breaker(reason)
-        _counters["newsdata"] = RATE_LIMITS["newsdata"]
+        _trip_provider_breaker("newsdata", reason)
         return []
 
 
@@ -296,9 +420,7 @@ def _fetch_thenewsapi(
             health.record_skip("production_terms_not_approved")
         return []
     if not _within_limit("thenewsapi"):
-        logger.warning("[TheNewsAPI] Daily request limit reached, skipping.")
-        if health:
-            health.record_skip("request_budget_exhausted")
+        _record_provider_skip("thenewsapi", "TheNewsAPI", health)
         return []
 
     url = "https://api.thenewsapi.com/v1/news/all"
@@ -312,16 +434,18 @@ def _fetch_thenewsapi(
         health.record_attempt()
     started_at = time.monotonic()
     try:
-        resp = requests.get(url, params=params, timeout=_TIMEOUT)
         _bump("thenewsapi")
+        resp = requests.get(url, params=params, timeout=_TIMEOUT)
+        _observe_quota_headers("thenewsapi", resp)
         if not resp.ok:
+            reason = f"http_{resp.status_code}"
             logger.warning("[TheNewsAPI] HTTP %s — rotating.", resp.status_code)
             if health:
                 health.record_failure(
-                    f"http_{resp.status_code}", time.monotonic() - started_at
+                    reason, time.monotonic() - started_at
                 )
-                health.trip_breaker(f"http_{resp.status_code}")
-            _counters["thenewsapi"] = RATE_LIMITS["thenewsapi"]
+                health.trip_breaker(reason)
+            _trip_provider_breaker("thenewsapi", reason)
             return []
         articles = resp.json().get("data", [])
         if health:
@@ -342,26 +466,44 @@ def _fetch_thenewsapi(
         return results
     except Exception as exc:
         logger.error("[TheNewsAPI] Error for %s: %s", full_name, exc)
+        reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
         if health:
-            reason = "timeout" if isinstance(exc, requests.Timeout) else "request_error"
             health.record_failure(reason, time.monotonic() - started_at)
             health.trip_breaker(reason)
-        _counters["thenewsapi"] = RATE_LIMITS["thenewsapi"]
+        _trip_provider_breaker("thenewsapi", reason)
         return []
 
 
 # ---------------------------------------------------------------------------
 # 5. GDELT URL discovery (unmetered open-data fallback)
 # ---------------------------------------------------------------------------
-GDELT_MASTER_URL = (
-    "https://data.gdeltproject.org/gdeltv2/lastupdate.txt"
-)
+_GDELT_PROJECT_HOST = "data.gdeltproject.org"
+_GDELT_STORAGE_BASE = "https://storage.googleapis.com/data.gdeltproject.org"
+GDELT_MASTER_URL = f"{_GDELT_STORAGE_BASE}/gdeltv2/lastupdate.txt"
+_GDELT_GKG_PATH_RE = re.compile(r"/gdeltv2/[0-9]{14}\.gkg\.csv\.zip")
 
 # In-memory cache to prevent re-downloading the TSV for every politician
 _gdelt_cache: list[tuple[str, str]] | None = None
 _gdelt_cache_url: str | None = None
 _gdelt_cache_time: float | None = None
 _GDELT_CACHE_TTL = 900  # 15 minutes
+
+
+def _gdelt_storage_url(manifest_url: str) -> str | None:
+    """Map an exact GDELT GKG object to its certificate-valid storage URL."""
+
+    parsed = urlparse(manifest_url)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or parsed.netloc.lower() != _GDELT_PROJECT_HOST
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+        or not _GDELT_GKG_PATH_RE.fullmatch(parsed.path)
+    ):
+        return None
+    return f"{_GDELT_STORAGE_BASE}{parsed.path}"
+
 
 def _get_gdelt_cache() -> list[tuple[str, str]] | None:
     global _gdelt_cache, _gdelt_cache_url, _gdelt_cache_time
@@ -381,7 +523,7 @@ def _get_gdelt_cache() -> list[tuple[str, str]] | None:
         gkg_url = None
         for line in lines:
             if line.endswith(".gkg.csv.zip"):
-                gkg_url = line.split()[-1]
+                gkg_url = _gdelt_storage_url(line.split()[-1])
                 break
         
         if not gkg_url:
@@ -508,9 +650,14 @@ def get_news_data(
         return dev_results
 
     # --- Tier 1: Currents API ---
-    if _within_limit("currents") and os.environ.get("CURRENTS_API_KEY"):
-        results = _fetch_currents(full_name, health=provider_health.get("currents"))
-        if _within_limit("currents"):  # if breaker didn't trip, API is healthy
+    currents_tracker = provider_health.get("currents")
+    if os.environ.get("CURRENTS_API_KEY"):
+        if _within_limit("currents"):
+            results = _fetch_currents(full_name, health=currents_tracker)
+        else:
+            _record_provider_skip("currents", "Currents", currents_tracker)
+            results = None
+        if results is not None and _breaker_reasons["currents"] is None:
             if results:
                 logger.info("[NewsAggregator] Served by Currents for %s", full_name)
             if health:
@@ -518,9 +665,14 @@ def get_news_data(
             return results
 
     # --- Tier 2: NewsData.io ---
-    if _within_limit("newsdata") and os.environ.get("NEWSDATA_API_KEY"):
-        results = _fetch_newsdata(full_name, health=provider_health.get("newsdata"))
+    newsdata_tracker = provider_health.get("newsdata")
+    if os.environ.get("NEWSDATA_API_KEY"):
         if _within_limit("newsdata"):
+            results = _fetch_newsdata(full_name, health=newsdata_tracker)
+        else:
+            _record_provider_skip("newsdata", "NewsData", newsdata_tracker)
+            results = None
+        if results is not None and _breaker_reasons["newsdata"] is None:
             if results:
                 logger.info("[NewsAggregator] Served by NewsData for %s", full_name)
             if health:
@@ -528,24 +680,22 @@ def get_news_data(
             return results
 
     # --- Tier 3: TheNewsAPI ---
-    if (
-        _within_limit("thenewsapi")
-        and os.environ.get("THENEWSAPI_KEY")
-        and _thenewsapi_allowed()
-    ):
-        results = _fetch_thenewsapi(
-            full_name, health=provider_health.get("thenewsapi")
-        )
+    thenewsapi_tracker = provider_health.get("thenewsapi")
+    if os.environ.get("THENEWSAPI_KEY") and _thenewsapi_allowed():
         if _within_limit("thenewsapi"):
+            results = _fetch_thenewsapi(full_name, health=thenewsapi_tracker)
+        else:
+            _record_provider_skip("thenewsapi", "TheNewsAPI", thenewsapi_tracker)
+            results = None
+        if results is not None and _breaker_reasons["thenewsapi"] is None:
             if results:
                 logger.info("[NewsAggregator] Served by TheNewsAPI for %s", full_name)
             if health:
                 health.record_success()
             return results
     elif os.environ.get("THENEWSAPI_KEY") and not _thenewsapi_allowed():
-        tracker = provider_health.get("thenewsapi")
-        if tracker:
-            tracker.record_skip("production_terms_not_approved")
+        if thenewsapi_tracker:
+            thenewsapi_tracker.record_skip("production_terms_not_approved")
 
     # --- Tier 4: GDELT URL discovery (always available, no key needed) ---
     logger.info("[NewsAggregator] Falling back to GDELT pipeline for %s", full_name)

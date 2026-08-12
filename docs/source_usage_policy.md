@@ -27,6 +27,9 @@ The self-service plans provide headline/API access, but their published pricing 
 redistribution, republication, long-term caching, and similar publication rights require
 separate terms. The scraper therefore stores only the headline, publisher/source label,
 and original link unless a maintainer records broader rights in the source catalog.
+Published account allowances can change. The scraper treats its configured request ceiling as
+a per-process safety cap and reports numeric quota headers separately when Currents supplies
+them.
 
 Source: <https://currentsapi.services/en/product/price>
 
@@ -34,6 +37,8 @@ Source: <https://currentsapi.services/en/product/price>
 
 Free-tier results must keep the provider's required attribution. Store only the headline,
 source label, original link, and attribution unless separately approved.
+The run summary distinguishes actual requests and the local safety cap from numeric upstream
+quota headers, which are retained only when NewsData supplies them.
 
 Source: <https://newsdata.io/terms-of-service>
 
@@ -50,6 +55,8 @@ Source: <https://www.thenewsapi.com/tos>
 GDELT datasets permit reuse but require a citation and link to the GDELT Project. Use GDELT
 as mention/URL discovery. Do not scrape and republish article bodies from the publishers to
 which GDELT links.
+Fetch the manifest and its exact timestamped GKG object through GDELT's public Google Cloud
+Storage bucket so standard TLS hostname verification remains enabled.
 
 Source: <https://www.gdeltproject.org/about.html>
 

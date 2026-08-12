@@ -14,7 +14,11 @@ from source_record_freshness import run_source_record_freshness_check
 from schema_preflight import SchemaPreflightError, run_schema_preflight
 from extractors.gov_api import get_congress_members
 from extractors.littlesis import get_littlesis
-from extractors.news_aggregator import get_news_data, get_provider_status
+from extractors.news_aggregator import (
+    get_news_data,
+    get_provider_status,
+    reset_provider_status,
+)
 from extractors.fec import get_campaign_donors
 from extractors.govtrack import get_voting_records
 from extractors.senate_roll_calls import get_recent_senate_roll_call_shadow
@@ -53,6 +57,7 @@ def parse_args(argv=None):
 def main(argv=None):
     args = parse_args(argv)
     load_dotenv()
+    reset_provider_status()
     print("Starting Avanguardia-Publica Phase 1 Scraper Pipeline...")
     summary = ETLRunSummary()
     try:

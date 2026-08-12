@@ -140,7 +140,10 @@ When contributing to this project, you must adhere strictly to these rules:
   `0033` are applied and the live Voting Record tab is validated on representative House and Senate
   profiles, the bounded Congress.gov bill/amendment metadata shadow is now implemented. It consumes
   only exact identifiers from the existing official-vote windows, makes at most 100 detail calls,
-  and writes no database facts. After merge, the maintainer must apply migration `0034` and then add
-  the `CONGRESS_GOV_API_KEY` repository secret so production observations can begin. If those
-  observations are healthy, the next medium slice is private provenance-backed metadata storage and
-  exact roll-call-to-measure links; no new key is needed for the existing official-vote read surface.
+  and writes no database facts. Migration `0034` is applied, the `CONGRESS_GOV_API_KEY` secret is
+  provisioned, and the first production-key manual observation completed all 18 bounded detail calls
+  with healthy source status. The immediate operational hardening slice separates real news-provider
+  attempts, suppressed demand, local caps, upstream quota headers, and breaker causes, and repairs
+  GDELT's TLS-safe public-storage path. After one more healthy metadata observation, the next medium
+  slice is private provenance-backed metadata storage and exact roll-call-to-measure links; timeout
+  recovery/checkpointing remains separate, and the existing official-vote read surface needs no new key.

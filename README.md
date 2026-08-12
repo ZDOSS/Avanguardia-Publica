@@ -123,6 +123,13 @@ aggregator uses a multi-tier circuit-breaker strategy (Currents → NewsData.io 
 approved TheNewsAPI usage → GDELT URL discovery) so it degrades gracefully under rate
 limits without scraping article bodies.
 
+The run summary reports each provider's actual outbound attempts, requests suppressed after a
+breaker opens, resulting in-process demand, its per-process local safety cap, the breaker
+cause, and numeric upstream quota headers when the provider supplies them. Local counters do
+not claim to represent account usage by other workflows or earlier runs; upstream plan
+allowances and the time window represented by each header should be verified with the
+provider.
+
 Free access and republication rights are different questions. Production extractors must
 follow [`docs/source_usage_policy.md`](docs/source_usage_policy.md): retain stable provenance,
 store only the fields permitted by the provider, keep required attribution, and keep

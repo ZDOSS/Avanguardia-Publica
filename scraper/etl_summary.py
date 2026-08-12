@@ -199,7 +199,17 @@ class ETLRunSummary:
             for provider, status in payload["news_providers"].items():
                 print(
                     f"  {provider}: requests={status.get('requests')} "
-                    f"limit={status.get('limit')} breaker_tripped={status.get('breaker_tripped')}"
+                    f"suppressed={status.get('requests_suppressed')} "
+                    f"demand={status.get('request_demand')} "
+                    f"local_cap={status.get('local_request_cap')} "
+                    f"local_remaining={status.get('local_requests_remaining')} "
+                    f"upstream_limit={status.get('upstream_limit')} "
+                    f"upstream_remaining={status.get('upstream_remaining')} "
+                    f"upstream_reset={status.get('upstream_reset')} "
+                    f"retry_after_seconds={status.get('retry_after_seconds')} "
+                    f"quota_exhausted={status.get('quota_exhausted')} "
+                    f"breaker_tripped={status.get('breaker_tripped')} "
+                    f"reason={status.get('breaker_reason')}"
                 )
         else:
             print("  none")

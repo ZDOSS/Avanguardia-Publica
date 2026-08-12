@@ -643,10 +643,21 @@ The active follow-up slice adds bounded Congress.gov bill/amendment metadata rec
 It consumes only exact measure identifiers from the existing official-vote windows, calls no
 collection endpoint, validates returned identities, and keeps all normalized results in memory.
 Migration `0034_congress_gov_metadata_shadow_contract.sql` records the candidate source contract
-without advancing scraper preflight or enabling storage. After merge, apply `0034`, provision the
-repository secret `CONGRESS_GOV_API_KEY`, and inspect a small number of scheduled/manual shadow summaries.
-If coverage and source health are clean, the next medium slice is private source-record-backed
-metadata storage and exact roll-call-to-measure links; public presentation remains a later gate.
+without advancing scraper preflight or enabling storage. Migration `0034` is applied and the
+repository secret is provisioned. The first production-key manual observation completed all 18
+bounded detail calls with healthy source status and no breaker.
+
+That full run also exposed two independent operational gaps in the older news path: provider
+failures were represented by forcing local counters to their caps, and GDELT's project hostname
+did not match the certificate used by its public object store. The bounded hardening follow-up
+records actual attempts, suppressed demand, explicit breaker causes, and whitelisted numeric
+upstream quota headers separately from local process caps. It also maps only exact timestamped
+GKG objects to GDELT's certificate-valid public storage bucket. This follow-up adds no source,
+credential, schema, or fact write. Timeout recovery/checkpointing remains a separate slice.
+
+After the operational hardening merge and another healthy metadata observation, the next medium
+slice is private source-record-backed metadata storage and exact roll-call-to-measure links;
+public presentation remains a later gate.
 
 Broader candidate triage, including the FCC/GSA context pair seeded by `0024`, stays separate
 from this vote slice; historical identity-review queue cleanup is deferred to Phase 6. Do not
