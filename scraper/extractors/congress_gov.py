@@ -2,9 +2,10 @@
 
 The extractor never lists or crawls Congress.gov collections.  It receives exact bill
 and amendment identifiers already present in the bounded House and Senate roll-call XML
-snapshots, deduplicates them, and requests only their API v3 detail endpoints.  Results
-remain in memory for aggregate shadow reporting; this module does not write the
-database, retain raw JSON, or broaden the legacy ``voting_records`` path.
+snapshots, deduplicates them, and requests only their API v3 detail endpoints. Results
+remain in memory for aggregate reporting and can be converted into the reviewed
+private-storage RPC payload by a separately gated runtime helper. This module does not
+write the database, retain raw JSON, or broaden the legacy ``voting_records`` path.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ _TIMEOUT_SECONDS = 15
 _RETRY_BACKOFF_SECONDS = (0.5,)
 _MAX_CONSECUTIVE_FAILURES = 3
 _MAX_DISTINCT_REFERENCES = 100
-_USER_AGENT = "Avanguardia-Publica ETL bounded Congress.gov metadata shadow"
+_USER_AGENT = "Avanguardia-Publica ETL bounded Congress.gov metadata reconciliation"
 
 _BILL_TYPES = frozenset(
     {
@@ -216,6 +217,52 @@ class CongressGovMetadata:
     def has_descriptive_text(self) -> bool:
         return bool(self.title or self.purpose or self.description)
 
+    def rpc_payload(self) -> dict:
+        """Return normalized facts and provenance without retaining raw JSON."""
+
+        if self.source_url != self.reference.source_url:
+            raise ValueError(
+                "Congress.gov metadata source URL does not match its identity"
+            )
+        if not re.fullmatch(r"[0-9a-f]{64}", self.payload_hash or ""):
+            raise ValueError("Congress.gov metadata payload hash is not a SHA-256 digest")
+        try:
+            fetched_at = datetime.fromisoformat(
+                self.fetched_at.replace("Z", "+00:00")
+            )
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise ValueError("Congress.gov metadata fetched_at is invalid") from exc
+        if fetched_at.tzinfo is None:
+            raise ValueError("Congress.gov metadata fetched_at must include a timezone")
+
+        return {
+            "source_record_key": self.reference.source_record_key,
+            "kind": self.reference.kind,
+            "congress": self.reference.congress,
+            "measure_type": self.reference.measure_type,
+            "number": self.reference.number,
+            "title": self.title,
+            "purpose": self.purpose,
+            "description": self.description,
+            "origin_chamber": self.origin_chamber,
+            "introduced_date": self.introduced_date,
+            "update_date": self.update_date,
+            "latest_action_date": self.latest_action_date,
+            "latest_action_text": self.latest_action_text,
+            "official_url": self.official_url,
+            "amended_bill_source_record_key": (
+                self.amended_bill.source_record_key if self.amended_bill else None
+            ),
+            "amended_amendment_source_record_key": (
+                self.amended_amendment.source_record_key
+                if self.amended_amendment
+                else None
+            ),
+            "source_url": self.source_url,
+            "payload_hash": self.payload_hash,
+            "fetched_at": self.fetched_at,
+        }
+
 
 @dataclass
 class CongressGovMetadataShadowReport:
@@ -294,6 +341,43 @@ class CongressGovMetadataShadowReport:
             f"missing_descriptive_text={self.references_without_descriptive_text}"
         )
 
+    def rpc_payload(self) -> tuple[list[dict], list[dict]]:
+        """Build one bounded exact-identity batch for the private writer."""
+
+        if not self.complete:
+            raise ValueError("Congress.gov metadata report is incomplete")
+        metadata_by_key = {}
+        for item in self.metadata:
+            key = item.reference.source_record_key
+            if key in metadata_by_key:
+                raise ValueError("Congress.gov metadata report contains duplicate measures")
+            metadata_by_key[key] = item
+        reference_keys = set(self.roll_call_keys_by_reference)
+        if set(metadata_by_key) != reference_keys:
+            raise ValueError(
+                "Congress.gov metadata facts and exact roll-call references differ"
+            )
+
+        measures = [
+            metadata_by_key[key].rpc_payload()
+            for key in sorted(metadata_by_key)
+        ]
+        links = [
+            {
+                "measure_source_record_key": measure_key,
+                "roll_call_source_record_key": roll_call_key,
+            }
+            for measure_key in sorted(self.roll_call_keys_by_reference)
+            for roll_call_key in self.roll_call_keys_by_reference[measure_key]
+        ]
+        if len(links) != self.reference_links_seen:
+            raise ValueError(
+                "Congress.gov metadata link count differs from shadow reconciliation"
+            )
+        if not links:
+            raise ValueError("Congress.gov metadata report contains no roll-call links")
+        return measures, links
+
 
 @dataclass
 class _FetchState:
@@ -316,11 +400,14 @@ def _official_congress_url(
         or parsed.password is not None
         or parsed.port not in (None, 443)
         or parsed.path.rstrip("/") != reference.presentation_path
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
     ):
         raise ValueError(
             "Congress.gov response contains a non-official legislation URL"
         )
-    return cleaned
+    return f"https://www.congress.gov{reference.presentation_path}"
 
 
 def _presentation_url(

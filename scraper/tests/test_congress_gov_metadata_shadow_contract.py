@@ -84,14 +84,14 @@ class CongressGovMetadataShadowContractTests(unittest.TestCase):
         )
         self.assertIn("skip_procedural_amendment_numbers", self.sql)
 
-    def test_keeps_approval_storage_and_preflight_disabled(self):
+    def test_historical_contract_kept_storage_disabled_before_0035(self):
         self.assertIn("'source_status', 'candidate'", self.sql)
         self.assertIn("'repo_fit', 'needs_review'", self.sql)
         self.assertIn("'production_observation_required', true", self.sql)
         self.assertIn("'production_writes_enabled', false", self.sql)
         self.assertIn("'scraper_preflight_required', false", self.sql)
         self.assertEqual(
-            "0033_official_voting_records_deduplication_repair",
+            "0035_congress_gov_metadata_provenance",
             REQUIRED_MIGRATION_KEY,
         )
         self.assertNotRegex(
@@ -115,7 +115,7 @@ class CongressGovMetadataShadowContractTests(unittest.TestCase):
         )
         self.assertIn("CONGRESS_GOV_API_KEY", self.policy)
         self.assertIn("CONGRESS_GOV_API_KEY", self.roadmap)
-        self.assertIn("bounded shadow only", self.policy)
+        self.assertIn("bounded private storage", self.policy)
 
     def test_runtime_combines_both_official_snapshots_after_their_fetches(self):
         self.assertIn("get_roll_call_measure_metadata_shadow", self.main)
@@ -123,6 +123,8 @@ class CongressGovMetadataShadowContractTests(unittest.TestCase):
             "for report in (senate_shadow_report, house_shadow_report)",
             self.main,
         )
+        self.assertIn("upstream_roll_call_count=len(official_roll_calls)", self.main)
+        self.assertIn("report is not None and report.snapshot_complete", self.main)
         self.assertLess(
             self.main.index("=== House roll-call XML shadow reconciliation ==="),
             self.main.index("=== Congress.gov bill/amendment metadata shadow ==="),

@@ -1,6 +1,6 @@
 ZERO_UUID = "00000000-0000-0000-0000-000000000000"
-REQUIRED_MIGRATION_KEY = "0033_official_voting_records_deduplication_repair"
-REQUIRED_MIGRATION_FILE = "0033_official_voting_records_deduplication_repair.sql"
+REQUIRED_MIGRATION_KEY = "0035_congress_gov_metadata_provenance"
+REQUIRED_MIGRATION_FILE = "0035_congress_gov_metadata_provenance.sql"
 
 REQUIRED_COLUMN_CHECKS = [
     (
@@ -93,6 +93,19 @@ REQUIRED_COLUMN_CHECKS = [
         "source_record_id,roll_call_source_record_id,person_id,vote_cast,metadata,"
         "created_at,updated_at",
     ),
+    (
+        "legislative_measures",
+        "source_record_id,canonical_measure_key,measure_kind,congress,measure_type,"
+        "measure_number,title,purpose,description,origin_chamber,introduced_date,"
+        "update_date,latest_action_date,latest_action_text,official_url,"
+        "amended_bill_source_record_key,amended_amendment_source_record_key,metadata,"
+        "created_at,updated_at",
+    ),
+    (
+        "legislative_roll_call_measure_links",
+        "roll_call_source_record_id,measure_source_record_id,link_basis,metadata,"
+        "created_at,updated_at",
+    ),
     ("schema_migrations", "migration_key,applied_at"),
 ]
 
@@ -139,6 +152,14 @@ REQUIRED_RPC_CHECKS = [
             "p_member_votes": [],
         },
         "upsert_senate_roll_call(jsonb, jsonb)",
+    ),
+    (
+        "upsert_congress_gov_measure_metadata",
+        {
+            "p_measures": [{"preflight": True}],
+            "p_roll_call_links": [],
+        },
+        "upsert_congress_gov_measure_metadata(jsonb, jsonb)",
     ),
     (
         "preflight_canonical_uuid_v5",

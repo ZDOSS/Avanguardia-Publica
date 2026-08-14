@@ -86,6 +86,14 @@ def build_source_health_trackers(summary: ETLRunSummary) -> dict:
             min_attempts_for_rate=3,
             affects_run=False,
         ),
+        # Fetching remains optional, but an explicitly enabled provenance write is
+        # authoritative and must fail the run rather than permit a partial batch.
+        "congress_gov_metadata_write": summary.source_tracker(
+            "congress_gov_metadata_write",
+            min_attempts_for_rate=1,
+            max_failure_rate=0.0,
+            affects_run=True,
+        ),
         # The private worklist is operational observability, not a roster or
         # profile write path. Its unavailability must remain visible but cannot
         # invalidate a healthy canonical-data run.
