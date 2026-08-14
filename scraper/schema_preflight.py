@@ -1,6 +1,6 @@
 ZERO_UUID = "00000000-0000-0000-0000-000000000000"
-REQUIRED_MIGRATION_KEY = "0035_congress_gov_metadata_provenance"
-REQUIRED_MIGRATION_FILE = "0035_congress_gov_metadata_provenance.sql"
+REQUIRED_MIGRATION_KEY = "0036_congress_gov_scheduled_enablement"
+REQUIRED_MIGRATION_FILE = "0036_congress_gov_scheduled_enablement.sql"
 
 REQUIRED_COLUMN_CHECKS = [
     (

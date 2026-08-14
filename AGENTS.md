@@ -122,7 +122,7 @@ When contributing to this project, you must adhere strictly to these rules:
 ## 🚀 Next Steps & Outstanding Work
 - The active remaining roadmap is `docs/canonical_data_and_analytics_plan.md`. Phases 1 and
   2 are implemented and the scraper identity resolver in Phase 3 is complete. Migrations
-  `0022` through `0035` establish deterministic identity, atomic source-profile writes,
+  `0022` through `0036` establish deterministic identity, atomic source-profile writes,
   provenance, person office terms, and private normalized House and Senate roll-call facts.
   Both official vote paths remain bounded, identifier-only, and
   isolated from legacy `voting_records`; the versioned `0031` read RPC combines presentation-safe
@@ -132,8 +132,8 @@ When contributing to this project, you must adhere strictly to these rules:
   matches. `0034` records the candidate Congress.gov detail-only metadata shadow contract.
   `0035` approves only the observed bounded detail path and adds private source-record-backed
   measure facts, exact official-roll-call links, and one atomic service-role writer without raw
-  JSON, legacy vote writes, or a public read path; runtime and schedules remain disabled pending
-  a manual canary.
+  JSON, legacy vote writes, or a public read path. `0036` records the successful manual canary
+  and private audit before the reviewed workflow enables that same bounded path for schedules.
 - Monitor and resolve quarantined identity candidates instead of weakening the pre-write
   boundary. A person can have federal, state, and local roles over time; those roles must
   not become separate canonical people or be flattened into one office field.
@@ -148,8 +148,11 @@ When contributing to this project, you must adhere strictly to these rules:
   completed all 18 bounded detail calls with healthy source status, covering 15 bills, three
   amendments, and 43 exact links. The operational hardening slice now separates real
   news-provider attempts, suppressed demand, local caps, upstream quota headers, and breaker
-  causes, and repairs GDELT's TLS-safe public-storage path. The active storage slice is migration
-  `0035` plus the default-disabled runtime writer. After that PR merges, apply `0035`, run one
-  manual workflow with Congress.gov metadata writes enabled, and audit private provenance/fact/
-  link counts before reviewing scheduled enablement. Timeout recovery/checkpointing remains
-  separate, and the existing official-vote read surface needs no new key.
+  causes, and repairs GDELT's TLS-safe public-storage path. Migration `0035` is applied, and
+  manual canary `31833856216` completed all 18 detail calls and one healthy atomic write of 18
+  private measures (15 bills and three amendments) plus 43 exact links across 40 roll calls.
+  The database audit and exact replay found zero provenance, fact, link, ACL, legacy-key, row-image,
+  or transaction-ID violations. The active slice is migration `0036` plus scheduled workflow
+  enablement; after merge, apply `0036` before the next schedule and audit the first scheduled
+  enabled runs. Timeout recovery/checkpointing remains separate, and the existing official-vote
+  read surface needs no new key.

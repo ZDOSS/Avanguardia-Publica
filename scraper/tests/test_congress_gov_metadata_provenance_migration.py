@@ -2,8 +2,6 @@ import re
 import unittest
 from pathlib import Path
 
-from schema_preflight import REQUIRED_MIGRATION_FILE, REQUIRED_MIGRATION_KEY
-
 
 class CongressGovMetadataProvenanceMigrationTests(unittest.TestCase):
     @classmethod
@@ -21,7 +19,7 @@ class CongressGovMetadataProvenanceMigrationTests(unittest.TestCase):
         function_end = cls.sql.index("$function$;", function_start)
         cls.function_sql = cls.sql[function_start:function_end]
 
-    def test_is_forward_only_after_0034_and_advances_preflight_to_0035(self):
+    def test_is_forward_only_after_0034_and_records_marker_0035(self):
         self.assertIn(
             "'0034_congress_gov_metadata_shadow_contract'",
             self.sql,
@@ -31,11 +29,6 @@ class CongressGovMetadataProvenanceMigrationTests(unittest.TestCase):
         self.assertIn(
             "'0035_congress_gov_metadata_provenance',\n        35,",
             self.sql,
-        )
-        self.assertEqual("0035_congress_gov_metadata_provenance", REQUIRED_MIGRATION_KEY)
-        self.assertEqual(
-            "0035_congress_gov_metadata_provenance.sql",
-            REQUIRED_MIGRATION_FILE,
         )
         self.assertTrue(self.sql.startswith("-- 0035_"))
         self.assertIn("BEGIN;", self.sql)

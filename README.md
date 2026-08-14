@@ -160,7 +160,7 @@ financial disclosures are not yet covered.
 | `STATE_UNVERIFIED_ENRICHMENT_OFFSET` | scraper | no   | Zero-based start offset for rotating state LittleSis batches |
 | `HOUSE_ROLL_CALL_WRITE_MODE`    | scraper  | no       | `disabled` by default; `enabled` opts into the separately DB-gated House RPC |
 | `SENATE_ROLL_CALL_WRITE_MODE`   | scraper  | no       | `disabled` by default; reviewed nightly workflow schedules explicitly select `enabled` for the DB-gated Senate RPC |
-| `CONGRESS_GOV_METADATA_WRITE_MODE` | scraper | no    | `disabled` by default; manual `enabled` canary writes private normalized metadata after migration `0035`; schedules remain disabled |
+| `CONGRESS_GOV_METADATA_WRITE_MODE` | scraper | no    | `disabled` by default; reviewed nightly schedules explicitly select `enabled` after migration `0036` |
 | `CURRENTS_API_KEY`              | scraper  | no       | News tier 1                                          |
 | `NEWSDATA_API_KEY`              | scraper  | no       | News tier 2 (requires attribution)                   |
 | `THENEWSAPI_KEY`                | scraper  | no       | News tier 3 credential                               |
@@ -192,9 +192,13 @@ official snapshots. It never calls collection endpoints and caps each run at 100
 requests. `CONGRESS_GOV_METADATA_WRITE_MODE=enabled` permits one complete fetched batch to call
 the migration `0035` RPC, which atomically writes private verified source records, normalized
 measure facts, and exact roll-call links only when both upstream official snapshots and the
-detail-fetch counters reconcile exactly. The database gate is approved by `0035`, but runtime,
-manual-input, and schedule defaults remain `disabled` until the post-migration canary is audited.
-The path retains no raw JSON, writes no legacy votes, and has no public read surface.
+detail-fetch counters reconcile exactly. The successful manual canary wrote 18 measures and 43
+exact links with healthy fetch and write trackers; its post-canary audit found zero provenance,
+fact, link, ACL, or legacy-isolation violations, and an exact replay changed no row image or
+transaction ID. Migration `0036` records that review and the nightly `schedule` explicitly
+selects `enabled`; code, example-environment, and manual-input defaults remain `disabled`, and
+unknown events fail closed. The path retains no raw JSON, writes no legacy votes, and has no
+public read surface.
 
 Migration `0030_senate_roll_call_production_enablement.sql` verifies migration `0029`'s exact
 public barrier, owner-only helper, constraint, ACL, dependency, identity-index, zero-fact, and
@@ -360,7 +364,7 @@ only runs the ETL and `nextjs.yml` only builds.
   prevents half-applied data changes. Migration `0027` is the explicit exception: use
   `ON_ERROR_STOP=1` but omit `--single-transaction` so its committed cutover barrier can become
   visible before its second transaction drains old callers and atomically enables both gates.
-  Migrations `0028` through `0035` use the normal single-transaction rule. `0028` is the private
+  Migrations `0028` through `0036` use the normal single-transaction rule. `0028` is the private
   Senate source-review decision. `0029` installs the write-disabled Senate provenance
   contract and hard preflight-only barrier. `0030` verifies that exact disabled state, installs
   the guarded wrapper, and enables the database gates. `0031` installs the narrow public,
@@ -373,9 +377,9 @@ only runs the ETL and `nextjs.yml` only builds.
   the reviewed exact-detail use, creates private source-record-backed measure facts and exact
   official-roll-call links, installs one bounded atomic service-role writer, and advances
   scraper preflight to `0035`. It retains no raw API JSON and creates no browser read path.
-  Runtime and manual-input defaults remain disabled; after the reviewed manual canary and audit,
-  a later change may explicitly opt the nightly workflow into the same bounded path. Unknown
-  events fail closed.
+  `0036` validates and records the successful manual canary and private database audit, advances
+  scraper preflight, and permits the nightly workflow to select the same bounded writer. Runtime
+  and manual-input defaults remain disabled, and unknown events fail closed.
 
 Do **not** replay the full historical migration directory against an upgraded database.
 Some migrations contain guarded data decisions and review-state transitions, not just

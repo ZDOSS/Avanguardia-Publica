@@ -87,13 +87,13 @@ class FakeLoader:
 
 
 class SchemaPreflightTests(unittest.TestCase):
-    def test_preflight_requires_the_congress_gov_metadata_provenance_migration(self):
+    def test_preflight_requires_the_congress_gov_scheduled_enablement_migration(self):
         self.assertEqual(
-            "0035_congress_gov_metadata_provenance",
+            "0036_congress_gov_scheduled_enablement",
             REQUIRED_MIGRATION_KEY,
         )
         self.assertEqual(
-            "0035_congress_gov_metadata_provenance.sql",
+            "0036_congress_gov_scheduled_enablement.sql",
             REQUIRED_MIGRATION_FILE,
         )
 
@@ -258,7 +258,7 @@ class SchemaPreflightTests(unittest.TestCase):
 
     def test_predecessor_marker_cannot_satisfy_the_current_preflight(self):
         client = FakeSupabase(
-            migration_markers={"0034_congress_gov_metadata_shadow_contract"}
+            migration_markers={"0035_congress_gov_metadata_provenance"}
         )
         loader = FakeLoader(client)
 
