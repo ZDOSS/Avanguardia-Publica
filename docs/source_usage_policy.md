@@ -79,7 +79,7 @@ An extractor is not production-ready until tests prove that it:
 6. has a documented retention and attribution decision; and
 7. has a rollback or disable path that does not delete historical identity mappings.
 
-### Congress.gov bill/amendment metadata (approved; bounded private storage)
+### Congress.gov bill/amendment metadata (approved; bounded scheduled private storage)
 
 The [Congress.gov API v3](https://github.com/LibraryOfCongress/api.congress.gov/) is an
 official Library of Congress source for machine-readable legislative data. Congress.gov's
@@ -119,11 +119,19 @@ snapshots and all metadata fetch counters to reconcile exactly. Stale conflictin
 are rejected, and stale same-payload observations cannot overwrite newer normalized facts. The
 writer never creates people or legacy `voting_records` rows.
 
-The database gate is installed by the reviewed migration, but runtime remains explicitly
-`disabled` by default and scheduled workflows remain disabled. After applying `0035`, a
-maintainer can select `CONGRESS_GOV_METADATA_WRITE_MODE=enabled` for one manual bounded canary;
-any failed enabled write is run-blocking. Scheduled enablement and any public presentation are
-separate review gates.
+The explicitly enabled [manual production canary](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/31833856216)
+passed schema preflight and completed all 18 exact detail requests with no failures, skips, or
+breaker. Its one atomic write confirmed 18 measures—15 bills and three amendments—and 43 exact
+links across 40 official roll calls. The post-canary database audit found zero provenance,
+normalized-fact, exact-link, ACL, or legacy-key violations; all source records retained only a
+SHA-256 and normalized metadata, with no raw JSON. An exact same-timestamp service-role replay
+returned 18 measures and 43 links while changing neither stored row images nor transaction IDs.
+
+Migration `0036_congress_gov_scheduled_enablement.sql` validates and records that evidence before
+advancing scraper preflight. `CONGRESS_GOV_METADATA_WRITE_MODE` remains `disabled` by default in
+code, the example environment, and manual workflow input. The reviewed nightly `schedule`
+explicitly selects `enabled` for the same bounded path; unknown events fail closed, and any
+failed enabled write remains run-blocking. Public presentation remains a separate review gate.
 
 ### Senate roll-call XML (approved; database-gated, bounded scheduled writes)
 

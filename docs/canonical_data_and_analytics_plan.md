@@ -428,8 +428,9 @@ Use this intake order:
    healthy production-key observations, migration
    `0035_congress_gov_metadata_provenance.sql` adds private verified source records, normalized
    bill/amendment facts, exact links to the already-private official roll calls, and one bounded
-   atomic service-role writer. Runtime and schedules stay disabled until a post-migration manual
-   canary is audited; public presentation remains a later gate.
+   atomic service-role writer. Migration `0036_congress_gov_scheduled_enablement.sql` records the
+   successful post-migration canary and private database audit before the reviewed workflow opts
+   nightly schedules into that same bounded path; public presentation remains a later gate.
 3. **Influence and organization graph after source records exist:** LDA.gov,
    USAspending, SAM.gov entity management, SAM.gov contract awards, and SAM.gov
    opportunities. These should wait for organization identity and source-record tables;
@@ -659,15 +660,23 @@ upstream quota headers separately from local process caps. It also maps only exa
 GKG objects to GDELT's certificate-valid public storage bucket. This follow-up adds no source,
 credential, schema, or fact write. Timeout recovery/checkpointing remains a separate slice.
 
-The current medium slice adds migration `0035_congress_gov_metadata_provenance.sql`, private
-source-record-backed normalized metadata, and exact roll-call-to-measure links. One
-security-definer RPC validates and commits the complete bounded fact/link batch atomically; raw JSON,
-person creation, legacy vote writes, and browser access remain prohibited. The database catalog
-gate is approved from the three observations, while the runtime default and scheduled workflow
-remain disabled. After merge, apply `0035`, run one manual workflow with
-`CONGRESS_GOV_METADATA_WRITE_MODE=enabled`, and audit source-record, measure, link, and ETL
-confirmation counts before considering scheduled enablement. Public presentation remains a later
-gate, and timeout recovery/checkpointing remains a separate slice.
+Migration `0035_congress_gov_metadata_provenance.sql` is applied. Its private
+source-record-backed normalized metadata, exact roll-call-to-measure links, and single bounded
+security-definer writer retain no raw JSON, create no person or legacy vote rows, and grant no
+browser access. The explicitly enabled
+[manual canary](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/31833856216)
+passed schema preflight, completed all 18 exact detail requests, and atomically confirmed 18
+measures—15 bills and three amendments—and 43 links across 40 official roll calls. Both metadata
+health trackers were healthy with zero failures or skips. The post-canary database audit found
+zero provenance, fact, link, ACL, or legacy-key violations, and an exact same-timestamp
+service-role replay changed neither row images nor transaction IDs.
+
+The current scheduled-enablement slice adds migration
+`0036_congress_gov_scheduled_enablement.sql` to validate and record that canary before advancing
+scraper preflight. The nightly workflow then explicitly selects the same bounded private writer;
+code, example-environment, and manual-input defaults remain disabled, and unknown events fail
+closed. Review the first scheduled enabled runs before expanding the bounded window. Public
+presentation remains a later gate, and timeout recovery/checkpointing remains a separate slice.
 
 Broader candidate triage, including the FCC/GSA context pair seeded by `0024`, stays separate
 from this vote slice; historical identity-review queue cleanup is deferred to Phase 6. Do not
