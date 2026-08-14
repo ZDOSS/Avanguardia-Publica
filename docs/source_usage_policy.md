@@ -79,7 +79,7 @@ An extractor is not production-ready until tests prove that it:
 6. has a documented retention and attribution decision; and
 7. has a rollback or disable path that does not delete historical identity mappings.
 
-### Congress.gov bill/amendment metadata (candidate; bounded shadow only)
+### Congress.gov bill/amendment metadata (approved; bounded private storage)
 
 The [Congress.gov API v3](https://github.com/LibraryOfCongress/api.congress.gov/) is an
 official Library of Congress source for machine-readable legislative data. Congress.gov's
@@ -87,7 +87,7 @@ official Library of Congress source for machine-readable legislative data. Congr
 the API so the public can retrieve and reuse that data. API access uses a free api.data.gov
 key and currently publishes a 5,000-request-per-hour limit.
 
-The initial integration does not crawl bill or amendment collections. It receives only exact
+The integration does not crawl bill or amendment collections. It receives only exact
 measure identifiers already present in the 25 most recent House and 25 most recent Senate
 official roll-call snapshots, deduplicates them, and calls at most 100 versioned detail
 endpoints per run. Each response must repeat the requested Congress, measure type, and number.
@@ -95,20 +95,35 @@ Names, titles, question text, and other fuzzy fields never create the join. In p
 House procedural `amendment-num` is not treated as a Congress.gov `H.Amdt.` number unless the
 official XML supplies that complete identifier; the underlying bill may still be looked up.
 
-This first slice normalizes presentation-safe titles, purposes/descriptions, chamber and date
-fields, latest action, official link, and amended-measure identity in memory. It computes a
-raw-byte SHA-256 for future provenance review but retains neither raw JSON nor normalized facts
-in the database. The nonblocking source reports attempts, successes, failures, skips, coverage,
-and breaker state; it retries a server failure once and stops on authentication, quota, or
-identity conflicts. Removing `CONGRESS_GOV_API_KEY` disables the path without affecting the
-official vote writers or their retained facts. Shared `DEMO_KEY` use is refused by the scheduled
-pipeline.
+The extractor normalizes presentation-safe titles, purposes/descriptions, chamber and date
+fields, latest action, official link, and amended-measure identity. It computes a raw-byte
+SHA-256 for provenance but never retains raw JSON. The nonblocking fetch tracker reports
+attempts, successes, failures, skips, coverage, and breaker state; it retries a server failure
+once and stops on authentication, quota, or identity conflicts. Removing
+`CONGRESS_GOV_API_KEY` disables the path without affecting the official vote writers or their
+retained facts. Shared `DEMO_KEY` use is refused by the scheduled pipeline.
 
 Migration `0034_congress_gov_metadata_shadow_contract.sql` corrects the seeded API base to
 `https://api.congress.gov/v3/`, reserves the official `congress-gov` source namespace, and
-records this detail-only contract. It deliberately leaves the catalog source and endpoint as
-`candidate`/`needs_review`: successful production-key shadow observations and a separate
-provenance/storage review are required before approval or any database write.
+records the detail-only shadow contract. Three production-key observations then each completed
+all 18 exact detail requests with zero source failures, identity conflicts, or breakers, while
+reconciling 15 bills, three amendments, and 43 exact roll-call links.
+
+Migration `0035_congress_gov_metadata_provenance.sql` approves only that bounded use. It stores
+normalized facts in private `legislative_measures` rows backed by verified `source_records`, and
+stores links to private official House/Senate roll calls only when both canonical source keys and
+Congress values match. The tables have RLS enabled, no browser-role policy, and no public RPC.
+Only the service role can call the single atomic batch writer; a validation, provenance, fact, or
+link failure rolls back the entire batch. The runtime also requires both official roll-call
+snapshots and all metadata fetch counters to reconcile exactly. Stale conflicting observations
+are rejected, and stale same-payload observations cannot overwrite newer normalized facts. The
+writer never creates people or legacy `voting_records` rows.
+
+The database gate is installed by the reviewed migration, but runtime remains explicitly
+`disabled` by default and scheduled workflows remain disabled. After applying `0035`, a
+maintainer can select `CONGRESS_GOV_METADATA_WRITE_MODE=enabled` for one manual bounded canary;
+any failed enabled write is run-blocking. Scheduled enablement and any public presentation are
+separate review gates.
 
 ### Senate roll-call XML (approved; database-gated, bounded scheduled writes)
 

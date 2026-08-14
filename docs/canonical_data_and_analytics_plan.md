@@ -418,15 +418,18 @@ Use this intake order:
    LIS-to-Bioguide crosswalks and House Bioguide IDs). Migration `0025` approved the House
    source after five reviewed runs.
 
-   The next bounded Congress.gov slice is now implemented as a detail-only shadow. House and
+   The bounded Congress.gov path began as a detail-only shadow. House and
    Senate XML parsers retain only explicit Congress.gov-style bill/amendment identities from
    those same 25-vote windows; the extractor deduplicates them, caps the run at 100 detail
-   calls, validates the response identity, and emits aggregate health/coverage without writing
-   facts. Ambiguous House procedural amendment numbers are skipped instead of guessed.
+   calls, validates the response identity, and emits aggregate health/coverage. Ambiguous House
+   procedural amendment numbers are skipped instead of guessed.
    Migration `0034_congress_gov_metadata_shadow_contract.sql` corrects the catalog endpoint and
-   records the API, rights, retention, health, credential, and disable contract while leaving
-   source approval pending production-key observations. The maintainer must provision the
-   `CONGRESS_GOV_API_KEY` GitHub Actions secret before those observations can begin.
+   records the API, rights, retention, health, credential, and disable contract. After three
+   healthy production-key observations, migration
+   `0035_congress_gov_metadata_provenance.sql` adds private verified source records, normalized
+   bill/amendment facts, exact links to the already-private official roll calls, and one bounded
+   atomic service-role writer. Runtime and schedules stay disabled until a post-migration manual
+   canary is audited; public presentation remains a later gate.
 3. **Influence and organization graph after source records exist:** LDA.gov,
    USAspending, SAM.gov entity management, SAM.gov contract awards, and SAM.gov
    opportunities. These should wait for organization identity and source-record tables;
@@ -639,13 +642,14 @@ through a narrow canonical-person RPC, labels and links
 official records, retains state/historical legacy coverage, and keeps every private provenance
 table closed to browser roles. It adds no source, extractor, credential, or writer.
 
-The active follow-up slice adds bounded Congress.gov bill/amendment metadata reconciliation.
-It consumes only exact measure identifiers from the existing official-vote windows, calls no
-collection endpoint, validates returned identities, and keeps all normalized results in memory.
-Migration `0034_congress_gov_metadata_shadow_contract.sql` records the candidate source contract
-without advancing scraper preflight or enabling storage. Migration `0034` is applied and the
-repository secret is provisioned. The first production-key manual observation completed all 18
-bounded detail calls with healthy source status and no breaker.
+The bounded Congress.gov bill/amendment reconciliation consumes only exact measure identifiers
+from the existing official-vote windows, calls no collection endpoint, and validates every
+returned identity. Migration `0034_congress_gov_metadata_shadow_contract.sql` records the initial
+candidate shadow contract. Migration `0034` is applied and the `CONGRESS_GOV_API_KEY` repository
+secret is provisioned.
+Three observations—manual run `31557812365` and scheduled runs `31663634544` and `31766400670`—
+each completed all 18 bounded detail calls with healthy source status, zero failures or breakers,
+15 bill identities, three amendment identities, and 43 exact roll-call links.
 
 That full run also exposed two independent operational gaps in the older news path: provider
 failures were represented by forcing local counters to their caps, and GDELT's project hostname
@@ -655,9 +659,15 @@ upstream quota headers separately from local process caps. It also maps only exa
 GKG objects to GDELT's certificate-valid public storage bucket. This follow-up adds no source,
 credential, schema, or fact write. Timeout recovery/checkpointing remains a separate slice.
 
-After the operational hardening merge and another healthy metadata observation, the next medium
-slice is private source-record-backed metadata storage and exact roll-call-to-measure links;
-public presentation remains a later gate.
+The current medium slice adds migration `0035_congress_gov_metadata_provenance.sql`, private
+source-record-backed normalized metadata, and exact roll-call-to-measure links. One
+security-definer RPC validates and commits the complete bounded fact/link batch atomically; raw JSON,
+person creation, legacy vote writes, and browser access remain prohibited. The database catalog
+gate is approved from the three observations, while the runtime default and scheduled workflow
+remain disabled. After merge, apply `0035`, run one manual workflow with
+`CONGRESS_GOV_METADATA_WRITE_MODE=enabled`, and audit source-record, measure, link, and ETL
+confirmation counts before considering scheduled enablement. Public presentation remains a later
+gate, and timeout recovery/checkpointing remains a separate slice.
 
 Broader candidate triage, including the FCC/GSA context pair seeded by `0024`, stays separate
 from this vote slice; historical identity-review queue cleanup is deferred to Phase 6. Do not

@@ -1270,6 +1270,65 @@ class SupabaseLoader:
         )
         return result
 
+    def upsert_congress_gov_measure_metadata(
+        self,
+        measures: list[dict],
+        roll_call_links: list[dict],
+    ) -> dict:
+        """Atomically persist one bounded Congress.gov metadata/link batch."""
+
+        if not self.supabase:
+            raise RuntimeError(
+                "Supabase must be configured for Congress.gov metadata writes"
+            )
+        if not isinstance(measures, list) or not measures:
+            raise ValueError("Congress.gov measures must be a non-empty list")
+        if len(measures) > 100:
+            raise ValueError("Congress.gov measures exceed the bounded batch limit")
+        if not isinstance(roll_call_links, list) or not roll_call_links:
+            raise ValueError("Congress.gov roll-call links must be a non-empty list")
+        if len(roll_call_links) > 5000:
+            raise ValueError(
+                "Congress.gov roll-call links exceed the bounded batch limit"
+            )
+
+        args = _json_compatible(
+            {
+                "p_measures": measures,
+                "p_roll_call_links": roll_call_links,
+            }
+        )
+        response = self.execute_supabase(
+            lambda: self.supabase.rpc(
+                "upsert_congress_gov_measure_metadata",
+                args,
+            ).execute(),
+            "atomic Congress.gov measure metadata batch upsert",
+        )
+        result_rows = list(getattr(response, "data", None) or [])
+        if len(result_rows) != 1 or not isinstance(result_rows[0], dict):
+            raise RuntimeError(
+                "upsert_congress_gov_measure_metadata must return exactly one result row"
+            )
+        result = result_rows[0]
+        returned_measure_count = int(result.get("measure_count") or 0)
+        returned_link_count = int(result.get("roll_call_link_count") or 0)
+        if (
+            returned_measure_count != len(measures)
+            or returned_link_count != len(roll_call_links)
+        ):
+            raise RuntimeError(
+                "upsert_congress_gov_measure_metadata returned an incomplete confirmation"
+            )
+
+        self._increment("congress_gov_measures_written", returned_measure_count)
+        self._increment("congress_gov_roll_call_links_written", returned_link_count)
+        print(
+            "  [+] Atomically wrote Congress.gov metadata: "
+            f"measures={returned_measure_count}, links={returned_link_count}"
+        )
+        return result
+
     def upsert_voting_records(self, politician_id: str, records: list):
         """
         Upserts verified roll-call votes. The voting_records UNIQUE constraint is

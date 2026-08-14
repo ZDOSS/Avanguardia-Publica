@@ -87,13 +87,13 @@ class FakeLoader:
 
 
 class SchemaPreflightTests(unittest.TestCase):
-    def test_preflight_requires_the_official_vote_deduplication_repair_migration(self):
+    def test_preflight_requires_the_congress_gov_metadata_provenance_migration(self):
         self.assertEqual(
-            "0033_official_voting_records_deduplication_repair",
+            "0035_congress_gov_metadata_provenance",
             REQUIRED_MIGRATION_KEY,
         )
         self.assertEqual(
-            "0033_official_voting_records_deduplication_repair.sql",
+            "0035_congress_gov_metadata_provenance.sql",
             REQUIRED_MIGRATION_FILE,
         )
 
@@ -129,6 +129,8 @@ class SchemaPreflightTests(unittest.TestCase):
                 "person_office_terms",
                 "legislative_roll_calls",
                 "person_roll_call_votes",
+                "legislative_measures",
+                "legislative_roll_call_measure_links",
                 "schema_migrations",
             },
             {table for table, _ in REQUIRED_COLUMN_CHECKS},
@@ -194,11 +196,22 @@ class SchemaPreflightTests(unittest.TestCase):
         )
         self.assertEqual({"preflight": True}, senate_roll_call_check["p_roll_call"])
         self.assertEqual([], senate_roll_call_check["p_member_votes"])
+        congress_gov_metadata_check = next(
+            args
+            for rpc_name, args, _signature in REQUIRED_RPC_CHECKS
+            if rpc_name == "upsert_congress_gov_measure_metadata"
+        )
+        self.assertEqual(
+            [{"preflight": True}],
+            congress_gov_metadata_check["p_measures"],
+        )
+        self.assertEqual([], congress_gov_metadata_check["p_roll_call_links"])
         for rpc_name in (
             "retire_source_profile_record",
             "upsert_source_profile_identity",
             "upsert_house_roll_call",
             "upsert_senate_roll_call",
+            "upsert_congress_gov_measure_metadata",
             "sync_legacy_profile_identity",
             "get_canonical_person_legacy_ids",
             "get_canonical_contact_info",
@@ -245,7 +258,7 @@ class SchemaPreflightTests(unittest.TestCase):
 
     def test_predecessor_marker_cannot_satisfy_the_current_preflight(self):
         client = FakeSupabase(
-            migration_markers={"0031_official_voting_records_read_surface"}
+            migration_markers={"0034_congress_gov_metadata_shadow_contract"}
         )
         loader = FakeLoader(client)
 

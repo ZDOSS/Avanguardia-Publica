@@ -122,15 +122,18 @@ When contributing to this project, you must adhere strictly to these rules:
 ## 🚀 Next Steps & Outstanding Work
 - The active remaining roadmap is `docs/canonical_data_and_analytics_plan.md`. Phases 1 and
   2 are implemented and the scraper identity resolver in Phase 3 is complete. Migrations
-  `0022` through `0034` establish deterministic identity, atomic source-profile writes,
+  `0022` through `0035` establish deterministic identity, atomic source-profile writes,
   provenance, person office terms, and private normalized House and Senate roll-call facts.
   Both official vote paths remain bounded, identifier-only, and
   isolated from legacy `voting_records`; the versioned `0031` read RPC combines presentation-safe
   official facts with legacy state/historical coverage without opening the private tables, and
   `0032` repairs that RPC's query plan while preserving its result contract. `0033` keeps
   ambiguous same-day GovTrack signature collisions visible unless exactly one official roll call
-  matches. `0034` records the candidate Congress.gov detail-only metadata shadow contract without
-  enabling database writes or advancing scraper preflight.
+  matches. `0034` records the candidate Congress.gov detail-only metadata shadow contract.
+  `0035` approves only the observed bounded detail path and adds private source-record-backed
+  measure facts, exact official-roll-call links, and one atomic service-role writer without raw
+  JSON, legacy vote writes, or a public read path; runtime and schedules remain disabled pending
+  a manual canary.
 - Monitor and resolve quarantined identity candidates instead of weakening the pre-write
   boundary. A person can have federal, state, and local roles over time; those roles must
   not become separate canonical people or be flattened into one office field.
@@ -138,12 +141,15 @@ When contributing to this project, you must adhere strictly to these rules:
   2026, and the first five detailed run audits had complete reconciliation, healthy writes,
   exact provenance/identity coverage, and zero legacy vote keys. After migrations `0031` through
   `0033` are applied and the live Voting Record tab is validated on representative House and Senate
-  profiles, the bounded Congress.gov bill/amendment metadata shadow is now implemented. It consumes
+  profiles, the bounded Congress.gov bill/amendment metadata path is now implemented. It consumes
   only exact identifiers from the existing official-vote windows, makes at most 100 detail calls,
-  and writes no database facts. Migration `0034` is applied, the `CONGRESS_GOV_API_KEY` secret is
-  provisioned, and the first production-key manual observation completed all 18 bounded detail calls
-  with healthy source status. The immediate operational hardening slice separates real news-provider
-  attempts, suppressed demand, local caps, upstream quota headers, and breaker causes, and repairs
-  GDELT's TLS-safe public-storage path. After one more healthy metadata observation, the next medium
-  slice is private provenance-backed metadata storage and exact roll-call-to-measure links; timeout
-  recovery/checkpointing remains separate, and the existing official-vote read surface needs no new key.
+  and initially wrote no database facts. Migration `0034` is applied, the
+  `CONGRESS_GOV_API_KEY` secret is provisioned, and three production-key observations each
+  completed all 18 bounded detail calls with healthy source status, covering 15 bills, three
+  amendments, and 43 exact links. The operational hardening slice now separates real
+  news-provider attempts, suppressed demand, local caps, upstream quota headers, and breaker
+  causes, and repairs GDELT's TLS-safe public-storage path. The active storage slice is migration
+  `0035` plus the default-disabled runtime writer. After that PR merges, apply `0035`, run one
+  manual workflow with Congress.gov metadata writes enabled, and audit private provenance/fact/
+  link counts before reviewing scheduled enablement. Timeout recovery/checkpointing remains
+  separate, and the existing official-vote read surface needs no new key.

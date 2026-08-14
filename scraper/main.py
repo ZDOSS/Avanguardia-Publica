@@ -30,6 +30,10 @@ from extractors.federal import get_federal_exec_judicial
 from extractors.financial_disclosures import get_house_disclosure_index, lookup_disclosures
 from house_roll_call_runtime import house_roll_call_write_mode, write_house_roll_calls
 from senate_roll_call_runtime import senate_roll_call_write_mode, write_senate_roll_calls
+from congress_gov_metadata_runtime import (
+    congress_gov_metadata_write_mode,
+    write_congress_gov_metadata,
+)
 from unverified_enrichment import state_unverified_enrichment_config, should_enrich_state_profile
 
 logging.basicConfig(
@@ -63,6 +67,7 @@ def main(argv=None):
     try:
         house_write_mode = house_roll_call_write_mode(os.environ)
         senate_write_mode = senate_roll_call_write_mode(os.environ)
+        congress_gov_write_mode = congress_gov_metadata_write_mode(os.environ)
     except ValueError as e:
         summary.error("configuration", e)
         summary.print(success=False)
@@ -454,10 +459,21 @@ def main(argv=None):
             write_health.record_failure("write_preconditions_not_met")
 
     # Congress.gov receives only exact bill/amendment identifiers already present
-    # in the two bounded official roll-call snapshots above. The first rollout is
-    # intentionally shadow-only: normalized metadata stays in memory and only
-    # aggregate reconciliation metrics enter the ETL summary. A separate reviewed
-    # slice must establish provenance storage and enable any database writes.
+    # in the two bounded official roll-call snapshots above. Aggregate shadow
+    # metrics are always reported when the key is available. The same normalized
+    # in-memory batch can flow through the private atomic metadata/link RPC only
+    # when the separately reviewed runtime and database gates are both enabled.
+    congress_gov_report = None
+    official_roll_calls = [
+        roll_call
+        for report in (senate_shadow_report, house_shadow_report)
+        if report is not None
+        for roll_call in report.roll_calls
+    ]
+    congress_gov_upstream_snapshots_complete = all(
+        report is not None and report.snapshot_complete
+        for report in (senate_shadow_report, house_shadow_report)
+    )
     congress_gov_api_key = str(os.environ.get("CONGRESS_GOV_API_KEY") or "").strip()
     if not congress_gov_api_key or congress_gov_api_key.upper() == "DEMO_KEY":
         summary.skip(
@@ -472,12 +488,6 @@ def main(argv=None):
             "bounded Congress.gov metadata reconciliation."
         )
     else:
-        official_roll_calls = [
-            roll_call
-            for report in (senate_shadow_report, house_shadow_report)
-            if report is not None
-            for roll_call in report.roll_calls
-        ]
         print("\n=== Congress.gov bill/amendment metadata shadow ===")
         try:
             congress_gov_report = get_roll_call_measure_metadata_shadow(
@@ -494,6 +504,40 @@ def main(argv=None):
             if not congress_gov_health.breaker_tripped:
                 congress_gov_health.record_attempt()
                 congress_gov_health.record_failure("unexpected_error")
+
+    try:
+        congress_gov_measures_written, congress_gov_links_written = (
+            write_congress_gov_metadata(
+                loader,
+                congress_gov_report,
+                source_health["congress_gov_metadata_shadow"],
+                source_health["congress_gov_metadata_write"],
+                mode=congress_gov_write_mode,
+                upstream_snapshots_complete=(
+                    congress_gov_upstream_snapshots_complete
+                ),
+                upstream_roll_call_count=len(official_roll_calls),
+            )
+        )
+    except Exception as e:
+        # The runtime helper has already failed the blocking write tracker.
+        print(f"  [!] Congress.gov metadata write failed: {e}")
+    else:
+        write_health = source_health["congress_gov_metadata_write"]
+        if congress_gov_write_mode == "disabled":
+            print(
+                "  Private Congress.gov metadata writes disabled by runtime "
+                "configuration."
+            )
+        elif write_health.status == "failed":
+            reasons = ", ".join(sorted(write_health.skip_reasons)) or "unknown"
+            print(f"  [!] Private Congress.gov metadata writes blocked: {reasons}")
+        else:
+            print(
+                "  Private Congress.gov metadata written: "
+                f"measures={congress_gov_measures_written}, "
+                f"roll_call_links={congress_gov_links_written}"
+            )
 
     # 3. State legislators + governors (OpenStates). Hub + official contact by default.
     # Optional LittleSis enrichment is bounded and writes only to unverified spokes

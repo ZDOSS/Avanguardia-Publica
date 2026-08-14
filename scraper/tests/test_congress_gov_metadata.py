@@ -229,6 +229,70 @@ class CongressGovMetadataShadowTests(unittest.TestCase):
         )
         self.assertNotIn("test-key", normalized_amendment.source_url)
 
+        measures, links = report.rpc_payload()
+        self.assertEqual(
+            ["amendment:119:samdt:3937", "bill:119:hr:8884"],
+            [measure["source_record_key"] for measure in measures],
+        )
+        self.assertEqual(
+            [
+                {
+                    "measure_source_record_key": "amendment:119:samdt:3937",
+                    "roll_call_source_record_key": "senate:119:2025:616",
+                },
+                {
+                    "measure_source_record_key": "bill:119:hr:8884",
+                    "roll_call_source_record_key": "house:119:2026:283",
+                },
+                {
+                    "measure_source_record_key": "bill:119:hr:8884",
+                    "roll_call_source_record_key": "senate:119:2025:616",
+                },
+            ],
+            links,
+        )
+        amendment_write = measures[0]
+        self.assertEqual(
+            "bill:119:hr:5371",
+            amendment_write["amended_bill_source_record_key"],
+        )
+        self.assertNotIn("raw_payload", amendment_write)
+        self.assertNotIn("test-key", str(amendment_write))
+
+    def test_rejects_query_or_fragment_on_an_otherwise_official_url(self):
+        for suffix in ("?output=1", "#latest"):
+            with self.subTest(suffix=suffix):
+                payload = _bill_payload()
+                payload["bill"]["legislationUrl"] += suffix
+                health = SourceHealthTracker("congress_gov_metadata_shadow")
+                with patch(
+                    "extractors.congress_gov.requests.Session"
+                ) as session_factory:
+                    session_factory.return_value.get.return_value = _Response(payload)
+                    report = congress_gov.get_roll_call_measure_metadata_shadow(
+                        [_roll_call("house:119:2026:283", self.bill)],
+                        api_key="test-key",
+                        health=health,
+                    )
+
+                self.assertEqual(0, report.references_fetched)
+                self.assertEqual(1, report.references_not_fetched)
+                self.assertEqual(1, health.failure_reasons["invalid_payload"])
+
+    def test_rpc_payload_rejects_fact_and_link_set_drift(self):
+        report = congress_gov.CongressGovMetadataShadowReport(
+            distinct_references=1,
+            references_fetched=1,
+            reference_links_seen=1,
+            metadata=[],
+            roll_call_keys_by_reference={
+                self.bill.source_record_key: ("house:119:2026:283",)
+            },
+        )
+
+        with self.assertRaisesRegex(ValueError, "facts and exact roll-call"):
+            report.rpc_payload()
+
     def test_retries_one_server_failure_as_one_logical_health_attempt(self):
         health = SourceHealthTracker("congress_gov_metadata_shadow")
         with (

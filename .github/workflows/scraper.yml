@@ -30,6 +30,14 @@ on:
         options:
           - 'disabled'
           - 'enabled'
+      congress_gov_metadata_write_mode:
+        description: 'Private Congress.gov metadata writes for this bounded manual run'
+        required: true
+        type: choice
+        default: 'disabled'
+        options:
+          - 'disabled'
+          - 'enabled'
 
 permissions:
   contents: read
@@ -73,7 +81,7 @@ jobs:
           # State roll-call votes via OpenStates API (optional; skipped if absent)
           OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
           # Bounded bill/amendment detail lookups from exact official roll-call IDs
-          # (optional shadow; skipped if absent)
+          # (optional bounded fetch; skipped if absent)
           CONGRESS_GOV_API_KEY: ${{ secrets.CONGRESS_GOV_API_KEY }}
           # Bounded state LittleSis enrichment (unverified; optional)
           STATE_UNVERIFIED_ENRICHMENT_LIMIT: ${{ github.event.inputs.state_unverified_enrichment_limit || vars.STATE_UNVERIFIED_ENRICHMENT_LIMIT }}
@@ -86,6 +94,9 @@ jobs:
           # after its successful canary and audit. Manual dispatches keep an explicit
           # choice; any other event fails closed.
           SENATE_ROLL_CALL_WRITE_MODE: ${{ github.event_name == 'schedule' && 'enabled' || github.event_name == 'workflow_dispatch' && inputs.senate_roll_call_write_mode || 'disabled' }}
+          # Private Congress.gov storage remains manual-canary only. A later reviewed
+          # change may enable schedules after the atomic writer and database audit pass.
+          CONGRESS_GOV_METADATA_WRITE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.congress_gov_metadata_write_mode || 'disabled' }}
           # News API keys — all optional; aggregator falls back gracefully if absent
           CURRENTS_API_KEY: ${{ secrets.CURRENTS_API_KEY }}
           NEWSDATA_API_KEY: ${{ secrets.NEWSDATA_API_KEY }}

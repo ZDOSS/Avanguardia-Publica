@@ -95,6 +95,18 @@ class SourceHealthTests(unittest.TestCase):
             summary.run_blocking_source_failures(),
         )
 
+    def test_authoritative_congress_gov_metadata_write_failures_block_the_run(self):
+        summary = ETLRunSummary()
+        trackers = build_source_health_trackers(summary)
+
+        trackers["congress_gov_metadata_write"].trip_breaker("rpc_write_failed")
+
+        self.assertTrue(trackers["congress_gov_metadata_write"].affects_run)
+        self.assertEqual(
+            ["congress_gov_metadata_write"],
+            summary.run_blocking_source_failures(),
+        )
+
     def test_zero_tolerance_write_tracker_stays_healthy_without_failures(self):
         summary = ETLRunSummary()
         tracker = build_source_health_trackers(summary)["house_roll_call_write"]
