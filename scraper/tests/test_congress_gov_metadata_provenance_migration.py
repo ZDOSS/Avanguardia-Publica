@@ -126,6 +126,13 @@ class CongressGovMetadataProvenanceMigrationTests(unittest.TestCase):
             self.sql,
         )
         self.assertIn(
+            "ADD CONSTRAINT source_records_congress_gov_measure_contract\n"
+            "    CHECK ((",
+            self.sql,
+        )
+        self.assertIn(") IS TRUE)\n    NOT VALID", self.sql)
+        self.assertNotIn(") IS TRUE\n    NOT VALID", self.sql)
+        self.assertIn(
             "Congress.gov source-record namespace must be empty",
             self.sql,
         )
