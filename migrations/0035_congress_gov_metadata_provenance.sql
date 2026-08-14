@@ -155,7 +155,7 @@ $migration_preflight$;
 -- retain raw payloads under this official namespace.
 ALTER TABLE public.source_records
     ADD CONSTRAINT source_records_congress_gov_measure_contract
-    CHECK (
+    CHECK ((
         NOT (
             (
                 source_system_key = 'congress-gov'
@@ -187,7 +187,7 @@ ALTER TABLE public.source_records
             AND metadata -> 'raw_json_retained' = 'false'::jsonb
             AND metadata ->> 'measure_kind' = split_part(source_record_key, ':', 1)
         )
-    ) IS TRUE
+    ) IS TRUE)
     NOT VALID;
 
 ALTER TABLE public.source_records
