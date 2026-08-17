@@ -48,6 +48,9 @@ def build_source_health_trackers(summary: ETLRunSummary) -> dict:
             max_failure_seconds=OPENFEC_MAX_FAILURE_SECONDS,
             affects_run=False,
         ),
+        # The legacy person-filtered profile crawl is disabled for defaults and
+        # schedules. When a manual diagnostic explicitly enables it, failures remain
+        # observable but cannot invalidate healthy official House/Senate writes.
         "govtrack": summary.source_tracker(
             "govtrack", min_attempts_for_rate=10, affects_run=False
         ),

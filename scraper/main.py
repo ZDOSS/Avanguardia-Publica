@@ -34,6 +34,10 @@ from congress_gov_metadata_runtime import (
     congress_gov_metadata_write_mode,
     write_congress_gov_metadata,
 )
+from govtrack_profile_runtime import (
+    GOVTRACK_PROFILE_ENRICHMENT_ENABLED,
+    govtrack_profile_enrichment_mode,
+)
 from unverified_enrichment import state_unverified_enrichment_config, should_enrich_state_profile
 
 logging.basicConfig(
@@ -68,6 +72,7 @@ def main(argv=None):
         house_write_mode = house_roll_call_write_mode(os.environ)
         senate_write_mode = senate_roll_call_write_mode(os.environ)
         congress_gov_write_mode = congress_gov_metadata_write_mode(os.environ)
+        govtrack_profile_mode = govtrack_profile_enrichment_mode(os.environ)
     except ValueError as e:
         summary.error("configuration", e)
         summary.print(success=False)
@@ -140,6 +145,22 @@ def main(argv=None):
         summary.skip("FEC", "FEC_API_KEY not set or DEMO_KEY")
         source_health["openfec"].record_skip("api_key_not_configured")
         print("Note: FEC_API_KEY not set (or DEMO_KEY) — skipping campaign-donor enrichment.")
+
+    govtrack_profile_enabled = (
+        govtrack_profile_mode == GOVTRACK_PROFILE_ENRICHMENT_ENABLED
+    )
+    if not govtrack_profile_enabled:
+        summary.skip(
+            "Legacy GovTrack profile enrichment",
+            "disabled; official House and Senate roll-call facts are preferred",
+        )
+        source_health["govtrack"].record_skip(
+            "runtime_disabled_official_votes_preferred"
+        )
+        print(
+            "Note: legacy per-politician GovTrack enrichment is disabled; "
+            "official House and Senate roll-call ingestion remains enabled."
+        )
     
     try:
         state_unverified_config = state_unverified_enrichment_config(os.environ)
@@ -267,17 +288,22 @@ def main(argv=None):
                     else:
                         source_health["openfec"].record_skip("missing_fec_join_key")
 
-                # Verified spoke: roll-call votes from GovTrack, joined by the
-                # govtrack person id in the crosswalk (free, no key).
-                govtrack_id = (member.get('external_ids') or {}).get('govtrack')
-                if govtrack_id is not None:
-                    print("  [*] Fetching GovTrack voting records...")
-                    votes = get_voting_records(
-                        govtrack_id, health=source_health["govtrack"]
-                    )
-                    loader.upsert_voting_records(politician_id, votes)
-                else:
-                    source_health["govtrack"].record_skip("missing_govtrack_join_key")
+                # Legacy compatibility spoke only. Current federal votes come from
+                # the separately bounded official House Clerk and Senate LIS paths.
+                # The expensive GovTrack person-filtered endpoint is disabled for
+                # schedules/defaults and requires an explicit manual diagnostic opt-in.
+                if govtrack_profile_enabled:
+                    govtrack_id = (member.get('external_ids') or {}).get('govtrack')
+                    if govtrack_id is not None:
+                        print("  [*] Fetching legacy GovTrack profile voting records...")
+                        votes = get_voting_records(
+                            govtrack_id, health=source_health["govtrack"]
+                        )
+                        loader.upsert_voting_records(politician_id, votes)
+                    else:
+                        source_health["govtrack"].record_skip(
+                            "missing_govtrack_join_key"
+                        )
 
                 # Scrape LittleSis in a single pass: name-matched mentions (unverified
                 # text) plus structured relationships (network ties for the Connections
@@ -328,7 +354,11 @@ def main(argv=None):
 
     if loader.supabase:
         join_key_sources = {
-            "govtrack": "missing_govtrack_join_key",
+            **(
+                {"govtrack": "missing_govtrack_join_key"}
+                if govtrack_profile_enabled
+                else {}
+            ),
             **({"openfec": "missing_fec_join_key"} if fec_enabled else {}),
         }
         for source_name, missing_reason in join_key_sources.items():

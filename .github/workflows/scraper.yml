@@ -38,6 +38,14 @@ on:
         options:
           - 'disabled'
           - 'enabled'
+      govtrack_profile_enrichment_mode:
+        description: 'Legacy person-filtered GovTrack profile crawl (diagnostic only)'
+        required: true
+        type: choice
+        default: 'disabled'
+        options:
+          - 'disabled'
+          - 'enabled'
 
 permissions:
   contents: read
@@ -98,6 +106,10 @@ jobs:
           # batch after its successful canary and audit. Manual dispatches retain an
           # explicit choice; any other event fails closed.
           CONGRESS_GOV_METADATA_WRITE_MODE: ${{ github.event_name == 'schedule' && 'enabled' || github.event_name == 'workflow_dispatch' && inputs.congress_gov_metadata_write_mode || 'disabled' }}
+          # Current federal profile votes come from the official House/Senate paths.
+          # The unreliable person-filtered GovTrack compatibility crawl never runs on
+          # schedules and requires an explicit manual diagnostic choice.
+          GOVTRACK_PROFILE_ENRICHMENT_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.govtrack_profile_enrichment_mode || 'disabled' }}
           # News API keys — all optional; aggregator falls back gracefully if absent
           CURRENTS_API_KEY: ${{ secrets.CURRENTS_API_KEY }}
           NEWSDATA_API_KEY: ${{ secrets.NEWSDATA_API_KEY }}

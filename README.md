@@ -156,6 +156,7 @@ financial disclosures are not yet covered.
 | `FEC_API_KEY`                   | scraper  | no       | data.gov key for campaign-donor enrichment           |
 | `OPENSTATES_API_KEY`            | scraper  | no       | OpenStates key for state roll-call votes             |
 | `CONGRESS_GOV_API_KEY`          | scraper  | no       | Free data.gov key for bounded exact-detail Congress.gov metadata |
+| `GOVTRACK_PROFILE_ENRICHMENT_MODE` | scraper | no    | `disabled` by default and on schedules; explicit manual diagnostic opt-in for the legacy person-filtered crawl |
 | `STATE_UNVERIFIED_ENRICHMENT_LIMIT` | scraper | no    | Bounded count of state profiles to enrich via LittleSis |
 | `STATE_UNVERIFIED_ENRICHMENT_OFFSET` | scraper | no   | Zero-based start offset for rotating state LittleSis batches |
 | `HOUSE_ROLL_CALL_WRITE_MODE`    | scraper  | no       | `disabled` by default; `enabled` opts into the separately DB-gated House RPC |
@@ -170,6 +171,13 @@ financial disclosures are not yet covered.
 must explicitly set `ALLOW_MOCK_BUILD=true`. Production builds and runtime pages fail
 visibly instead of presenting fixtures as live data. The news aggregator works with no
 keys at all (it degrades to keyless GDELT URL discovery).
+
+The legacy per-politician GovTrack REST crawl is no longer part of nightly or default runs.
+`GOVTRACK_PROFILE_ENRICHMENT_MODE=enabled` is available only as an explicit manual diagnostic
+choice. This switch controls the expensive person-filtered compatibility endpoint; it does not
+disable the bounded vote-specific GovTrack comparisons that protect the official House Clerk and
+Senate LIS writers. Existing GovTrack `voting_records` remain available as historical fallback
+through the versioned voting-record RPC, and this change deletes no retained facts.
 
 The official House Clerk roll-call extractor always fetches one bounded window for aggregate
 reconciliation. `HOUSE_ROLL_CALL_WRITE_MODE=enabled` permits that same in-memory normalized
