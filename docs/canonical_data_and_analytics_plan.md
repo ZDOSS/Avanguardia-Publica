@@ -283,7 +283,9 @@ source. Current wired sources include:
   and crosswalk IDs.
 - OpenStates people YAML and OpenStates API v3 votes for state officials and state
   roll-call votes.
-- GovTrack federal votes, joined by GovTrack person ID.
+- Retained GovTrack federal vote history, joined by GovTrack person ID. The legacy
+  person-filtered REST crawl is disabled for defaults and schedules; current federal facts come
+  from the bounded official House Clerk and Senate LIS paths.
 - OpenFEC campaign donors, joined by FEC candidate ID.
 - House Clerk financial disclosure index, filing-level only.
 - Federal executive and Supreme Court seed data keyed by trusted Wikidata QIDs.
@@ -658,7 +660,7 @@ did not match the certificate used by its public object store. The bounded harde
 records actual attempts, suppressed demand, explicit breaker causes, and whitelisted numeric
 upstream quota headers separately from local process caps. It also maps only exact timestamped
 GKG objects to GDELT's certificate-valid public storage bucket. This follow-up adds no source,
-credential, schema, or fact write. Timeout recovery/checkpointing remains a separate slice.
+credential, schema, or fact write.
 
 Migration `0035_congress_gov_metadata_provenance.sql` is applied. Its private
 source-record-backed normalized metadata, exact roll-call-to-measure links, and single bounded
@@ -671,12 +673,24 @@ health trackers were healthy with zero failures or skips. The post-canary databa
 zero provenance, fact, link, ACL, or legacy-key violations, and an exact same-timestamp
 service-role replay changed neither row images nor transaction IDs.
 
-The current scheduled-enablement slice adds migration
-`0036_congress_gov_scheduled_enablement.sql` to validate and record that canary before advancing
-scraper preflight. The nightly workflow then explicitly selects the same bounded private writer;
-code, example-environment, and manual-input defaults remain disabled, and unknown events fail
-closed. Review the first scheduled enabled runs before expanding the bounded window. Public
-presentation remains a later gate, and timeout recovery/checkpointing remains a separate slice.
+Migration `0036_congress_gov_scheduled_enablement.sql` is applied. The first three scheduled
+enabled runs—[31858289173](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/31858289173),
+[31921415364](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/31921415364), and
+[31987227615](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/31987227615)—each
+completed all 18 exact detail requests and one healthy atomic write of 15 bills, three
+amendments, and 43 links across 40 official roll calls. Their write trackers had no failures or
+skips. The post-observation live audit retained the exact 18-source / 18-measure / 43-link / 40
+roll-call baseline with zero provenance, fact, link, ACL, or legacy-key violations. That
+satisfies the initial scheduled-observation gate without expanding the bounded window; public
+presentation remains a later review.
+
+Those observations also isolated repeated failures in the older person-filtered GovTrack profile
+crawl: the latter two runs skipped 532 and 498 profiles after their breakers opened, while the
+separate vote-specific comparisons protecting both official writers stayed healthy. The active
+operational slice therefore removes that redundant endpoint from schedules and defaults behind
+`GOVTRACK_PROFILE_ENRICHMENT_MODE=disabled`, preserves an explicit manual diagnostic opt-in, and
+deletes no retained legacy rows. A future historical bulk refresh should be a separately bounded,
+checkpointed backfill instead of re-enabling the full nightly person crawl.
 
 Broader candidate triage, including the FCC/GSA context pair seeded by `0024`, stays separate
 from this vote slice; historical identity-review queue cleanup is deferred to Phase 6. Do not

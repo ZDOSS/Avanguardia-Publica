@@ -133,6 +133,29 @@ code, the example environment, and manual workflow input. The reviewed nightly `
 explicitly selects `enabled` for the same bounded path; unknown events fail closed, and any
 failed enabled write remains run-blocking. Public presentation remains a separate review gate.
 
+### GovTrack legacy profile enrichment (retained history; scheduled fetch disabled)
+
+The legacy profile spoke calls GovTrack's person-filtered `vote_voter` endpoint by the stable
+GovTrack ID supplied by `congress-legislators`. It never joins by name. Its retained rows still
+provide historical compatibility coverage, but current federal votes now come from the bounded
+official House Clerk and Senate LIS fact paths.
+
+Two consecutive reviewed schedule runs showed that the person-filtered endpoint was not reliable
+enough for a 537-member nightly crawl. Run
+[31921415364](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/31921415364)
+recorded five failed requests, zero successes, and 532 breaker skips. Run
+[31987227615](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/31987227615)
+recorded nine failures and 498 breaker skips after 30 successes. In both runs, the separately
+bounded vote-specific GovTrack comparisons used by the official House and Senate writers were
+healthy, and those authoritative writes completed successfully.
+
+`GOVTRACK_PROFILE_ENRICHMENT_MODE` therefore defaults to `disabled`, scheduled events always
+select `disabled`, and unknown events fail closed. A manual workflow dispatch may explicitly
+select `enabled` for diagnostics. Disabling the profile crawl does not delete legacy
+`voting_records`, change the official-vote read RPC, or affect the vote-specific reconciliation
+requests. Any future historical refresh should use a separately reviewed bounded bulk/backfill
+path with its own recovery checkpoint rather than restoring the 537-request nightly crawl.
+
 ### Senate roll-call XML (approved; database-gated, bounded scheduled writes)
 
 The U.S. Senate publishes an [XML record for each roll call](https://www.senate.gov/legislative/LIS/roll_call_votes/)

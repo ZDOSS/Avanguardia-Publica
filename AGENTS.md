@@ -152,7 +152,11 @@ When contributing to this project, you must adhere strictly to these rules:
   manual canary `31833856216` completed all 18 detail calls and one healthy atomic write of 18
   private measures (15 bills and three amendments) plus 43 exact links across 40 roll calls.
   The database audit and exact replay found zero provenance, fact, link, ACL, legacy-key, row-image,
-  or transaction-ID violations. The active slice is migration `0036` plus scheduled workflow
-  enablement; after merge, apply `0036` before the next schedule and audit the first scheduled
-  enabled runs. Timeout recovery/checkpointing remains separate, and the existing official-vote
-  read surface needs no new key.
+  or transaction-ID violations. Migration `0036` is applied, and three scheduled enabled runs
+  each completed the exact 18-detail / 18-measure / 43-link / 40-roll-call contract with healthy
+  writes; the post-observation live audit found zero violations. The active operational slice
+  retires the unreliable legacy person-filtered GovTrack profile crawl from defaults and schedules
+  while retaining an explicit manual diagnostic opt-in, existing historical rows, and the healthy
+  vote-specific comparisons used by the official writers. Future historical refresh should use a
+  separately bounded checkpointed backfill. The existing official-vote read surface needs no new
+  key.

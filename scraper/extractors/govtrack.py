@@ -1,11 +1,14 @@
 """
 govtrack.py
 
-Voting-record ingestion from the free GovTrack API (no key required), joined by the
-GovTrack person ID carried in politicians.external_ids["govtrack"] (from the
-congress-legislators crosswalk) — no fuzzy name matching.
+Legacy voting-record enrichment from the free GovTrack API (no key required), joined by
+the GovTrack person ID carried in politicians.external_ids["govtrack"] (from the
+congress-legislators crosswalk) — no fuzzy name matching. The default and scheduled
+pipeline leave this expensive person-filtered compatibility path disabled now that
+bounded official House Clerk and Senate LIS facts serve current federal votes. An
+explicit manual diagnostic opt-in can still call it without deleting retained history.
 
-This is a VERIFIED spoke (official roll-call votes), so it lands in voting_records.
+This legacy VERIFIED spoke lands in voting_records when explicitly enabled.
 
 Mirrors fec.py's bounded design: a per-run request budget plus a consecutive-failure
 circuit breaker, so a sustained GovTrack outage can't hang the pipeline.

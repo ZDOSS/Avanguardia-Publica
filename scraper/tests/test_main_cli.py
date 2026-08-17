@@ -165,6 +165,33 @@ class MainCliTests(unittest.TestCase):
         self.assertEqual(1, len(payload["errors"]))
         self.assertEqual("configuration", payload["errors"][0]["scope"])
 
+    def test_invalid_govtrack_profile_mode_fails_before_preflight_or_extractors(self):
+        output = io.StringIO()
+
+        with (
+            patch.dict(
+                os.environ,
+                {"GOVTRACK_PROFILE_ENRICHMENT_MODE": "typo"},
+                clear=True,
+            ),
+            patch.object(self.scraper_main, "load_dotenv"),
+            patch.object(self.scraper_main, "SupabaseLoader") as loader,
+            patch.object(self.scraper_main, "run_schema_preflight") as preflight,
+            patch.object(self.scraper_main, "get_congress_members") as congress,
+            redirect_stdout(output),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            self.scraper_main.main(["--preflight-only"])
+
+        self.assertIn("GOVTRACK_PROFILE_ENRICHMENT_MODE", str(raised.exception))
+        loader.assert_not_called()
+        preflight.assert_not_called()
+        congress.assert_not_called()
+        payload = summary_json(output.getvalue())
+        self.assertFalse(payload["success"])
+        self.assertEqual(1, len(payload["errors"]))
+        self.assertEqual("configuration", payload["errors"][0]["scope"])
+
     def test_house_shadow_does_not_receive_legacy_profile_vote_map(self):
         loader = MagicMock()
         loader.supabase = object()
@@ -209,7 +236,7 @@ class MainCliTests(unittest.TestCase):
                         "vote_cast": "Yea",
                     }
                 ],
-            ),
+            ) as govtrack_profiles,
             patch.object(self.scraper_main, "get_littlesis", return_value=([], [])),
             patch.object(self.scraper_main, "get_news_data", return_value=[]),
             patch.object(
@@ -238,6 +265,100 @@ class MainCliTests(unittest.TestCase):
 
         house_shadow.assert_called_once()
         self.assertEqual(({"T000001"},), house_shadow.call_args.args)
+        govtrack_profiles.assert_not_called()
+        payload = summary_json(output.getvalue())
+        self.assertEqual(
+            "skipped",
+            payload["source_health"]["govtrack"]["status"],
+        )
+        self.assertEqual(
+            {"runtime_disabled_official_votes_preferred": 1},
+            payload["source_health"]["govtrack"]["skip_reasons"],
+        )
+
+    def test_explicit_govtrack_profile_mode_runs_legacy_spoke(self):
+        loader = MagicMock()
+        loader.supabase = object()
+        loader.upsert_politician.return_value = "politician-id"
+        member = {
+            "full_name": "Test Representative",
+            "bioguide_id": "T000001",
+            "office_type": "representative",
+            "current_office": "US Representative",
+            "external_ids": {"govtrack": 12345},
+            "contact": {},
+            "source_system_key": "congress-legislators",
+            "source_record_key": "bioguide:T000001",
+        }
+        legacy_vote = {
+            "bill_name": "Legacy question",
+            "vote_cast": "Yea",
+            "vote_date": "2026-08-17",
+        }
+        shadow_report = MagicMock()
+        shadow_report.counters.return_value = {}
+        shadow_report.description.return_value = "bounded shadow"
+        output = io.StringIO()
+
+        def fetch_legacy_votes(govtrack_id, *, health):
+            self.assertEqual(12345, govtrack_id)
+            health.record_attempt()
+            health.record_success()
+            return [legacy_vote]
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "SUPABASE_URL": "https://example.invalid",
+                    "SUPABASE_KEY": "service-key",
+                    "GOVTRACK_PROFILE_ENRICHMENT_MODE": "enabled",
+                },
+                clear=True,
+            ),
+            patch.object(self.scraper_main, "load_dotenv"),
+            patch.object(self.scraper_main, "SupabaseLoader", return_value=loader),
+            patch.object(self.scraper_main, "run_schema_preflight"),
+            patch.object(self.scraper_main, "get_congress_members", return_value=[member]),
+            patch.object(self.scraper_main, "get_house_disclosure_index", return_value={}),
+            patch.object(
+                self.scraper_main,
+                "get_voting_records",
+                side_effect=fetch_legacy_votes,
+            ) as govtrack_profiles,
+            patch.object(self.scraper_main, "get_littlesis", return_value=([], [])),
+            patch.object(self.scraper_main, "get_news_data", return_value=[]),
+            patch.object(
+                self.scraper_main,
+                "get_recent_senate_roll_call_shadow",
+                return_value=shadow_report,
+            ),
+            patch.object(
+                self.scraper_main,
+                "get_recent_house_roll_call_shadow",
+                return_value=shadow_report,
+            ),
+            patch.object(self.scraper_main, "write_house_roll_calls", return_value=0),
+            patch.object(self.scraper_main, "get_state_politicians", return_value=[]),
+            patch.object(
+                self.scraper_main, "get_federal_exec_judicial", return_value=[]
+            ),
+            patch.object(self.scraper_main, "get_provider_status", return_value={}),
+            patch.object(self.scraper_main, "run_identity_health_check"),
+            patch.object(self.scraper_main, "run_source_catalog_review_check"),
+            patch.object(self.scraper_main, "run_source_record_freshness_check"),
+            patch.object(self.scraper_main.time, "sleep"),
+            redirect_stdout(output),
+        ):
+            self.scraper_main.main([])
+
+        govtrack_profiles.assert_called_once()
+        loader.upsert_voting_records.assert_called_once_with(
+            "politician-id",
+            [legacy_vote],
+        )
+        payload = summary_json(output.getvalue())
+        self.assertEqual("healthy", payload["source_health"]["govtrack"]["status"])
 
 
 if __name__ == "__main__":
