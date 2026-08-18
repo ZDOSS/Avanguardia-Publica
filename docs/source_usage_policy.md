@@ -79,7 +79,7 @@ An extractor is not production-ready until tests prove that it:
 6. has a documented retention and attribution decision; and
 7. has a rollback or disable path that does not delete historical identity mappings.
 
-### Congress.gov bill/amendment metadata (approved; bounded scheduled private storage)
+### Congress.gov bill/amendment metadata (approved; bounded storage and narrow read surface)
 
 The [Congress.gov API v3](https://github.com/LibraryOfCongress/api.congress.gov/) is an
 official Library of Congress source for machine-readable legislative data. Congress.gov's
@@ -131,7 +131,20 @@ Migration `0036_congress_gov_scheduled_enablement.sql` validates and records tha
 advancing scraper preflight. `CONGRESS_GOV_METADATA_WRITE_MODE` remains `disabled` by default in
 code, the example environment, and manual workflow input. The reviewed nightly `schedule`
 explicitly selects `enabled` for the same bounded path; unknown events fail closed, and any
-failed enabled write remains run-blocking. Public presentation remains a separate review gate.
+failed enabled write remains run-blocking.
+
+Migration `0037_congress_gov_measure_read_surface.sql` is the separately reviewed presentation
+gate. Its versioned `get_canonical_voting_records_v3` RPC delegates canonical person resolution,
+official/legacy coverage, vote filtering, ambiguity-safe GovTrack deduplication, ordering, and
+pagination to the unchanged v2 RPC. A lateral aggregate then attaches at most 100 measures to
+each returned official roll call through the stored exact link; legacy rows always receive an
+empty measure array. The RPC rechecks active verified Congress.gov provenance and approved
+source/endpoint state, exposes only the canonical measure identifier, kind, Congress, type,
+number, a display-bounded title and purpose, official Congress.gov URL, source name, and
+observation time, and grants no direct browser access to source records or legislative tables.
+The client independently validates the exact measure key and safe HTTP URL before display. No
+raw JSON, payload hash, private metadata, writer capability, or new source request crosses this
+read boundary.
 
 ### GovTrack legacy profile enrichment (retained history; scheduled fetch disabled)
 

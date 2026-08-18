@@ -2,10 +2,29 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { DEFAULT_PROFILE_PAGE_SIZE, emptyPage, type PageResult } from '@/lib/pagination';
-import { fetchVotingRecords, type VotingRecord } from '@/lib/votingRecords';
+import {
+  fetchVotingRecords,
+  type LegislativeMeasure,
+  type LegislativeMeasureType,
+  type VotingRecord,
+} from '@/lib/votingRecords';
 import { EmptyState, formatDate, LoadingBlock, LoadError, PaginationControls, SectionHeading } from './ProfileSpokeStates';
 
 const VOTE_FILTERS = ['', 'Yea', 'Nay', 'Present', 'Not Voting'];
+
+const MEASURE_TYPE_LABELS: Record<LegislativeMeasureType, string> = {
+  hr: 'H.R.',
+  s: 'S.',
+  hjres: 'H.J.Res.',
+  sjres: 'S.J.Res.',
+  hconres: 'H.Con.Res.',
+  sconres: 'S.Con.Res.',
+  hres: 'H.Res.',
+  sres: 'S.Res.',
+  hamdt: 'H.Amdt.',
+  samdt: 'S.Amdt.',
+  suamdt: 'Senate unprinted amendment',
+};
 
 function chamberLabel(chamber: VotingRecord['chamber']): string | null {
   if (chamber === 'house') return 'U.S. House';
@@ -17,6 +36,10 @@ function voteBadgeClass(voteCast: string | null): string {
   if (voteCast === 'Yea') return 'text-[var(--color-official-link)]';
   if (voteCast === 'Nay') return 'text-[var(--color-warning-badge)]';
   return 'text-[var(--color-official-text-muted)]';
+}
+
+function measureLabel(measure: LegislativeMeasure): string {
+  return `${MEASURE_TYPE_LABELS[measure.measure_type]} ${measure.measure_number}`;
 }
 
 export default function VotingRecordTab({ politicianId }: { politicianId: string }) {
@@ -147,6 +170,51 @@ export default function VotingRecordTab({ politicianId }: { politicianId: string
                       ? `Result: ${item.vote_result}`
                       : item.bill_summary || 'No vote summary available.'}
                   </p>
+                  {item.measures.length > 0 && (
+                    <div className="mb-4 space-y-2">
+                      {item.measures.map((measure) => (
+                        <div
+                          key={measure.canonical_measure_key}
+                          className="rounded-xl border border-[var(--color-official-border)] bg-[var(--color-official-bg-alt)] p-3"
+                        >
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-mono uppercase tracking-widest text-[var(--color-official-text-muted)]">
+                            <span className="font-bold text-[var(--color-official-link)]">
+                              {measure.measure_kind === 'bill' ? 'Official bill' : 'Official amendment'}
+                            </span>
+                            <span>{measureLabel(measure)}</span>
+                            <span>Congress {measure.congress}</span>
+                            {measure.official_url ? (
+                              <a
+                                href={measure.official_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="font-bold text-[var(--color-official-link)] hover:underline"
+                              >
+                                View on Congress.gov
+                              </a>
+                            ) : (
+                              <span>{measure.source_name || 'Congress.gov'}</span>
+                            )}
+                          </div>
+                          {measure.title && (
+                            <p className="mt-2 text-sm font-semibold text-[var(--color-official-text)]">
+                              {measure.title}
+                            </p>
+                          )}
+                          {measure.purpose && measure.purpose !== measure.title && (
+                            <p className="mt-1 text-sm text-[var(--color-official-text-muted)]">
+                              Purpose: {measure.purpose}
+                            </p>
+                          )}
+                          {measure.observed_at && (
+                            <p className="mt-2 text-xs font-mono uppercase tracking-widest text-[var(--color-official-text-muted)]">
+                              Observed {formatDate(measure.observed_at)}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs font-mono uppercase text-[var(--color-official-text-muted)] tracking-widest">
                     <span>{formatDate(item.vote_date)}</span>
                     {item.jurisdiction && <span>{item.jurisdiction}</span>}

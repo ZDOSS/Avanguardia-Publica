@@ -11,6 +11,7 @@ const CANONICAL_POLITICIAN_RPC_NAMES = [
   'get_canonical_campaign_donors',
   'get_canonical_voting_records',
   'get_canonical_voting_records_v2',
+  'get_canonical_voting_records_v3',
   'get_canonical_media_mentions',
   'get_canonical_person_office_terms',
 ];
@@ -46,14 +47,16 @@ export interface CanonicalLegacyPoliticianRef {
   is_canonical: boolean;
 }
 
-export function missingCanonicalPoliticianRpc(error: SupabaseErrorLike | null): boolean {
+export function missingCanonicalPoliticianRpc(error: unknown): boolean {
   if (!error) return false;
 
+  const rpcError = error as SupabaseErrorLike;
+
   const text = [
-    error.code,
-    error.message,
-    error.details,
-    error.hint,
+    rpcError.code,
+    rpcError.message,
+    rpcError.details,
+    rpcError.hint,
   ]
     .filter(Boolean)
     .join(' ')
@@ -82,7 +85,7 @@ export function allowMissingCanonicalPoliticianRpcFallback(
   error: unknown,
   rpcName: string,
 ): boolean {
-  if (!missingCanonicalPoliticianRpc(error as SupabaseErrorLike)) return false;
+  if (!missingCanonicalPoliticianRpc(error)) return false;
   if (process.env.NODE_ENV === 'production') {
     throw new CanonicalPoliticianRpcUnavailableError(rpcName, error);
   }

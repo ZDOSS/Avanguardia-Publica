@@ -2,8 +2,6 @@ import re
 import unittest
 from pathlib import Path
 
-from schema_preflight import REQUIRED_MIGRATION_FILE, REQUIRED_MIGRATION_KEY
-
 
 class CongressGovScheduledEnablementMigrationTests(unittest.TestCase):
     @classmethod
@@ -16,7 +14,7 @@ class CongressGovScheduledEnablementMigrationTests(unittest.TestCase):
         )
         cls.sql = cls.path.read_text(encoding="utf-8")
 
-    def test_is_forward_only_after_0035_and_advances_preflight(self):
+    def test_is_forward_only_after_0035_and_records_its_preflight_marker(self):
         self.assertTrue(self.sql.startswith("-- 0036_"))
         self.assertIn("BEGIN;", self.sql)
         self.assertTrue(self.sql.rstrip().endswith("COMMIT;"))
@@ -32,14 +30,6 @@ class CongressGovScheduledEnablementMigrationTests(unittest.TestCase):
         self.assertIn(
             "'0036_congress_gov_scheduled_enablement',\n        36,",
             self.sql,
-        )
-        self.assertEqual(
-            "0036_congress_gov_scheduled_enablement",
-            REQUIRED_MIGRATION_KEY,
-        )
-        self.assertEqual(
-            "0036_congress_gov_scheduled_enablement.sql",
-            REQUIRED_MIGRATION_FILE,
         )
         self.assertIn("'scraper_preflight_required', true", self.sql)
 
