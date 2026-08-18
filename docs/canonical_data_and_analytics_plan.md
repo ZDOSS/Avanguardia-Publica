@@ -432,7 +432,10 @@ Use this intake order:
    bill/amendment facts, exact links to the already-private official roll calls, and one bounded
    atomic service-role writer. Migration `0036_congress_gov_scheduled_enablement.sql` records the
    successful post-migration canary and private database audit before the reviewed workflow opts
-   nightly schedules into that same bounded path; public presentation remains a later gate.
+   nightly schedules into that same bounded path. Migration
+   `0037_congress_gov_measure_read_surface.sql` is the narrow public presentation gate: it keeps
+   every private table closed and decorates the proven person-aware voting-record result with a
+   bounded array of exact, presentation-safe Congress.gov measure facts.
 3. **Influence and organization graph after source records exist:** LDA.gov,
    USAspending, SAM.gov entity management, SAM.gov contract awards, and SAM.gov
    opportunities. These should wait for organization identity and source-record tables;
@@ -686,11 +689,29 @@ presentation remains a later review.
 
 Those observations also isolated repeated failures in the older person-filtered GovTrack profile
 crawl: the latter two runs skipped 532 and 498 profiles after their breakers opened, while the
-separate vote-specific comparisons protecting both official writers stayed healthy. The active
-operational slice therefore removes that redundant endpoint from schedules and defaults behind
-`GOVTRACK_PROFILE_ENRICHMENT_MODE=disabled`, preserves an explicit manual diagnostic opt-in, and
-deletes no retained legacy rows. A future historical bulk refresh should be a separately bounded,
+separate vote-specific comparisons protecting both official writers stayed healthy. The completed
+operational slice removed that redundant endpoint from schedules and defaults behind
+`GOVTRACK_PROFILE_ENRICHMENT_MODE=disabled`, preserved an explicit manual diagnostic opt-in, and
+deleted no retained legacy rows. A future historical bulk refresh should be a separately bounded,
 checkpointed backfill instead of re-enabling the full nightly person crawl.
+
+The first post-merge scheduled run,
+[32090695651](https://github.com/ZDOSS/Avanguardia-Publica/actions/runs/32090695651),
+confirmed that boundary in production: the legacy GovTrack profile tracker was explicitly
+skipped with zero attempts or failures, while the official House shadow completed 78 of 78
+requests and 25 writes, the Senate shadow completed 77 of 77 requests and 25 writes, and the
+Congress.gov path completed 18 of 18 details plus one healthy atomic write. The run reported no
+errors, so the profile-crawl retirement observation gate is complete.
+
+The current presentation slice adds migration
+`0037_congress_gov_measure_read_surface.sql` and client integration. The v3 RPC wraps the
+unchanged v2 vote contract, aggregates exact measure links without duplicating vote rows, and
+returns only bounded presentation-safe facts. The live client falls back to v2 only while 0037
+is not yet installed, while scraper preflight advances to the 0037 marker so deployment drift
+cannot remain silent. After merge, apply 0037 before the next scheduled scraper and validate the
+v3/v2 base-row equivalence, exact measure arrays, browser ACLs, pagination, and representative
+House and Senate profiles. This slice adds no source request, credential, writer, or legacy vote
+mutation.
 
 Broader candidate triage, including the FCC/GSA context pair seeded by `0024`, stays separate
 from this vote slice; historical identity-review queue cleanup is deferred to Phase 6. Do not

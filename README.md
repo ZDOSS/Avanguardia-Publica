@@ -205,8 +205,12 @@ exact links with healthy fetch and write trackers; its post-canary audit found z
 fact, link, ACL, or legacy-isolation violations, and an exact replay changed no row image or
 transaction ID. Migration `0036` records that review and the nightly `schedule` explicitly
 selects `enabled`; code, example-environment, and manual-input defaults remain `disabled`, and
-unknown events fail closed. The path retains no raw JSON, writes no legacy votes, and has no
-public read surface.
+unknown events fail closed. The path retains no raw JSON and writes no legacy votes. Migration
+`0037` adds the first narrow public presentation path: a versioned voting-record RPC delegates
+all person resolution, filtering, deduplication, ordering, and pagination to the proven v2 RPC,
+then decorates only official rows with at most 100 exact linked measures. It exposes identifiers,
+titles, purposes, official Congress.gov links, and bounded source freshness without granting
+browser roles direct access to private provenance or legislative tables.
 
 Migration `0030_senate_roll_call_production_enablement.sql` verifies migration `0029`'s exact
 public barrier, owner-only helper, constraint, ACL, dependency, identity-index, zero-fact, and
@@ -372,7 +376,7 @@ only runs the ETL and `nextjs.yml` only builds.
   prevents half-applied data changes. Migration `0027` is the explicit exception: use
   `ON_ERROR_STOP=1` but omit `--single-transaction` so its committed cutover barrier can become
   visible before its second transaction drains old callers and atomically enables both gates.
-  Migrations `0028` through `0036` use the normal single-transaction rule. `0028` is the private
+  Migrations `0028` through `0037` use the normal single-transaction rule. `0028` is the private
   Senate source-review decision. `0029` installs the write-disabled Senate provenance
   contract and hard preflight-only barrier. `0030` verifies that exact disabled state, installs
   the guarded wrapper, and enables the database gates. `0031` installs the narrow public,
@@ -387,7 +391,9 @@ only runs the ETL and `nextjs.yml` only builds.
   scraper preflight to `0035`. It retains no raw API JSON and creates no browser read path.
   `0036` validates and records the successful manual canary and private database audit, advances
   scraper preflight, and permits the nightly workflow to select the same bounded writer. Runtime
-  and manual-input defaults remain disabled, and unknown events fail closed.
+  and manual-input defaults remain disabled, and unknown events fail closed. `0037` creates the
+  measure-aware `get_canonical_voting_records_v3` read RPC without changing v2, legacy votes, or
+  scraper writers; it advances preflight so the new read contract cannot silently drift.
 
 Do **not** replay the full historical migration directory against an upgraded database.
 Some migrations contain guarded data decisions and review-state transitions, not just

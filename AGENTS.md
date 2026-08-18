@@ -121,7 +121,7 @@ When contributing to this project, you must adhere strictly to these rules:
 
 ## 🚀 Next Steps & Outstanding Work
 - The active remaining roadmap is `docs/canonical_data_and_analytics_plan.md`. Phases 1 and
-  2 are implemented and the scraper identity resolver in Phase 3 is complete. Migrations
+  2 are implemented and the scraper identity resolver in Phase 3 is complete. Applied migrations
   `0022` through `0036` establish deterministic identity, atomic source-profile writes,
   provenance, person office terms, and private normalized House and Senate roll-call facts.
   Both official vote paths remain bounded, identifier-only, and
@@ -134,6 +134,8 @@ When contributing to this project, you must adhere strictly to these rules:
   measure facts, exact official-roll-call links, and one atomic service-role writer without raw
   JSON, legacy vote writes, or a public read path. `0036` records the successful manual canary
   and private audit before the reviewed workflow enables that same bounded path for schedules.
+  The current `0037` slice adds a narrow measure-aware public voting-record RPC without opening
+  those private tables or changing the v2 vote contract.
 - Monitor and resolve quarantined identity candidates instead of weakening the pre-write
   boundary. A person can have federal, state, and local roles over time; those roles must
   not become separate canonical people or be flattened into one office field.
@@ -154,9 +156,11 @@ When contributing to this project, you must adhere strictly to these rules:
   The database audit and exact replay found zero provenance, fact, link, ACL, legacy-key, row-image,
   or transaction-ID violations. Migration `0036` is applied, and three scheduled enabled runs
   each completed the exact 18-detail / 18-measure / 43-link / 40-roll-call contract with healthy
-  writes; the post-observation live audit found zero violations. The active operational slice
-  retires the unreliable legacy person-filtered GovTrack profile crawl from defaults and schedules
-  while retaining an explicit manual diagnostic opt-in, existing historical rows, and the healthy
-  vote-specific comparisons used by the official writers. Future historical refresh should use a
-  separately bounded checkpointed backfill. The existing official-vote read surface needs no new
-  key.
+  writes; the post-observation live audit found zero violations. The first post-PR-109 scheduled
+  run confirmed that the legacy person-filtered GovTrack crawl had zero attempts or failures while
+  the official House, Senate, and Congress.gov paths stayed healthy. The active slice is migration
+  `0037_congress_gov_measure_read_surface.sql` plus the live Voting Record integration. After
+  merge, apply `0037` before the next schedule and validate v3/v2 base-row equivalence, exact
+  measure arrays, browser ACLs, pagination, and representative House/Senate profiles. It requires
+  no new key or scraper source request. Future historical GovTrack refresh should use a separately
+  bounded checkpointed backfill.

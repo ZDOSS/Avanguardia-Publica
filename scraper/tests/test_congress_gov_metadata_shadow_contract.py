@@ -109,7 +109,7 @@ class CongressGovMetadataShadowContractTests(unittest.TestCase):
         )
         self.assertIn("CONGRESS_GOV_API_KEY", self.policy)
         self.assertIn("CONGRESS_GOV_API_KEY", self.roadmap)
-        self.assertIn("bounded scheduled private storage", self.policy)
+        self.assertIn("bounded storage and narrow read surface", self.policy)
 
     def test_runtime_combines_both_official_snapshots_after_their_fetches(self):
         self.assertIn("get_roll_call_measure_metadata_shadow", self.main)
