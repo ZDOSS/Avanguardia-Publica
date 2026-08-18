@@ -98,7 +98,7 @@ class SenateRollCallRuntimeTests(unittest.TestCase):
                     {"SENATE_ROLL_CALL_WRITE_MODE": invalid}
                 )
 
-    def test_checked_in_runtime_configuration_enables_only_reviewed_schedule(self):
+    def test_checked_in_runtime_configuration_requires_manual_opt_in(self):
         workflow = (_REPO_ROOT / ".github" / "workflows" / "scraper.yml").read_text(
             encoding="utf-8"
         )
@@ -116,7 +116,6 @@ class SenateRollCallRuntimeTests(unittest.TestCase):
         self.assertIsNotNone(expression)
         self.assertEqual(
             expression.group(1),
-            "github.event_name == 'schedule' && 'enabled' || "
             "github.event_name == 'workflow_dispatch' "
             "&& inputs.senate_roll_call_write_mode || 'disabled'",
         )
@@ -124,16 +123,14 @@ class SenateRollCallRuntimeTests(unittest.TestCase):
         self.assertIn("SENATE_ROLL_CALL_WRITE_MODE=disabled", example_env)
 
         def resolve(event_name, manual_input, _repository_variable):
-            if event_name == "schedule":
-                return "enabled"
             if event_name == "workflow_dispatch":
                 return manual_input or "disabled"
             return "disabled"
 
         self.assertEqual(resolve("workflow_dispatch", "disabled", "enabled"), "disabled")
         self.assertEqual(resolve("workflow_dispatch", "enabled", "disabled"), "enabled")
-        self.assertEqual(resolve("schedule", None, "disabled"), "enabled")
-        self.assertEqual(resolve("schedule", None, "enabled"), "enabled")
+        self.assertEqual(resolve("schedule", None, "disabled"), "disabled")
+        self.assertEqual(resolve("schedule", None, "enabled"), "disabled")
         self.assertEqual(resolve("push", None, "enabled"), "disabled")
 
     def test_disabled_mode_never_calls_the_loader(self):

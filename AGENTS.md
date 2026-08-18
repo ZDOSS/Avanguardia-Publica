@@ -40,7 +40,7 @@ frontend is rebuilt/redeployed, NOT when the database changes:**
   dynamic routes at runtime. Its server component now fetches only the minimal profile header
   needed for the static shell; the contact card and profile tabs fetch live in the browser.
 
-**The consequence:** after the nightly scraper writes new data, search and directory can link to
+**The consequence:** after a scraper run writes new data, search and directory can link to
 `/profile?id=<uuid>` immediately, and that live route can show the row without a frontend
 rebuild. The legacy pretty `/[politician_id]` SEO route for a brand-new row still appears only
 after a deploy, but its data spokes are live once the page exists.
@@ -122,7 +122,7 @@ When contributing to this project, you must adhere strictly to these rules:
 ## 🚀 Next Steps & Outstanding Work
 - The active remaining roadmap is `docs/canonical_data_and_analytics_plan.md`. Phases 1 and
   2 are implemented and the scraper identity resolver in Phase 3 is complete. Applied migrations
-  `0022` through `0036` establish deterministic identity, atomic source-profile writes,
+  `0022` through `0037` establish deterministic identity, atomic source-profile writes,
   provenance, person office terms, and private normalized House and Senate roll-call facts.
   Both official vote paths remain bounded, identifier-only, and
   isolated from legacy `voting_records`; the versioned `0031` read RPC combines presentation-safe
@@ -133,9 +133,9 @@ When contributing to this project, you must adhere strictly to these rules:
   `0035` approves only the observed bounded detail path and adds private source-record-backed
   measure facts, exact official-roll-call links, and one atomic service-role writer without raw
   JSON, legacy vote writes, or a public read path. `0036` records the successful manual canary
-  and private audit before the reviewed workflow enables that same bounded path for schedules.
-  The current `0037` slice adds a narrow measure-aware public voting-record RPC without opening
-  those private tables or changing the v2 vote contract.
+  and private audit before the reviewed workflow enabled that same bounded path for schedules.
+  `0037` adds a narrow measure-aware public voting-record RPC without opening those private
+  tables or changing the v2 vote contract; it is applied and live-validated.
 - Monitor and resolve quarantined identity candidates instead of weakening the pre-write
   boundary. A person can have federal, state, and local roles over time; those roles must
   not become separate canonical people or be flattened into one office field.
@@ -158,9 +158,13 @@ When contributing to this project, you must adhere strictly to these rules:
   each completed the exact 18-detail / 18-measure / 43-link / 40-roll-call contract with healthy
   writes; the post-observation live audit found zero violations. The first post-PR-109 scheduled
   run confirmed that the legacy person-filtered GovTrack crawl had zero attempts or failures while
-  the official House, Senate, and Congress.gov paths stayed healthy. The active slice is migration
-  `0037_congress_gov_measure_read_surface.sql` plus the live Voting Record integration. After
-  merge, apply `0037` before the next schedule and validate v3/v2 base-row equivalence, exact
-  measure arrays, browser ACLs, pagination, and representative House/Senate profiles. It requires
-  no new key or scraper source request. Future historical GovTrack refresh should use a separately
-  bounded checkpointed backfill.
+  the official House, Senate, and Congress.gov paths stayed healthy. Migration `0037` is now
+  applied: v3/v2 base-row equivalence, all 43 exact measure links across 40 roll calls, browser
+  ACLs, pagination, and representative House/Senate profiles were validated live. The scraper
+  cron is intentionally paused during active development. Use only the manual workflow, keep the
+  state LittleSis fields blank and GovTrack profile mode disabled for routine runs, explicitly
+  enable the reviewed House/Senate/Congress.gov modes when refreshing those facts, and never
+  overlap runs. Allow at least one hour between full runs and ordinarily no more than three per
+  UTC day while OpenStates is active; do not restore the schedule without a reviewed change and
+  maintainer decision. Future historical GovTrack refresh should use a separately bounded,
+  checkpointed backfill.

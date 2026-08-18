@@ -101,7 +101,7 @@ SHA-256 for provenance but never retains raw JSON. The nonblocking fetch tracker
 attempts, successes, failures, skips, coverage, and breaker state; it retries a server failure
 once and stops on authentication, quota, or identity conflicts. Removing
 `CONGRESS_GOV_API_KEY` disables the path without affecting the official vote writers or their
-retained facts. Shared `DEMO_KEY` use is refused by the scheduled pipeline.
+retained facts. Shared `DEMO_KEY` use is refused by the ETL pipeline.
 
 Migration `0034_congress_gov_metadata_shadow_contract.sql` corrects the seeded API base to
 `https://api.congress.gov/v3/`, reserves the official `congress-gov` source namespace, and
@@ -129,9 +129,10 @@ returned 18 measures and 43 links while changing neither stored row images nor t
 
 Migration `0036_congress_gov_scheduled_enablement.sql` validates and records that evidence before
 advancing scraper preflight. `CONGRESS_GOV_METADATA_WRITE_MODE` remains `disabled` by default in
-code, the example environment, and manual workflow input. The reviewed nightly `schedule`
-explicitly selects `enabled` for the same bounded path; unknown events fail closed, and any
-failed enabled write remains run-blocking.
+code, the example environment, and manual workflow input. The reviewed schedule previously
+selected `enabled` for the same bounded path; the cron trigger is currently paused and every
+manual dispatch requires an explicit choice. Unknown events fail closed, and any failed enabled
+write remains run-blocking.
 
 Migration `0037_congress_gov_measure_read_surface.sql` is the separately reviewed presentation
 gate. Its versioned `get_canonical_voting_records_v3` RPC delegates canonical person resolution,
@@ -146,7 +147,7 @@ The client independently validates the exact measure key and safe HTTP URL befor
 raw JSON, payload hash, private metadata, writer capability, or new source request crosses this
 read boundary.
 
-### GovTrack legacy profile enrichment (retained history; scheduled fetch disabled)
+### GovTrack legacy profile enrichment (retained history; disabled by default)
 
 The legacy profile spoke calls GovTrack's person-filtered `vote_voter` endpoint by the stable
 GovTrack ID supplied by `congress-legislators`. It never joins by name. Its retained rows still
@@ -162,14 +163,14 @@ recorded nine failures and 498 breaker skips after 30 successes. In both runs, t
 bounded vote-specific GovTrack comparisons used by the official House and Senate writers were
 healthy, and those authoritative writes completed successfully.
 
-`GOVTRACK_PROFILE_ENRICHMENT_MODE` therefore defaults to `disabled`, scheduled events always
-select `disabled`, and unknown events fail closed. A manual workflow dispatch may explicitly
-select `enabled` for diagnostics. Disabling the profile crawl does not delete legacy
+`GOVTRACK_PROFILE_ENRICHMENT_MODE` therefore defaults to `disabled`, and unknown events fail
+closed. A manual workflow dispatch may explicitly select `enabled` for diagnostics. Disabling
+the profile crawl does not delete legacy
 `voting_records`, change the official-vote read RPC, or affect the vote-specific reconciliation
 requests. Any future historical refresh should use a separately reviewed bounded bulk/backfill
 path with its own recovery checkpoint rather than restoring the 537-request nightly crawl.
 
-### Senate roll-call XML (approved; database-gated, bounded scheduled writes)
+### Senate roll-call XML (approved; database-gated, bounded manual writes)
 
 The U.S. Senate publishes an [XML record for each roll call](https://www.senate.gov/legislative/LIS/roll_call_votes/)
 through the Senate Legislative Information System. The integration fetches at most the 25 most
@@ -261,10 +262,10 @@ errors. Its service-role exact replay returned the complete member count and cha
 full row images nor transaction IDs.
 
 `SENATE_ROLL_CALL_WRITE_MODE` remains `disabled` by default in code, the example environment,
-and the manual workflow input. The reviewed nightly `schedule` explicitly selects `enabled` for
-the same bounded path; manual dispatches retain their explicit choice and unknown events fail
-closed. Disabling the runtime control or either database gate preserves shadow-only behavior
-and the last valid rows.
+and the manual workflow input. The reviewed workflow previously selected `enabled` on nightly
+schedules; that cron trigger is currently paused during active development. Manual dispatches
+retain their explicit choice and unknown events fail closed. Disabling the runtime control or
+either database gate preserves shadow-only behavior and the last valid rows.
 
 ### House Clerk roll-call XML (approved; database-gated, runtime opt-in)
 
@@ -345,7 +346,8 @@ without reserving unrelated Clerk record families. The same transaction then ena
 reviewed database gate rows.
 `HOUSE_ROLL_CALL_WRITE_MODE` nevertheless defaults to `disabled` in code and the example
 environment. After the successful bounded production canary and post-canary database audit, the
-GitHub Actions nightly schedule explicitly selects `enabled` for the same bounded path. Manual
-runs retain a required `disabled`/`enabled` choice whose default is `disabled`, and unrecognized
-events fail closed. Disabling either the runtime control or either database gate preserves
-shadow-only behavior and the last valid rows.
+GitHub Actions schedule previously selected `enabled` for the same bounded path; that cron
+trigger is currently paused during active development. Manual runs retain a required
+`disabled`/`enabled` choice whose default is `disabled`, and unrecognized events fail closed.
+Disabling either the runtime control or either database gate preserves shadow-only behavior and
+the last valid rows.

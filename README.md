@@ -7,7 +7,8 @@ classifies, and displays publicly available information about U.S. politicians a
 Federal, State, and Local levels, presenting it as a clean, read-only encyclopedia.
 
 The project follows a **decoupled, zero-cost architecture**: a Python ETL pipeline pushes
-data into Supabase on a schedule, and a statically-exported Next.js frontend reads from it.
+data into Supabase through reviewed manual runs while the product is under active development,
+and a statically-exported Next.js frontend reads from it.
 The render model is **static export with live client data**: home/search, `/directory`,
 `/profile?id=<uuid>`, and the profile contact / financial / donor / voting / media /
 connections spokes query Supabase **live in the browser**. The legacy pretty
@@ -23,7 +24,7 @@ profile spokes now hydrate from the browser once the page exists. Read
 ┌────────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
 │  Scraper (Python)  │ ──▶ │ Supabase (Postgres)│ ◀── │ Frontend (Next.js)  │
 │  GitHub Actions    │     │  REST API          │     │  Static export →    │
-│  (nightly sync)    │     │                    │     │  GitHub Pages       │
+│  (manual sync)     │     │                    │     │  GitHub Pages       │
 └────────────────────┘     └──────────────────┘     └─────────────────────┘
 ```
 
@@ -55,7 +56,7 @@ notes.
 │   └── extractors/    # Per-source extractors (fec, federal, govtrack, news, …)
 ├── migrations/        # SQL migrations
 ├── schema.sql         # Database schema blueprint
-└── .github/workflows/ # nextjs.yml (deploy) + scraper.yml (nightly ETL)
+└── .github/workflows/ # nextjs.yml (deploy) + scraper.yml (manual ETL)
 ```
 
 ---
@@ -156,12 +157,12 @@ financial disclosures are not yet covered.
 | `FEC_API_KEY`                   | scraper  | no       | data.gov key for campaign-donor enrichment           |
 | `OPENSTATES_API_KEY`            | scraper  | no       | OpenStates key for state roll-call votes             |
 | `CONGRESS_GOV_API_KEY`          | scraper  | no       | Free data.gov key for bounded exact-detail Congress.gov metadata |
-| `GOVTRACK_PROFILE_ENRICHMENT_MODE` | scraper | no    | `disabled` by default and on schedules; explicit manual diagnostic opt-in for the legacy person-filtered crawl |
+| `GOVTRACK_PROFILE_ENRICHMENT_MODE` | scraper | no    | `disabled` by default; explicit manual diagnostic opt-in for the legacy person-filtered crawl |
 | `STATE_UNVERIFIED_ENRICHMENT_LIMIT` | scraper | no    | Bounded count of state profiles to enrich via LittleSis |
 | `STATE_UNVERIFIED_ENRICHMENT_OFFSET` | scraper | no   | Zero-based start offset for rotating state LittleSis batches |
 | `HOUSE_ROLL_CALL_WRITE_MODE`    | scraper  | no       | `disabled` by default; `enabled` opts into the separately DB-gated House RPC |
-| `SENATE_ROLL_CALL_WRITE_MODE`   | scraper  | no       | `disabled` by default; reviewed nightly workflow schedules explicitly select `enabled` for the DB-gated Senate RPC |
-| `CONGRESS_GOV_METADATA_WRITE_MODE` | scraper | no    | `disabled` by default; reviewed nightly schedules explicitly select `enabled` after migration `0036` |
+| `SENATE_ROLL_CALL_WRITE_MODE`   | scraper  | no       | `disabled` by default; `enabled` opts into the separately DB-gated Senate RPC |
+| `CONGRESS_GOV_METADATA_WRITE_MODE` | scraper | no    | `disabled` by default; `enabled` opts into the DB-gated private metadata writer |
 | `CURRENTS_API_KEY`              | scraper  | no       | News tier 1                                          |
 | `NEWSDATA_API_KEY`              | scraper  | no       | News tier 2 (requires attribution)                   |
 | `THENEWSAPI_KEY`                | scraper  | no       | News tier 3 credential                               |
@@ -172,7 +173,7 @@ must explicitly set `ALLOW_MOCK_BUILD=true`. Production builds and runtime pages
 visibly instead of presenting fixtures as live data. The news aggregator works with no
 keys at all (it degrades to keyless GDELT URL discovery).
 
-The legacy per-politician GovTrack REST crawl is no longer part of nightly or default runs.
+The legacy per-politician GovTrack REST crawl is no longer part of default runs.
 `GOVTRACK_PROFILE_ENRICHMENT_MODE=enabled` is available only as an explicit manual diagnostic
 choice. This switch controls the expensive person-filtered compatibility endpoint; it does not
 disable the bounded vote-specific GovTrack comparisons that protect the official House Clerk and
@@ -192,8 +193,8 @@ only through the trusted `congress-legislators` LIS-to-Bioguide crosswalk, and r
 normalized snapshot in memory. `SENATE_ROLL_CALL_WRITE_MODE=enabled` permits a run to call the
 atomic Senate RPC only when the complete bounded listing, every official XML document, every
 exact identity, every GovTrack comparison snapshot, and source health are complete. Code,
-example-environment, and manual-input defaults remain `disabled`. After the reviewed canary and
-audit, the nightly `schedule` explicitly selects `enabled`; unknown events still fail closed.
+example-environment, and manual-input defaults remain `disabled`. The current manual-only
+workflow requires an explicit choice on every dispatch; unexpected events still fail closed.
 
 Congress.gov metadata uses exact bill and amendment identifiers already present in those two
 official snapshots. It never calls collection endpoints and caps each run at 100 distinct detail
@@ -203,9 +204,9 @@ measure facts, and exact roll-call links only when both upstream official snapsh
 detail-fetch counters reconcile exactly. The successful manual canary wrote 18 measures and 43
 exact links with healthy fetch and write trackers; its post-canary audit found zero provenance,
 fact, link, ACL, or legacy-isolation violations, and an exact replay changed no row image or
-transaction ID. Migration `0036` records that review and the nightly `schedule` explicitly
-selects `enabled`; code, example-environment, and manual-input defaults remain `disabled`, and
-unknown events fail closed. The path retains no raw JSON and writes no legacy votes. Migration
+transaction ID. Migration `0036` records the historical schedule-enablement review; the current
+manual-only workflow still defaults this mode to `disabled`, requires an explicit choice, and
+fails closed for unexpected events. The path retains no raw JSON and writes no legacy votes. Migration
 `0037` adds the first narrow public presentation path: a versioned voting-record RPC delegates
 all person resolution, filtering, deduplication, ordering, and pagination to the proven v2 RPC,
 then decorates only official rows with at most 100 exact linked measures. It exposes identifiers,
@@ -264,12 +265,12 @@ table/column access to read-only, and preserves only controlled security-definer
 A null-safe House event-prefix namespace constraint
 also prevents the unrelated generic profile and retirement RPCs from colliding with House
 provenance. The migration then enables the reviewed source-catalog database gates atomically.
-Runtime writes still default to `disabled` in code and the example environment. After the
-successful bounded production canary and post-canary database audit, the GitHub Actions nightly
-schedule explicitly passes `enabled` for the same bounded write path. Manual workflow runs keep
-their required `disabled`/`enabled` choice with `disabled` as the default, and any unrecognized
-event fails closed. The database gates remain independently disableable. This path never writes
-legacy `voting_records`.
+Runtime writes still default to `disabled` in code and the example environment. The successful
+bounded production canary and post-canary audit previously permitted scheduled writes; during
+active development, the cron trigger is paused and manual workflow runs keep their required
+`disabled`/`enabled` choice with `disabled` as the default. Any unrecognized event fails closed.
+The database gates remain independently disableable. This path never writes legacy
+`voting_records`.
 
 Apply migration `0027` with `ON_ERROR_STOP=1` and without psql's external
 `--single-transaction` option. Its two checked-in transactions are the database-enforced cutover:
@@ -300,11 +301,28 @@ Both pipelines run from GitHub Actions:
   connections. The legacy pretty
   `/[politician_id]` route availability is still tied to static generation, so brand-new
   rows should be linked through `/profile?id=<uuid>` until a deploy creates the SEO route.
-  The deploy is wired to re-run automatically after a *successful* nightly ETL via a
+  The deploy is wired to re-run automatically after a *successful* manual ETL via a
   `workflow_run` trigger. (A failed scraper run does **not** trigger the deploy, so the live
   site keeps the last good build rather than shipping nothing.)
-- **`.github/workflows/scraper.yml`** — runs the Python ETL on a nightly schedule, writing
-  fresh data into Supabase.
+- **`.github/workflows/scraper.yml`** — runs the Python ETL only when explicitly dispatched,
+  writing fresh data into Supabase. It has no cron trigger while active development is underway.
+
+### Manual scraper operations
+
+The **Manual ETL Scraper** workflow serializes all dispatches and allows a maximum of four hours
+per run. For the reviewed full federal refresh, leave the two state LittleSis fields blank, set
+the House, Senate, and Congress.gov write modes to `enabled`, and leave the legacy GovTrack
+profile mode `disabled`. Do not queue a second run while one is active.
+
+Repeated runs share upstream account quotas even though each process resets its local counters.
+Keep at least one hour between full runs and, while the OpenStates key is active, use no more than
+three full runs in a UTC day unless its provider dashboard shows enough remaining quota. The main
+limits to watch in `ETL_SUMMARY_JSON` are OpenFEC's 900-request local cap (against an approximately
+1,000-request/hour free allowance), OpenStates' 450-request local cap with 10/minute pacing
+(against an approximately 500-request/day free allowance), and the account-specific news quotas.
+The official House and Senate windows are each capped at 25 roll calls, Congress.gov at 100 exact
+detail references (18 in recent successful runs), and the legacy person-filtered GovTrack crawl
+should remain disabled. Local caps are safety ceilings, not evidence of remaining upstream quota.
 
 ### Interpreting ETL identity-health output
 
@@ -390,8 +408,9 @@ only runs the ETL and `nextjs.yml` only builds.
   official-roll-call links, installs one bounded atomic service-role writer, and advances
   scraper preflight to `0035`. It retains no raw API JSON and creates no browser read path.
   `0036` validates and records the successful manual canary and private database audit, advances
-  scraper preflight, and permits the nightly workflow to select the same bounded writer. Runtime
-  and manual-input defaults remain disabled, and unknown events fail closed. `0037` creates the
+  scraper preflight, and historically permitted the scheduled workflow to select the same
+  bounded writer. The current cron pause leaves runtime and manual-input defaults disabled, and
+  unknown events fail closed. `0037` creates the
   measure-aware `get_canonical_voting_records_v3` read RPC without changing v2, legacy votes, or
   scraper writers; it advances preflight so the new read contract cannot silently drift.
 
@@ -408,7 +427,7 @@ maintainer review state. Use a new forward repair migration instead of editing l
 > 1. Apply the pending migrations (e.g. `0002`–`0007`) against the live database. If a
 >    freshly-added column still isn't found right after, reload PostgREST's schema cache:
 >    `NOTIFY pgrst, 'reload schema';`
-> 2. **Run the Nightly ETL Scraper and confirm it succeeds** — look for `[+] Updated/Inserted
+> 2. **Run the Manual ETL Scraper and confirm it succeeds** — look for `[+] Updated/Inserted
 >    Hub` lines and **no** PGRST204 errors. This is the step that actually writes data; a
 >    drifted run writes *nothing*.
 > 3. Re-run **Deploy Next.js to GitHub Pages** so the profile pages re-bake. A successful
