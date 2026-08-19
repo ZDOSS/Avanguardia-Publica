@@ -1,5 +1,10 @@
 import { supabase } from './supabase';
 import { safeHttpUrl } from './urls';
+import {
+  fetchLatestFederalVotingAlignment,
+  type FederalChamber,
+  type FederalVotingSummary,
+} from './votingAnalytics';
 
 // Live cross-reference "Connections" API. These wrap the Postgres RPC functions added
 // in migrations/0003_connections.sql, which compute connections on demand from the
@@ -24,6 +29,14 @@ export interface CoVoteConnection {
   disagree_count: number;
   shared_total: number;
   agreement_rate: number; // 0..1
+  record_origin: 'official' | 'legacy';
+  chamber: FederalChamber | null;
+  congress: number | null;
+  aligned_rank: number | null;
+  differing_rank: number | null;
+  first_shared_vote_date: string | null;
+  last_shared_vote_date: string | null;
+  source_name: string | null;
 }
 
 export interface NetworkTie {
@@ -44,6 +57,7 @@ export interface ConnectionLaneFailure {
 export interface ConnectionsBundle {
   sharedDonors: SharedDonorConnection[];
   coVotes: CoVoteConnection[];
+  federalVotingSummary: FederalVotingSummary | null;
   networkTies: NetworkTie[];
   failures: ConnectionLaneFailure[];
 }
@@ -65,14 +79,55 @@ function normalizeDonor(d: SharedDonorConnection): SharedDonorConnection {
   return { ...d, shared_donor_count: toNum(d.shared_donor_count), shared_total_amount: toNum(d.shared_total_amount) };
 }
 
-function normalizeCoVote(c: CoVoteConnection): CoVoteConnection {
+function normalizeLegacyCoVote(c: CoVoteConnection): CoVoteConnection {
   return {
     ...c,
     agree_count: toNum(c.agree_count),
     disagree_count: toNum(c.disagree_count),
     shared_total: toNum(c.shared_total),
     agreement_rate: toNum(c.agreement_rate),
+    record_origin: 'legacy',
+    chamber: null,
+    congress: null,
+    aligned_rank: null,
+    differing_rank: null,
+    first_shared_vote_date: null,
+    last_shared_vote_date: null,
+    source_name: null,
   };
+}
+
+async function fetchVotingConnections(politicianId: string): Promise<{
+  rows: CoVoteConnection[];
+  summary: FederalVotingSummary | null;
+}> {
+  const official = await fetchLatestFederalVotingAlignment(politicianId);
+  if (official.summary) {
+    return {
+      summary: official.summary,
+      rows: official.peers.map((peer) => ({
+        politician_id: peer.peer_person_id,
+        full_name: peer.full_name,
+        current_office: peer.current_office,
+        party: peer.party,
+        agree_count: peer.agree_count,
+        disagree_count: peer.differ_count,
+        shared_total: peer.shared_substantive_count,
+        agreement_rate: peer.agreement_rate,
+        record_origin: 'official',
+        chamber: peer.chamber,
+        congress: peer.congress,
+        aligned_rank: peer.aligned_rank,
+        differing_rank: peer.differing_rank,
+        first_shared_vote_date: peer.first_shared_vote_date,
+        last_shared_vote_date: peer.last_shared_vote_date,
+        source_name: peer.source_name,
+      })),
+    };
+  }
+
+  const legacy = await rpc<CoVoteConnection>('get_covoting', politicianId);
+  return { summary: null, rows: legacy.map(normalizeLegacyCoVote) };
 }
 
 function normalizeTie(tie: NetworkTie): NetworkTie {
@@ -91,13 +146,13 @@ function normalizeTie(tie: NetworkTie): NetworkTie {
 export async function fetchConnections(politicianId: string): Promise<ConnectionsBundle> {
   const [donors, votes, ties] = await Promise.allSettled([
     rpc<SharedDonorConnection>('get_shared_donors', politicianId),
-    rpc<CoVoteConnection>('get_covoting', politicianId),
+    fetchVotingConnections(politicianId),
     rpc<NetworkTie>('get_network_ties', politicianId),
   ]);
 
   const lanes = [
     ['get_shared_donors', donors],
-    ['get_covoting', votes],
+    ['federal voting analytics / get_covoting', votes],
     ['get_network_ties', ties],
   ] as const;
 
@@ -110,12 +165,13 @@ export async function fetchConnections(politicianId: string): Promise<Connection
 
   const failures: ConnectionLaneFailure[] = [];
   if (donors.status === 'rejected') failures.push({ lane: 'sharedDonors', label: 'Shared donors' });
-  if (votes.status === 'rejected') failures.push({ lane: 'coVotes', label: 'Co-voting' });
+  if (votes.status === 'rejected') failures.push({ lane: 'coVotes', label: 'Voting comparisons' });
   if (ties.status === 'rejected') failures.push({ lane: 'networkTies', label: 'Third-party network ties' });
 
   return {
     sharedDonors: donors.status === 'fulfilled' ? donors.value.map(normalizeDonor) : [],
-    coVotes: votes.status === 'fulfilled' ? votes.value.map(normalizeCoVote) : [],
+    coVotes: votes.status === 'fulfilled' ? votes.value.rows : [],
+    federalVotingSummary: votes.status === 'fulfilled' ? votes.value.summary : null,
     networkTies: ties.status === 'fulfilled' ? ties.value.map(normalizeTie) : [],
     failures,
   };

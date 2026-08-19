@@ -511,11 +511,19 @@ or identity-candidate queue.
 
 Build analytics only after identity-aware reads exist.
 
+The first complete capability is implemented by
+`0038_canonical_federal_voting_analytics.sql` and the profile/Connections clients. It summarizes
+official participation by chamber and Congress, ranks peers only within that exact scope using
+shared Yea/Nay casts and a ten-vote minimum, and exposes paginated roll-call evidence behind each
+pair. Present and Not Voting remain visible in participation but do not enter the alignment
+denominator. The federal lane never reads legacy `voting_records`; state and historical
+co-voting remains a clearly labeled compatibility lane until it has its own canonical model.
+
 Candidate RPCs/views:
 
 - shared donor overlap by person
 - donor bridge view across canonical people
-- voting agreement/opposition by person and jurisdiction
+- state/local voting agreement by person and jurisdiction (federal official alignment is complete)
 - two-hop organization/person relationship overlap
 - same-state, same-chamber, and same-office cohorts
 - media co-mention discovery signals
@@ -711,6 +719,18 @@ equivalence, all 43 exact measure links across 40 roll calls, closed private-tab
 access, pagination, and representative House and Senate profiles. Scraper preflight now requires
 the 0037 marker, so deployment drift cannot remain silent. This slice added no source request,
 credential, writer, or legacy vote mutation.
+
+The federal voting analytics slice added and applied
+`0038_canonical_federal_voting_analytics.sql` and the live Voting & Analytics/Connections
+integration. Three bounded RPCs provide per-scope participation, canonical same-chamber and
+same-Congress rankings, and inspectable pairwise official roll calls with exact measure metadata.
+The metric uses only shared Yea/Nay votes, requires at least ten, describes recorded alignment
+rather than causation, and keeps state/historical legacy co-voting in a separate labeled lane.
+The internal read model and all private provenance/fact tables remain closed to browser roles;
+the scraper write contract and source request budget are unchanged. Live anonymous-role checks
+reconciled summary categories, rates, ranking samples, and pair evidence for representative House
+and Senate profiles with zero contract or ACL failures. Scraper preflight now requires the 0038
+marker and all three RPCs so this read surface cannot silently drift.
 
 During active site development the cron trigger is intentionally paused. The ETL is dispatched
 manually, remains serialized, and keeps every write-mode input disabled by default. Routine full
