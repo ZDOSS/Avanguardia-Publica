@@ -118,6 +118,45 @@ When contributing to this project, you must adhere strictly to these rules:
     - Outside an active user-set goal with this explicit delegation, do **not** merge PRs or
       check out, pull, fast-forward, or otherwise synchronize local `main` from `origin`; the
       user retains those responsibilities.
+11. **Outcome-sized delivery, commits, and validation:** Progress is measured by complete,
+    demonstrable capabilities and roadmap acceptance criteria, not by the number of files,
+    commits, pull requests, migrations, or review checkpoints produced.
+    - Before implementation, state the user- or operator-visible outcome and its acceptance
+      criteria. The default delivery unit is one reviewable PR for that end-to-end outcome,
+      including the schema/migration, backend or scraper behavior, frontend, tests, and concise
+      documentation needed to make it usable when those pieces share a rollback boundary.
+    - A file, technical layer, migration, provenance field, shadow mode, feature flag, workflow
+      toggle, schedule change, review marker, or documentation update is not automatically a
+      useful slice. Do not split these into consecutive PRs when they merely prepare the next
+      change. Use internal gates or disabled-by-default paths inside one cohesive PR when that
+      keeps rollout safe.
+    - Split work only at an independently usable outcome or a genuinely distinct boundary, such
+      as materially different data-loss/security/rollback risk, evidence that must be gathered
+      from a real external service before the next stage can be designed safely, an urgent
+      production repair, or an external dependency that prevents completion. State the concrete
+      reason for the split and the deferred dependency in the PR body. Keep unrelated refactors
+      out; outcome-sized does not mean unbounded.
+    - Aim for one to three meaningful commits per PR. Organize commits around coherent review
+      units rather than individual files or tiny edits. Prepare and validate the complete slice
+      before the first push when practical; add follow-up commits for substantive review or CI
+      findings, not cosmetic churn. Avoid standalone documentation, planning, agent-rule, or
+      enablement PRs unless the maintainer explicitly requests one or the change is independently
+      valuable.
+    - During implementation, run the smallest targeted tests that provide useful feedback. Run
+      the full relevant validation once before pushing the completed slice, and repeat expensive
+      validation only after a change that could affect its result. Do not rerun unchanged suites
+      merely to create activity.
+    - Run the full scraper manually only when its end-to-end data behavior is part of the
+      acceptance criteria. Prefer fixtures, preflight checks, and focused tests for documentation,
+      UI-only, or workflow-metadata changes. Do not run it merely because a PR opened or merged;
+      continue to obey the no-overlap, hourly-spacing, and daily-limit rules below.
+    - Treat normal release proof—manual migration application, a justified canary, database
+      reconciliation, and browser validation—as completion of the same milestone, not as a reason
+      to create another PR. Open a repair PR only when that proof identifies an actual code or
+      configuration change.
+    - Progress reports must lead with capabilities that are usable or demonstrable, acceptance
+      criteria completed, remaining outcomes, and material risks. Commit counts, PR counts, file
+      counts, and lines changed are supporting context only.
 
 ## 🚀 Next Steps & Outstanding Work
 - The active remaining roadmap is `docs/canonical_data_and_analytics_plan.md`. Phases 1 and
