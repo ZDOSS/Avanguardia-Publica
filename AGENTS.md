@@ -130,12 +130,20 @@ When contributing to this project, you must adhere strictly to these rules:
       useful slice. Do not split these into consecutive PRs when they merely prepare the next
       change. Use internal gates or disabled-by-default paths inside one cohesive PR when that
       keeps rollout safe.
-    - Split work only at an independently usable outcome or a genuinely distinct boundary, such
-      as materially different data-loss/security/rollback risk, evidence that must be gathered
-      from a real external service before the next stage can be designed safely, an urgent
-      production repair, or an external dependency that prevents completion. State the concrete
-      reason for the split and the deferred dependency in the PR body. Keep unrelated refactors
-      out; outcome-sized does not mean unbounded.
+    - Size each delivery in proportion to risk: **smaller if risky, bigger if safer.** Use a
+      smaller independently provable slice when uncertainty, irreversible migration or data-loss
+      potential, a security boundary, external evidence, or rollback blast radius prevents the
+      whole outcome from being validated safely together. Use a larger cohesive slice when the
+      work is low-risk or read-only, relies on proven contracts, shares one rollback and
+      validation boundary, and splitting it would leave preparatory plumbing instead of usable
+      progress. File counts, line counts, and an arbitrary preference for small PRs are never
+      sufficient reasons to split work.
+    - A smaller split must still end at an independently usable outcome or a genuinely distinct
+      boundary, such as evidence that must be gathered from a real external service before the
+      next stage can be designed safely, an urgent production repair, or an external dependency
+      that prevents completion. State the concrete reason for the split and the deferred
+      dependency in the PR body. Keep unrelated refactors out; a safer larger slice must remain
+      cohesive and reviewable rather than becoming unbounded.
     - Aim for one to three meaningful commits per PR. Organize commits around coherent review
       units rather than individual files or tiny edits. Prepare and validate the complete slice
       before the first push when practical; add follow-up commits for substantive review or CI
