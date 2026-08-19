@@ -213,6 +213,13 @@ then decorates only official rows with at most 100 exact linked measures. It exp
 titles, purposes, official Congress.gov links, and bounded source freshness without granting
 browser roles direct access to private provenance or legislative tables.
 
+Migration `0038` builds the first canonical analytics surface from those same reviewed official
+facts. The live profile summarizes coverage and participation by chamber and Congress, ranks
+same-scope peers using only shared Yea/Nay votes with a ten-vote minimum, and provides paginated
+pairwise evidence behind every comparison. State and historical legacy votes remain visibly
+separate, and every federal comparison links back to its official roll call and any exact
+Congress.gov measure metadata without opening the private fact tables.
+
 Migration `0030_senate_roll_call_production_enablement.sql` verifies migration `0029`'s exact
 public barrier, owner-only helper, constraint, ACL, dependency, identity-index, zero-fact, and
 service-role read-only contracts. It replaces the same public function OID with a thin guarded
@@ -394,7 +401,7 @@ only runs the ETL and `nextjs.yml` only builds.
   prevents half-applied data changes. Migration `0027` is the explicit exception: use
   `ON_ERROR_STOP=1` but omit `--single-transaction` so its committed cutover barrier can become
   visible before its second transaction drains old callers and atomically enables both gates.
-  Migrations `0028` through `0037` use the normal single-transaction rule. `0028` is the private
+  Migrations `0028` through `0038` use the normal single-transaction rule. `0028` is the private
   Senate source-review decision. `0029` installs the write-disabled Senate provenance
   contract and hard preflight-only barrier. `0030` verifies that exact disabled state, installs
   the guarded wrapper, and enables the database gates. `0031` installs the narrow public,
@@ -412,7 +419,9 @@ only runs the ETL and `nextjs.yml` only builds.
   bounded writer. The current cron pause leaves runtime and manual-input defaults disabled, and
   unknown events fail closed. `0037` creates the
   measure-aware `get_canonical_voting_records_v3` read RPC without changing v2, legacy votes, or
-  scraper writers; it advances preflight so the new read contract cannot silently drift.
+  scraper writers. `0038` adds bounded official-vote summary, same-scope alignment, and
+  inspectable pair-comparison RPCs; it keeps legacy votes separate and advances preflight so the
+  complete analytics contract cannot silently drift.
 
 Do **not** replay the full historical migration directory against an upgraded database.
 Some migrations contain guarded data decisions and review-state transitions, not just

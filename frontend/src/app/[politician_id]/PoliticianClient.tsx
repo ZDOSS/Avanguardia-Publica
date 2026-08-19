@@ -21,7 +21,7 @@ export interface PoliticianData extends ProfileHeader {
 const TABS: { id: TabId; label: string }[] = [
   { id: 'financial', label: 'Financial Disclosures' },
   { id: 'donors', label: 'Campaign Donors' },
-  { id: 'votes', label: 'Voting Record' },
+  { id: 'votes', label: 'Voting & Analytics' },
   { id: 'connections', label: 'Connections' },
   { id: 'media', label: 'Media' },
 ];
@@ -113,7 +113,9 @@ export default function PoliticianClient({ politician }: { politician: Politicia
         <div className="min-h-[400px]">
           {activeTab === 'financial' && <FinancialDisclosuresTab politicianId={politician.id} />}
           {activeTab === 'donors' && <CampaignDonorsTab politicianId={politician.id} />}
-          {activeTab === 'votes' && <VotingRecordTab politicianId={politician.id} />}
+          {activeTab === 'votes' && (
+            <VotingRecordTab politicianId={politician.id} politicianName={politician.full_name} />
+          )}
           {activeTab === 'connections' && (
             <ConnectionsTab key={politician.id} politicianId={politician.id} politicianName={politician.full_name} />
           )}

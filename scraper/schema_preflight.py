@@ -1,6 +1,6 @@
 ZERO_UUID = "00000000-0000-0000-0000-000000000000"
-REQUIRED_MIGRATION_KEY = "0037_congress_gov_measure_read_surface"
-REQUIRED_MIGRATION_FILE = "0037_congress_gov_measure_read_surface.sql"
+REQUIRED_MIGRATION_KEY = "0038_canonical_federal_voting_analytics"
+REQUIRED_MIGRATION_FILE = "0038_canonical_federal_voting_analytics.sql"
 
 REQUIRED_COLUMN_CHECKS = [
     (
@@ -233,6 +233,34 @@ REQUIRED_RPC_CHECKS = [
             "vote_cast_filter": None,
         },
         "get_canonical_voting_records_v3(uuid, integer, integer, text)",
+    ),
+    (
+        "get_canonical_federal_voting_summary_v1",
+        {"p_id": ZERO_UUID},
+        "get_canonical_federal_voting_summary_v1(uuid)",
+    ),
+    (
+        "get_canonical_federal_voting_alignment_v1",
+        {
+            "p_id": ZERO_UUID,
+            "scope_chamber": None,
+            "scope_congress": None,
+            "result_limit_per_side": 1,
+        },
+        "get_canonical_federal_voting_alignment_v1(uuid, text, integer, integer)",
+    ),
+    (
+        "get_canonical_federal_voting_comparison_v1",
+        {
+            "p_id": ZERO_UUID,
+            "peer_id": ZERO_UUID,
+            "scope_chamber": None,
+            "scope_congress": None,
+            "comparison_filter": None,
+            "result_limit": 1,
+            "result_offset": 0,
+        },
+        "get_canonical_federal_voting_comparison_v1(uuid, uuid, text, integer, text, integer, integer)",
     ),
     (
         "get_canonical_media_mentions",

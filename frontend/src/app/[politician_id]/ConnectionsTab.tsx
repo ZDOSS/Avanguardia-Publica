@@ -9,7 +9,8 @@ import {
   type CoVoteConnection,
 } from '@/lib/connections';
 import { isUuid } from '@/lib/ids';
-import { profilePath } from '@/lib/routes';
+import { profilePath, votingComparisonPath } from '@/lib/routes';
+import { formatDate } from './ProfileSpokeStates';
 
 // A connection rendered as a node in the hub-and-spoke mini-graph.
 interface GraphNode {
@@ -34,19 +35,26 @@ function firstName(name: string): string {
 
 /** Pick the strongest connections across all types for the at-a-glance graph. */
 function buildGraphNodes(data: ConnectionsBundle): GraphNode[] {
+  const officialVoting = Boolean(data.federalVotingSummary);
+  const alignedVotes = officialVoting
+    ? [...data.coVotes]
+        .filter((connection) => (connection.aligned_rank ?? Number.POSITIVE_INFINITY) <= 3)
+        .sort((a, b) => (a.aligned_rank ?? 99) - (b.aligned_rank ?? 99))
+    : data.coVotes.filter((connection) => connection.agreement_rate >= 0.5).slice(0, 3);
+  const differingVotes = officialVoting
+    ? [...data.coVotes]
+        .filter((connection) => connection.disagree_count > 0 && (connection.differing_rank ?? Number.POSITIVE_INFINITY) <= 2)
+        .sort((a, b) => (a.differing_rank ?? 99) - (b.differing_rank ?? 99))
+    : data.coVotes.filter((connection) => connection.agreement_rate < 0.5).slice(0, 2);
   const donors: GraphNode[] = data.sharedDonors.slice(0, 3).map((d) => ({
     id: d.politician_id,
     label: firstName(d.full_name),
     weight: d.shared_donor_count,
     kind: 'donor',
   }));
-  const allies: GraphNode[] = data.coVotes
-    .filter((c) => c.agreement_rate >= 0.5)
-    .slice(0, 3)
+  const allies: GraphNode[] = alignedVotes
     .map((c) => ({ id: c.politician_id, label: firstName(c.full_name), weight: c.agree_count, kind: 'ally' }));
-  const opponents: GraphNode[] = data.coVotes
-    .filter((c) => c.agreement_rate < 0.5)
-    .slice(0, 2)
+  const opponents: GraphNode[] = differingVotes
     .map((c) => ({ id: c.politician_id, label: firstName(c.full_name), weight: c.disagree_count, kind: 'opponent' }));
   const ties: GraphNode[] = data.networkTies.slice(0, 2).map((t) => ({
     id: t.related_politician_id,
@@ -120,13 +128,35 @@ function PersonCardLink({ id, children }: { id: string | null; children: React.R
   return <div className="premium-card p-4 bg-[var(--color-official-bg)]">{children}</div>;
 }
 
-function CoVoteCard({ c }: { c: CoVoteConnection }) {
-  const ally = c.agreement_rate >= 0.5;
-  return (
-    <PersonCardLink id={c.politician_id}>
+function CoVoteCard({
+  c,
+  currentPoliticianId,
+  rankKind,
+}: {
+  c: CoVoteConnection;
+  currentPoliticianId: string;
+  rankKind?: 'aligned' | 'differing';
+}) {
+  const official = c.record_origin === 'official';
+  const ally = official
+    ? rankKind !== 'differing'
+    : c.agreement_rate >= 0.5;
+  const content = (
+    <>
       <div className="flex justify-between items-start gap-3">
         <div>
-          <div className="font-bold group-hover:text-[var(--color-official-link)]">{c.full_name}</div>
+          {official && rankKind && (
+            <div className="text-xs font-bold uppercase tracking-widest text-[var(--color-official-text-muted)]">
+              #{rankKind === 'aligned' ? c.aligned_rank : c.differing_rank}{' '}
+              {rankKind === 'aligned' ? 'most aligned' : 'most often differed'}
+            </div>
+          )}
+          <Link
+            href={profilePath(c.politician_id)}
+            className="font-bold hover:text-[var(--color-official-link)] hover:underline"
+          >
+            {c.full_name}
+          </Link>
           <div className="text-xs text-[var(--color-official-text-muted)]">{c.current_office}</div>
         </div>
         <span
@@ -134,14 +164,43 @@ function CoVoteCard({ c }: { c: CoVoteConnection }) {
             ally ? 'text-[var(--color-official-link)]' : 'text-[var(--color-warning-badge)]'
           }`}
         >
-          {Math.round(c.agreement_rate * 100)}% agree
+          {Math.round(c.agreement_rate * 100)}% {official ? 'aligned' : 'agree'}
         </span>
       </div>
       <div className="mt-2 text-xs font-mono text-[var(--color-official-text-muted)]">
-        {c.agree_count} together · {c.disagree_count} opposed · {c.shared_total} shared roll calls
+        {c.agree_count} same · {c.disagree_count} different · {c.shared_total} shared {official ? 'Yea/Nay votes' : 'roll calls'}
       </div>
-    </PersonCardLink>
+      {official && c.chamber && c.congress && (
+        <div className="mt-2 text-xs text-[var(--color-official-text-muted)]">
+          {c.chamber === 'house' ? 'U.S. House' : 'U.S. Senate'} · Congress {c.congress}
+          {c.first_shared_vote_date && c.last_shared_vote_date
+            ? ` · ${formatDate(c.first_shared_vote_date)}–${formatDate(c.last_shared_vote_date)}`
+            : ''}
+        </div>
+      )}
+    </>
   );
+
+  if (official) {
+    return (
+      <article className="premium-card p-4 bg-[var(--color-official-bg)]">
+        {content}
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Link
+            href={votingComparisonPath(currentPoliticianId, c.politician_id)}
+            className="inline-flex min-h-11 items-center rounded-full bg-[var(--color-official-link)] px-4 text-sm font-bold text-white hover:opacity-90"
+          >
+            Inspect shared votes
+          </Link>
+          <span className="text-xs font-bold uppercase tracking-widest text-[var(--color-official-link)]">
+            Official · {c.source_name || 'Federal roll call'}
+          </span>
+        </div>
+      </article>
+    );
+  }
+
+  return <article className="premium-card p-4 bg-[var(--color-official-bg)]">{content}</article>;
 }
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
@@ -178,7 +237,13 @@ function PartialConnectionsNotice({
   );
 }
 
-const EMPTY_BUNDLE: ConnectionsBundle = { sharedDonors: [], coVotes: [], networkTies: [], failures: [] };
+const EMPTY_BUNDLE: ConnectionsBundle = {
+  sharedDonors: [],
+  coVotes: [],
+  federalVotingSummary: null,
+  networkTies: [],
+  failures: [],
+};
 
 export default function ConnectionsTab({ politicianId, politicianName }: { politicianId: string; politicianName: string }) {
   // Mock/non-UUID profiles have no DB row, so the RPCs would error — start them in a
@@ -239,18 +304,34 @@ export default function ConnectionsTab({ politicianId, politicianName }: { polit
   // non-null assertion and is a safe no-op render if it somehow isn't.
   if (!data) return null;
   const bundle = data;
-  const allies = bundle.coVotes.filter((c) => c.agreement_rate >= 0.5).sort((a, b) => b.agree_count - a.agree_count);
-  const opponents = bundle.coVotes.filter((c) => c.agreement_rate < 0.5).sort((a, b) => b.disagree_count - a.disagree_count);
+  const officialVoting = Boolean(bundle.federalVotingSummary);
+  const allies = officialVoting
+    ? [...bundle.coVotes]
+        .filter((connection) => (connection.aligned_rank ?? Number.POSITIVE_INFINITY) <= 6)
+        .sort((a, b) => (a.aligned_rank ?? 99) - (b.aligned_rank ?? 99))
+    : bundle.coVotes
+        .filter((connection) => connection.agreement_rate >= 0.5)
+        .sort((a, b) => b.agree_count - a.agree_count);
+  const opponents = officialVoting
+    ? [...bundle.coVotes]
+        .filter((connection) => connection.disagree_count > 0 && (connection.differing_rank ?? Number.POSITIVE_INFINITY) <= 6)
+        .sort((a, b) => (a.differing_rank ?? 99) - (b.differing_rank ?? 99))
+    : bundle.coVotes
+        .filter((connection) => connection.agreement_rate < 0.5)
+        .sort((a, b) => b.disagree_count - a.disagree_count);
   const graphNodes = buildGraphNodes(bundle);
-  const isEmpty = !bundle.sharedDonors.length && !bundle.coVotes.length && !bundle.networkTies.length;
+  const isEmpty = !bundle.sharedDonors.length
+    && !bundle.coVotes.length
+    && !bundle.federalVotingSummary
+    && !bundle.networkTies.length;
 
   if (isEmpty) {
     return (
       <div className="space-y-4">
         <PartialConnectionsNotice failures={bundle.failures} onRetry={retry} />
         <div className="p-8 premium-card text-center text-[var(--color-official-text-muted)]">
-          No cross-referenced connections found yet. Co-voting connections appear once roll-call data has been
-          re-ingested with stable roll-call ids; shared-donor links require overlapping FEC donors.
+          No cross-referenced connections found yet. Voting comparisons require shared roll calls;
+          shared-donor links require overlapping FEC donors.
         </div>
       </div>
     );
@@ -266,8 +347,8 @@ export default function ConnectionsTab({ politicianId, politicianName }: { polit
           <SectionHeading>Connection Map</SectionHeading>
           <MiniGraph center={politicianName} nodes={graphNodes} />
           <div className="flex flex-wrap gap-4 justify-center mt-2 text-xs text-[var(--color-official-text-muted)]">
-            <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded-full inline-block" style={{ background: 'var(--color-official-link)' }} /> Shared donors / voting allies</span>
-            <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded-full inline-block" style={{ background: 'var(--color-warning-badge)' }} /> Opponents / network ties</span>
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded-full inline-block" style={{ background: 'var(--color-official-link)' }} /> Shared donors / voting alignment</span>
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded-full inline-block" style={{ background: 'var(--color-warning-badge)' }} /> Voting differences / network ties</span>
           </div>
         </div>
       )}
@@ -293,14 +374,41 @@ export default function ConnectionsTab({ politicianId, politicianName }: { polit
         </section>
       )}
 
-      {/* Co-voting (verified) */}
-      {(allies.length > 0 || opponents.length > 0) && (
+      {/* Official federal alignment, or a clearly separate legacy state/historical fallback. */}
+      {(bundle.federalVotingSummary || allies.length > 0 || opponents.length > 0) && (
         <section>
-          <SectionHeading>Voting Allies &amp; Opponents</SectionHeading>
-          <div className="grid gap-4 md:grid-cols-2">
-            {allies.slice(0, 6).map((c) => <CoVoteCard key={c.politician_id} c={c} />)}
-            {opponents.slice(0, 6).map((c) => <CoVoteCard key={c.politician_id} c={c} />)}
-          </div>
+          <SectionHeading>
+            {officialVoting ? 'Official Federal Voting Alignment' : 'State & Historical Co-voting'}
+          </SectionHeading>
+          <p className="mb-4 max-w-3xl text-sm text-[var(--color-official-text-muted)]">
+            {officialVoting
+              ? `Exact shared Yea/Nay votes from ${bundle.federalVotingSummary?.chamber === 'house' ? 'the U.S. House' : 'the U.S. Senate'}, Congress ${bundle.federalVotingSummary?.congress}. Present and Not Voting are excluded from alignment.`
+              : 'This compatibility view uses retained state and historical vote feeds. It is not blended into the official federal alignment metric.'}
+          </p>
+          {allies.length === 0 && opponents.length === 0 ? (
+            <div className="premium-card p-6 text-center text-[var(--color-official-text-muted)]">
+              No peers meet the minimum shared-vote sample in the current official window.
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              {allies.slice(0, 6).map((c) => (
+                <CoVoteCard
+                  key={`aligned-${c.politician_id}`}
+                  c={c}
+                  currentPoliticianId={politicianId}
+                  rankKind="aligned"
+                />
+              ))}
+              {opponents.slice(0, 6).map((c) => (
+                <CoVoteCard
+                  key={`differing-${c.politician_id}`}
+                  c={c}
+                  currentPoliticianId={politicianId}
+                  rankKind="differing"
+                />
+              ))}
+            </div>
+          )}
         </section>
       )}
 

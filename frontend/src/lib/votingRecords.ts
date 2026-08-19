@@ -249,7 +249,7 @@ function optionalText(value: unknown): string | null {
   return trimmed || null;
 }
 
-function normalizeLegislativeMeasures(value: unknown): LegislativeMeasure[] {
+export function normalizeLegislativeMeasures(value: unknown): LegislativeMeasure[] {
   if (!Array.isArray(value)) return [];
 
   const measures: LegislativeMeasure[] = [];

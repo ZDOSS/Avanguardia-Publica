@@ -12,6 +12,9 @@ const CANONICAL_POLITICIAN_RPC_NAMES = [
   'get_canonical_voting_records',
   'get_canonical_voting_records_v2',
   'get_canonical_voting_records_v3',
+  'get_canonical_federal_voting_summary_v1',
+  'get_canonical_federal_voting_alignment_v1',
+  'get_canonical_federal_voting_comparison_v1',
   'get_canonical_media_mentions',
   'get_canonical_person_office_terms',
 ];

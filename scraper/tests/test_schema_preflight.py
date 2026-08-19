@@ -87,13 +87,13 @@ class FakeLoader:
 
 
 class SchemaPreflightTests(unittest.TestCase):
-    def test_preflight_requires_the_congress_gov_measure_read_surface_migration(self):
+    def test_preflight_requires_the_federal_voting_analytics_migration(self):
         self.assertEqual(
-            "0037_congress_gov_measure_read_surface",
+            "0038_canonical_federal_voting_analytics",
             REQUIRED_MIGRATION_KEY,
         )
         self.assertEqual(
-            "0037_congress_gov_measure_read_surface.sql",
+            "0038_canonical_federal_voting_analytics.sql",
             REQUIRED_MIGRATION_FILE,
         )
 
@@ -220,6 +220,9 @@ class SchemaPreflightTests(unittest.TestCase):
             "get_canonical_voting_records",
             "get_canonical_voting_records_v2",
             "get_canonical_voting_records_v3",
+            "get_canonical_federal_voting_summary_v1",
+            "get_canonical_federal_voting_alignment_v1",
+            "get_canonical_federal_voting_comparison_v1",
             "get_canonical_media_mentions",
             "get_canonical_person_office_terms",
         ):
@@ -259,7 +262,7 @@ class SchemaPreflightTests(unittest.TestCase):
 
     def test_predecessor_marker_cannot_satisfy_the_current_preflight(self):
         client = FakeSupabase(
-            migration_markers={"0036_congress_gov_scheduled_enablement"}
+            migration_markers={"0037_congress_gov_measure_read_surface"}
         )
         loader = FakeLoader(client)
 

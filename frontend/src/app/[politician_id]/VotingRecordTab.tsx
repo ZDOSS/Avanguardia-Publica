@@ -9,6 +9,7 @@ import {
   type VotingRecord,
 } from '@/lib/votingRecords';
 import { EmptyState, formatDate, LoadingBlock, LoadError, PaginationControls, SectionHeading } from './ProfileSpokeStates';
+import VotingAnalyticsPanel from './VotingAnalyticsPanel';
 
 const VOTE_FILTERS = ['', 'Yea', 'Nay', 'Present', 'Not Voting'];
 
@@ -42,7 +43,22 @@ function measureLabel(measure: LegislativeMeasure): string {
   return `${MEASURE_TYPE_LABELS[measure.measure_type]} ${measure.measure_number}`;
 }
 
-export default function VotingRecordTab({ politicianId }: { politicianId: string }) {
+export default function VotingRecordTab({
+  politicianId,
+  politicianName,
+}: {
+  politicianId: string;
+  politicianName: string;
+}) {
+  return (
+    <div className="space-y-10">
+      <VotingAnalyticsPanel politicianId={politicianId} politicianName={politicianName} />
+      <VotingRecordsList politicianId={politicianId} />
+    </div>
+  );
+}
+
+function VotingRecordsList({ politicianId }: { politicianId: string }) {
   const [page, setPage] = useState(0);
   const [voteCast, setVoteCast] = useState('');
   const [result, setResult] = useState<PageResult<VotingRecord> | null>(null);
@@ -112,9 +128,11 @@ export default function VotingRecordTab({ politicianId }: { politicianId: string
   const latest = current.rows[0]?.vote_date;
 
   return (
-    <div className="space-y-4">
+    <section className="space-y-4" aria-labelledby="voting-record-heading">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <SectionHeading title="Voting Record" meta={latest ? `Latest vote ${formatDate(latest)}` : undefined} />
+        <div id="voting-record-heading">
+          <SectionHeading title="Voting Record" meta={latest ? `Latest vote ${formatDate(latest)}` : undefined} />
+        </div>
         <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[var(--color-official-text-muted)]">
           Vote
           <select
@@ -245,6 +263,6 @@ export default function VotingRecordTab({ politicianId }: { politicianId: string
           <PaginationControls result={current} onPage={goToPage} />
         </>
       )}
-    </div>
+    </section>
   );
 }

@@ -169,7 +169,7 @@ When contributing to this project, you must adhere strictly to these rules:
 ## 🚀 Next Steps & Outstanding Work
 - The active remaining roadmap is `docs/canonical_data_and_analytics_plan.md`. Phases 1 and
   2 are implemented and the scraper identity resolver in Phase 3 is complete. Applied migrations
-  `0022` through `0037` establish deterministic identity, atomic source-profile writes,
+  `0022` through `0038` establish deterministic identity, atomic source-profile writes,
   provenance, person office terms, and private normalized House and Senate roll-call facts.
   Both official vote paths remain bounded, identifier-only, and
   isolated from legacy `voting_records`; the versioned `0031` read RPC combines presentation-safe
@@ -182,7 +182,9 @@ When contributing to this project, you must adhere strictly to these rules:
   JSON, legacy vote writes, or a public read path. `0036` records the successful manual canary
   and private audit before the reviewed workflow enabled that same bounded path for schedules.
   `0037` adds a narrow measure-aware public voting-record RPC without opening those private
-  tables or changing the v2 vote contract; it is applied and live-validated.
+  tables or changing the v2 vote contract. `0038` adds bounded official participation summaries,
+  canonical same-scope alignment rankings, and inspectable pairwise evidence while keeping
+  state/historical legacy votes separate; both migrations are applied and live-validated.
 - Monitor and resolve quarantined identity candidates instead of weakening the pre-write
   boundary. A person can have federal, state, and local roles over time; those roles must
   not become separate canonical people or be flattened into one office field.
@@ -207,7 +209,10 @@ When contributing to this project, you must adhere strictly to these rules:
   run confirmed that the legacy person-filtered GovTrack crawl had zero attempts or failures while
   the official House, Senate, and Congress.gov paths stayed healthy. Migration `0037` is now
   applied: v3/v2 base-row equivalence, all 43 exact measure links across 40 roll calls, browser
-  ACLs, pagination, and representative House/Senate profiles were validated live. The scraper
+  ACLs, pagination, and representative House/Senate profiles were validated live. Migration
+  `0038` is also applied: anonymous-role House/Senate summary, alignment, and pair-evidence
+  reconciliations passed with zero ACL or contract violations, and scraper preflight now requires
+  the complete analytics surface. The scraper
   cron is intentionally paused during active development. Use only the manual workflow, keep the
   state LittleSis fields blank and GovTrack profile mode disabled for routine runs, explicitly
   enable the reviewed House/Senate/Congress.gov modes when refreshing those facts, and never
