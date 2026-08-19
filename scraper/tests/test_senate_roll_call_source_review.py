@@ -172,7 +172,7 @@ class SenateRollCallSourceReviewTests(unittest.TestCase):
 
     def test_public_docs_record_the_bounded_approval_and_next_gate(self):
         self.assertIn(
-            "Senate roll-call XML (approved; database-gated, bounded scheduled writes)",
+            "Senate roll-call XML (approved; database-gated, bounded manual writes)",
             self.policy,
         )
         self.assertIn("4,996 exact LIS matches", self.policy)

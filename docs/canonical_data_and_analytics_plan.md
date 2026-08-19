@@ -703,15 +703,21 @@ requests and 25 writes, the Senate shadow completed 77 of 77 requests and 25 wri
 Congress.gov path completed 18 of 18 details plus one healthy atomic write. The run reported no
 errors, so the profile-crawl retirement observation gate is complete.
 
-The current presentation slice adds migration
-`0037_congress_gov_measure_read_surface.sql` and client integration. The v3 RPC wraps the
+The presentation slice added and applied migration
+`0037_congress_gov_measure_read_surface.sql` plus its client integration. The v3 RPC wraps the
 unchanged v2 vote contract, aggregates exact measure links without duplicating vote rows, and
-returns only bounded presentation-safe facts. The live client falls back to v2 only while 0037
-is not yet installed, while scraper preflight advances to the 0037 marker so deployment drift
-cannot remain silent. After merge, apply 0037 before the next scheduled scraper and validate the
-v3/v2 base-row equivalence, exact measure arrays, browser ACLs, pagination, and representative
-House and Senate profiles. This slice adds no source request, credential, writer, or legacy vote
-mutation.
+returns only bounded presentation-safe facts. Live validation confirmed v3/v2 base-row
+equivalence, all 43 exact measure links across 40 roll calls, closed private-table ACLs, browser
+access, pagination, and representative House and Senate profiles. Scraper preflight now requires
+the 0037 marker, so deployment drift cannot remain silent. This slice added no source request,
+credential, writer, or legacy vote mutation.
+
+During active site development the cron trigger is intentionally paused. The ETL is dispatched
+manually, remains serialized, and keeps every write-mode input disabled by default. Routine full
+refreshes explicitly enable only the reviewed House, Senate, and Congress.gov paths, keep the
+legacy person-filtered GovTrack crawl disabled, and leave state LittleSis enrichment blank. Allow
+at least one hour between full runs and ordinarily no more than three per UTC day while the
+OpenStates key is active; restore a schedule only through a separately reviewed change.
 
 Broader candidate triage, including the FCC/GSA context pair seeded by `0024`, stays separate
 from this vote slice; historical identity-review queue cleanup is deferred to Phase 6. Do not

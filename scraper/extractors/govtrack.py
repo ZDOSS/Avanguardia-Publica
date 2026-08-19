@@ -3,10 +3,10 @@ govtrack.py
 
 Legacy voting-record enrichment from the free GovTrack API (no key required), joined by
 the GovTrack person ID carried in politicians.external_ids["govtrack"] (from the
-congress-legislators crosswalk) — no fuzzy name matching. The default and scheduled
-pipeline leave this expensive person-filtered compatibility path disabled now that
-bounded official House Clerk and Senate LIS facts serve current federal votes. An
-explicit manual diagnostic opt-in can still call it without deleting retained history.
+congress-legislators crosswalk) — no fuzzy name matching. The pipeline leaves this
+expensive person-filtered compatibility path disabled by default now that bounded
+official House Clerk and Senate LIS facts serve current federal votes. An explicit
+manual diagnostic opt-in can still call it without deleting retained history.
 
 This legacy VERIFIED spoke lands in voting_records when explicitly enabled.
 

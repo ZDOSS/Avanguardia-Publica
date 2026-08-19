@@ -1,9 +1,6 @@
-name: Nightly ETL Scraper
+name: Manual ETL Scraper
 
 on:
-  schedule:
-    # Run every day at 1:00 AM UTC
-    - cron: '0 1 * * *'
   workflow_dispatch:
     inputs:
       state_unverified_enrichment_limit:
@@ -51,6 +48,7 @@ permissions:
   contents: read
 
 concurrency:
+  # Retain the existing group so a dispatch cannot overlap an older in-flight run.
   group: nightly-etl
   cancel-in-progress: false
 
@@ -94,21 +92,14 @@ jobs:
           # Bounded state LittleSis enrichment (unverified; optional)
           STATE_UNVERIFIED_ENRICHMENT_LIMIT: ${{ github.event.inputs.state_unverified_enrichment_limit || vars.STATE_UNVERIFIED_ENRICHMENT_LIMIT }}
           STATE_UNVERIFIED_ENRICHMENT_OFFSET: ${{ github.event.inputs.state_unverified_enrichment_offset || vars.STATE_UNVERIFIED_ENRICHMENT_OFFSET }}
-          # The reviewed nightly schedule writes the same bounded snapshot after the
-          # successful production canary. Manual dispatches keep an explicit choice;
-          # any other event fails closed.
-          HOUSE_ROLL_CALL_WRITE_MODE: ${{ github.event_name == 'schedule' && 'enabled' || github.event_name == 'workflow_dispatch' && inputs.house_roll_call_write_mode || 'disabled' }}
-          # The reviewed nightly schedule writes the same bounded Senate snapshot
-          # after its successful canary and audit. Manual dispatches keep an explicit
-          # choice; any other event fails closed.
-          SENATE_ROLL_CALL_WRITE_MODE: ${{ github.event_name == 'schedule' && 'enabled' || github.event_name == 'workflow_dispatch' && inputs.senate_roll_call_write_mode || 'disabled' }}
-          # The reviewed nightly schedule writes the same bounded private metadata
-          # batch after its successful canary and audit. Manual dispatches retain an
-          # explicit choice; any other event fails closed.
-          CONGRESS_GOV_METADATA_WRITE_MODE: ${{ github.event_name == 'schedule' && 'enabled' || github.event_name == 'workflow_dispatch' && inputs.congress_gov_metadata_write_mode || 'disabled' }}
+          # Every manual dispatch requires an explicit bounded-write choice. The
+          # checked-in default and any unexpected event both fail closed.
+          HOUSE_ROLL_CALL_WRITE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.house_roll_call_write_mode || 'disabled' }}
+          SENATE_ROLL_CALL_WRITE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.senate_roll_call_write_mode || 'disabled' }}
+          CONGRESS_GOV_METADATA_WRITE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.congress_gov_metadata_write_mode || 'disabled' }}
           # Current federal profile votes come from the official House/Senate paths.
-          # The unreliable person-filtered GovTrack compatibility crawl never runs on
-          # schedules and requires an explicit manual diagnostic choice.
+          # The unreliable person-filtered GovTrack compatibility crawl remains
+          # disabled by default and requires an explicit manual diagnostic choice.
           GOVTRACK_PROFILE_ENRICHMENT_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.govtrack_profile_enrichment_mode || 'disabled' }}
           # News API keys — all optional; aggregator falls back gracefully if absent
           CURRENTS_API_KEY: ${{ secrets.CURRENTS_API_KEY }}
